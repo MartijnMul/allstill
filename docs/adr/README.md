@@ -32,3 +32,4 @@ What becomes easier, what becomes harder, and what we now have to look after.
 ## Records
 
 - [0001. Stack and architecture](0001-stack-and-architecture.md): Accepted, 2026-10-20
+- [0002. AGPL for Allstill, Apache-2.0 for its API, with a contributor licence agreement](0002-licence-and-contributor-agreement.md): Accepted, 2026-10-21; decides the licence left open in 0001

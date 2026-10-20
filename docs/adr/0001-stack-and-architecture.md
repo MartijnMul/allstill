@@ -1,6 +1,6 @@
 # 0001. Stack and architecture
 
-- Status: Accepted
+- Status: Accepted; licence decided by [0002](0002-licence-and-contributor-agreement.md)
 - Date: 2026-10-20
 
 ## Context

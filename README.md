@@ -19,4 +19,6 @@ One Go binary and one SQLite file. No database server, no cloud account. The sam
 
 ## Licence
 
-Allstill is meant to be open source under the GNU Affero General Public License. The licence is not in place yet.
+Allstill is open source under the [GNU Affero General Public License, version 3](LICENSE). The API description and the client libraries generated from it are under the Apache License 2.0, so you can build on the API freely. Contributions are welcome after signing the [contributor licence agreement](CLA.md) once; [ADR 0002](docs/adr/0002-licence-and-contributor-agreement.md) explains why.
+
+The name Allstill belongs to Martijn Mullié. Forks are welcome under another name.

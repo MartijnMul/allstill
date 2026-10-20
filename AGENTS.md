@@ -19,7 +19,10 @@ This repository is private now and will be published as open source. Git history
 - **Identity**: commits use the GitHub noreply address and are signed.
 - **English** for everything public: code, comments, commits, docs.
 - Anything specific to one person's setup stays behind configuration, so Allstill works for anyone.
-- Dependencies need a licence compatible with the AGPL. Check before adding one.
+- Licences ([ADR 0002](docs/adr/0002-licence-and-contributor-agreement.md)): everything is `AGPL-3.0-only` except the API description and generated clients, which are `Apache-2.0` with their own `LICENSE` in their directory. Every source file starts with its `SPDX-License-Identifier`. `LICENSE` holds the AGPL text unchanged.
+- Dependencies need a licence compatible with the part they are used in. Check before adding one.
+- Contributions from others are merged only after they have signed the [CLA](CLA.md).
+- Every page the server serves links to the source of the running version (AGPL section 13); keep that on any new layout.
 
 ## Private notes
 
