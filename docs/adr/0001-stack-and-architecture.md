@@ -52,7 +52,7 @@ The core (checks, pings, rules, calendars, incidents, alerting) has no HTTP code
 ### Pings and checks
 
 - The ping endpoints follow Healthchecks: `/ping/{uuid}`, `/start`, `/fail`, `/{exit-code}`, `/log`, `?rid=` to pair start and finish, and slug pings per project with `?create=1`. The body is stored as the run's log, up to a size limit.
-- A ping may carry values (`?v.size=4.2GB`, or a JSON body); rules on a check judge values, run time and counts.
+- A ping may carry values (`?v=size:18400000000`, or an `Allstill-Values` header); rules on a check judge values, run time and counts. The exact form is in the [API description](../../api/README.md).
 - Check UUIDs are version 4: the ping URL is the secret, and it can only ping.
 - Ping ingest can be served on its own host name or path. Cookies are never sent to it.
 - `allstill run -- cmd` reports start, exit code, run time and the tail of the output. It passes signals through, never changes the job's exit code, and gives up on Allstill after a short timeout, so an unreachable server never blocks a job. During a move from Healthchecks it can report to both.

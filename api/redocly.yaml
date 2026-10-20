@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+extends:
+  - recommended
+rules:
+  # StreamEvent describes the data of each Server-Sent Event in /events.
+  # OpenAPI 3.1 cannot attach a schema to the items of an event stream, so no
+  # path refers to it; clients decode each event's data with it.
+  no-unused-components: off

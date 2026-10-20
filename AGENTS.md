@@ -6,7 +6,12 @@ Orientation and rules for AI coding assistants in this repository, and for anyon
 
 **Allstill**: a self-hosted dead man's switch and check service that replaces Healthchecks.io and does more (values with rules, HTTP checks, calendars, incidents, calm alerts), with a native macOS menu bar app. See `README.md` for the goal and [ADR 0001](docs/adr/0001-stack-and-architecture.md) for the stack and architecture.
 
-**Current status: design.** There is no code yet. Read ADR 0001 before writing any, and don't add a dependency or an external service it doesn't allow without a new ADR.
+**Current status: design.** There is no code yet. Read ADR 0001 before writing any, and don't add a dependency or an external service it doesn't allow without a new ADR. The API is described in [`api/openapi.yaml`](api/openapi.yaml); its conventions and change rules are in [`api/README.md`](api/README.md).
+
+## Working on the code
+
+- `make help` lists the commands. `make api-lint` lints the API description; run it before committing a change to it.
+- The OpenAPI document is the source of truth for the JSON API. Change it first, then the code generated from it. Within `/api/v1`, changes are additive only.
 
 ## Written to be public
 

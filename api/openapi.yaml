@@ -1,0 +1,1683 @@
+# SPDX-License-Identifier: Apache-2.0
+openapi: 3.1.1
+info:
+  title: Allstill API
+  version: 0.1.0
+  summary: Pings from jobs, and the status of checks, runs and incidents.
+  description: |
+    Two surfaces in one document.
+
+    **Pings** (tag `Ping`) are what jobs send. They follow Healthchecks.io, so a job
+    moves over by changing the base URL. A check's ping URL is its credential: it
+    can only ping that check. Ping endpoints answer in plain text and never need
+    a token.
+
+    **The JSON API** (all other tags) is served under `/api/v1` and needs a bearer
+    token: an API key of a project, or an OAuth access token of a person signed in
+    through the menu bar app or the CLI. What a token may do is its scope (`read`,
+    `manage`) combined with the caller's role in each project (viewer, editor,
+    owner). A request never returns data from a project the caller is not in.
+
+    Conventions: JSON field names are `snake_case`; times are RFC 3339 in UTC;
+    durations are whole seconds; identifiers are opaque strings; a field without a
+    value is left out rather than sent as `null`; errors are Problem Details
+    (RFC 9457); lists are paged with an opaque cursor.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+
+servers:
+  - url: https://{host}/api/v1
+    description: The JSON API of an installation
+    variables:
+      host:
+        default: allstill.example.com
+        description: The host name of your installation.
+
+tags:
+  - name: Ping
+    description: Sent by jobs. Compatible with Healthchecks.io.
+  - name: Account
+    description: Who is asking.
+  - name: Status
+    description: One snapshot of everything the caller can see.
+  - name: Projects
+    description: The unit of access; each has members, keys and alert routing.
+  - name: Checks
+    description: What is watched, and how it is judged.
+  - name: Runs
+    description: One run of a job, from start to end, with its values and log.
+  - name: Incidents
+    description: One problem per cause, with the checks it touches.
+  - name: Calendars
+    description: When checks count, and when they stay quiet.
+  - name: Events
+    description: A live stream of changes.
+
+security:
+  - bearer: [read]
+
+paths:
+
+  # Pings. Every GET also answers HEAD. The query parameters and responses are
+  # shared through YAML anchors, defined on the first operation.
+
+  /ping/{check_uuid}:
+    servers: &ping-servers
+      - url: https://{host}
+        description: Ping ingest; may be the same host as the API
+        variables:
+          host:
+            default: ping.example.com
+            description: The host name your installation receives pings on.
+    parameters:
+      - $ref: '#/components/parameters/CheckUuid'
+    get:
+      tags: [Ping]
+      operationId: pingSuccess
+      summary: Report that the job ran and succeeded
+      security: []
+      parameters: &ping-query
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/Values'
+        - $ref: '#/components/parameters/ValuesHeader'
+      responses: &ping-responses
+        '200': {$ref: '#/components/responses/PingOk'}
+        '400': {$ref: '#/components/responses/PingBadRequest'}
+        '404': {$ref: '#/components/responses/PingNotFound'}
+        '429': {$ref: '#/components/responses/PingRateLimited'}
+    post:
+      tags: [Ping]
+      operationId: pingSuccessWithBody
+      summary: Report that the job ran and succeeded, with output
+      security: []
+      parameters: *ping-query
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses
+
+  /ping/{check_uuid}/start:
+    servers: *ping-servers
+    parameters:
+      - $ref: '#/components/parameters/CheckUuid'
+    get:
+      tags: [Ping]
+      operationId: pingStart
+      summary: Report that the job started
+      description: |
+        Starts a run. The next success, failure or exit status with the same `rid`
+        (or, without one, the next of them) finishes it and records the run time.
+        A run that is not finished within the check's grace period after its
+        expected end is a failure.
+      security: []
+      parameters: *ping-query
+      responses: *ping-responses
+    post:
+      tags: [Ping]
+      operationId: pingStartWithBody
+      summary: Report that the job started, with output
+      description: |
+        Starts a run. The next success, failure or exit status with the same `rid`
+        (or, without one, the next of them) finishes it and records the run time.
+        A run that is not finished within the check's grace period after its
+        expected end is a failure.
+      security: []
+      parameters: *ping-query
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses
+
+  /ping/{check_uuid}/fail:
+    servers: *ping-servers
+    parameters:
+      - $ref: '#/components/parameters/CheckUuid'
+    get:
+      tags: [Ping]
+      operationId: pingFail
+      summary: Report that the job failed
+      security: []
+      parameters: *ping-query
+      responses: *ping-responses
+    post:
+      tags: [Ping]
+      operationId: pingFailWithBody
+      summary: Report that the job failed, with output
+      security: []
+      parameters: *ping-query
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses
+
+  /ping/{check_uuid}/log:
+    servers: *ping-servers
+    parameters:
+      - $ref: '#/components/parameters/CheckUuid'
+    get:
+      tags: [Ping]
+      operationId: pingLog
+      summary: Add to the log without changing the check's state
+      security: []
+      parameters: *ping-query
+      responses: *ping-responses
+    post:
+      tags: [Ping]
+      operationId: pingLogWithBody
+      summary: Add to the log without changing the check's state, with output
+      security: []
+      parameters: *ping-query
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses
+
+  # One path, two meanings: OpenAPI does not allow two paths that differ only in
+  # their parameter names.
+
+  /ping/{key}/{exit_status_or_slug}:
+    servers: *ping-servers
+    parameters:
+      - name: key
+        in: path
+        required: true
+        description: |
+          A check UUID, or a project's ping key. The server tells them apart by
+          their form: a UUID has hyphens in the UUID positions, a ping key never does.
+        schema:
+          type: string
+          minLength: 22
+          maxLength: 36
+      - name: exit_status_or_slug
+        in: path
+        required: true
+        description: |
+          After a check UUID: the job's exit status, `0` for success and `1` to `255`
+          for failure. After a ping key: the slug of a check in that project, and
+          the ping reports success.
+        schema:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,99}$'
+    get:
+      tags: [Ping]
+      operationId: pingExitStatusOrSlug
+      summary: Report an exit status by UUID, or success by slug
+      security: []
+      parameters: &ping-query-slug
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/Values'
+        - $ref: '#/components/parameters/ValuesHeader'
+        - $ref: '#/components/parameters/Create'
+      responses: &ping-responses-slug
+        '200': {$ref: '#/components/responses/PingOk'}
+        '201': {$ref: '#/components/responses/PingCreated'}
+        '400': {$ref: '#/components/responses/PingBadRequest'}
+        '404': {$ref: '#/components/responses/PingNotFound'}
+        '409': {$ref: '#/components/responses/PingConflict'}
+        '429': {$ref: '#/components/responses/PingRateLimited'}
+    post:
+      tags: [Ping]
+      operationId: pingExitStatusOrSlugWithBody
+      summary: Report an exit status by UUID, or success by slug, with output
+      security: []
+      parameters: *ping-query-slug
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses-slug
+
+  # Pings by project ping key and check slug
+
+  /ping/{ping_key}/{slug}/start:
+    servers: *ping-servers
+    parameters:
+      - $ref: '#/components/parameters/PingKey'
+      - $ref: '#/components/parameters/Slug'
+    get:
+      tags: [Ping]
+      operationId: pingSlugStart
+      summary: Report that the job started, by slug
+      security: []
+      parameters: *ping-query-slug
+      responses: *ping-responses-slug
+    post:
+      tags: [Ping]
+      operationId: pingSlugStartWithBody
+      summary: Report that the job started, by slug, with output
+      security: []
+      parameters: *ping-query-slug
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses-slug
+
+  /ping/{ping_key}/{slug}/fail:
+    servers: *ping-servers
+    parameters:
+      - $ref: '#/components/parameters/PingKey'
+      - $ref: '#/components/parameters/Slug'
+    get:
+      tags: [Ping]
+      operationId: pingSlugFail
+      summary: Report that the job failed, by slug
+      security: []
+      parameters: *ping-query-slug
+      responses: *ping-responses-slug
+    post:
+      tags: [Ping]
+      operationId: pingSlugFailWithBody
+      summary: Report that the job failed, by slug, with output
+      security: []
+      parameters: *ping-query-slug
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses-slug
+
+  /ping/{ping_key}/{slug}/log:
+    servers: *ping-servers
+    parameters:
+      - $ref: '#/components/parameters/PingKey'
+      - $ref: '#/components/parameters/Slug'
+    get:
+      tags: [Ping]
+      operationId: pingSlugLog
+      summary: Add to the log by slug, without changing the check's state
+      security: []
+      parameters: *ping-query-slug
+      responses: *ping-responses-slug
+    post:
+      tags: [Ping]
+      operationId: pingSlugLogWithBody
+      summary: Add to the log by slug, without changing the check's state, with output
+      security: []
+      parameters: *ping-query-slug
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses-slug
+
+  /ping/{ping_key}/{slug}/{exit_status}:
+    servers: *ping-servers
+    parameters:
+      - $ref: '#/components/parameters/PingKey'
+      - $ref: '#/components/parameters/Slug'
+      - $ref: '#/components/parameters/ExitStatus'
+    get:
+      tags: [Ping]
+      operationId: pingSlugExitStatus
+      summary: Report the job's exit status, by slug
+      security: []
+      parameters: *ping-query-slug
+      responses: *ping-responses-slug
+    post:
+      tags: [Ping]
+      operationId: pingSlugExitStatusWithBody
+      summary: Report the job's exit status, by slug, with output
+      security: []
+      parameters: *ping-query-slug
+      requestBody:
+        $ref: '#/components/requestBodies/PingBody'
+      responses: *ping-responses-slug
+
+  # The JSON API
+
+  /me:
+    get:
+      tags: [Account]
+      operationId: getMe
+      summary: The signed-in person, or the API key, and the projects it can see
+      responses:
+        '200':
+          description: Who is asking, and with which role in which project.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Me'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /status:
+    get:
+      tags: [Status]
+      operationId: getStatus
+      summary: Everything the caller can see, in one snapshot
+      description: |
+        The menu bar app and agent sessions read this first, then follow `/events`.
+        Counts, the worst state per project, open incidents and the runs expected
+        soon. `event_id` is the position in the event stream this snapshot matches.
+      responses:
+        '200':
+          description: The current status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Status'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: The projects the caller can see
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of projects.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /projects/{project_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: One project
+      responses:
+        '200':
+          description: The project.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Project'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /projects/{project_id}/checks:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Checks]
+      operationId: listChecks
+      summary: The checks of a project
+      parameters:
+        - name: state
+          in: query
+          description: Only checks in one of these states.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/CheckState'}
+        - name: tag
+          in: query
+          description: Only checks with all of these tags.
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: {type: string}
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of checks.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CheckPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    post:
+      tags: [Checks]
+      operationId: createCheck
+      summary: Create a check
+      description: Needs the `manage` scope and the editor role in the project.
+      security:
+        - bearer: [manage]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CheckInput'}
+      responses:
+        '201':
+          description: The check, with its ping URL.
+          headers:
+            Location:
+              description: The URL of the new check.
+              schema: {type: string, format: uri}
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Check'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+
+  /checks/{check_id}:
+    parameters:
+      - $ref: '#/components/parameters/CheckId'
+    get:
+      tags: [Checks]
+      operationId: getCheck
+      summary: One check
+      responses:
+        '200':
+          description: The check. `ping_url` is included only for the `manage` scope.
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Check'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Checks]
+      operationId: updateCheck
+      summary: Change a check
+      description: |
+        A JSON Merge Patch (RFC 7396) of the check's settings. Send `If-Match` with
+        the ETag you read to avoid overwriting someone else's change. Needs the
+        `manage` scope and the editor role.
+      security:
+        - bearer: [manage]
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: {$ref: '#/components/schemas/CheckPatch'}
+      responses:
+        '200':
+          description: The changed check.
+          headers:
+            ETag: {$ref: '#/components/headers/ETag'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Check'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '412': {$ref: '#/components/responses/PreconditionFailed'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+    delete:
+      tags: [Checks]
+      operationId: deleteCheck
+      summary: Delete a check with its runs
+      description: Needs the `manage` scope and the editor role.
+      security:
+        - bearer: [manage]
+      responses:
+        '204':
+          description: Deleted.
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /checks/{check_id}/pause:
+    parameters:
+      - $ref: '#/components/parameters/CheckId'
+    post:
+      tags: [Checks]
+      operationId: pauseCheck
+      summary: Pause a check until it is resumed or pinged
+      description: Needs the `manage` scope and the editor role.
+      security:
+        - bearer: [manage]
+      responses:
+        '200':
+          description: The paused check.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Check'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /checks/{check_id}/resume:
+    parameters:
+      - $ref: '#/components/parameters/CheckId'
+    post:
+      tags: [Checks]
+      operationId: resumeCheck
+      summary: Resume a paused check
+      description: Needs the `manage` scope and the editor role.
+      security:
+        - bearer: [manage]
+      responses:
+        '200':
+          description: The resumed check.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Check'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /checks/{check_id}/ping-url:
+    parameters:
+      - $ref: '#/components/parameters/CheckId'
+    post:
+      tags: [Checks]
+      operationId: rotatePingUrl
+      summary: Replace the check's ping URL
+      description: |
+        The old URL stops working at once. Needs the `manage` scope and the editor
+        role.
+      security:
+        - bearer: [manage]
+      responses:
+        '200':
+          description: The check with its new ping URL.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Check'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /checks/{check_id}/runs:
+    parameters:
+      - $ref: '#/components/parameters/CheckId'
+    get:
+      tags: [Runs]
+      operationId: listRuns
+      summary: The runs of a check, newest first
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of runs.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RunPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /runs/{run_id}:
+    parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Id'}
+    get:
+      tags: [Runs]
+      operationId: getRun
+      summary: One run, with its log
+      responses:
+        '200':
+          description: The run.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/RunDetail'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /incidents:
+    get:
+      tags: [Incidents]
+      operationId: listIncidents
+      summary: Incidents the caller can see, newest first
+      parameters:
+        - name: state
+          in: query
+          description: Only incidents in one of these states. Default `open,acknowledged`.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/IncidentState'}
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of incidents.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/IncidentPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /incidents/{incident_id}:
+    parameters:
+      - $ref: '#/components/parameters/IncidentId'
+    get:
+      tags: [Incidents]
+      operationId: getIncident
+      summary: One incident
+      responses:
+        '200':
+          description: The incident, as the caller may see it.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Incident'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /incidents/{incident_id}/acknowledge:
+    parameters:
+      - $ref: '#/components/parameters/IncidentId'
+    post:
+      tags: [Incidents]
+      operationId: acknowledgeIncident
+      summary: Say someone is on it; repeated alerts stop
+      description: Needs the `manage` scope and the editor role in a project of the incident.
+      security:
+        - bearer: [manage]
+      responses:
+        '200':
+          description: The acknowledged incident.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Incident'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /incidents/{incident_id}/snooze:
+    parameters:
+      - $ref: '#/components/parameters/IncidentId'
+    post:
+      tags: [Incidents]
+      operationId: snoozeIncident
+      summary: Hold alerts for this incident until a time
+      description: |
+        Snoozing is personal: it holds the caller's own alerts only. Needs the
+        `read` scope.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [until]
+              properties:
+                until:
+                  type: string
+                  format: date-time
+      responses:
+        '200':
+          description: The incident.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Incident'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /calendars:
+    get:
+      tags: [Calendars]
+      operationId: listCalendars
+      summary: The calendars of the workspace
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of calendars.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CalendarPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /maintenance-windows:
+    get:
+      tags: [Calendars]
+      operationId: listMaintenanceWindows
+      summary: Maintenance windows that touch the caller's checks
+      parameters:
+        - name: from
+          in: query
+          description: Only occurrences ending after this time. Default now.
+          schema: {type: string, format: date-time}
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of maintenance windows.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MaintenanceWindowPage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /events:
+    get:
+      tags: [Events]
+      operationId: streamEvents
+      summary: A live stream of changes, as Server-Sent Events
+      description: |
+        Every change the caller may see, in order. Each event has an `id` (its
+        position), an `event` name equal to the `type` of its data, and `data`: one
+        `StreamEvent` as JSON on one line.
+
+        Reconnect with `Last-Event-ID` to receive what you missed. When that position
+        is too old to replay, the first event is `reset`: fetch `/status` again and
+        continue from the `event_id` it reports. A comment line is sent every 25
+        seconds to keep the connection open; `retry` tells the client how long to
+        wait before reconnecting.
+      parameters:
+        - name: Last-Event-ID
+          in: header
+          description: The `id` of the last event received.
+          schema: {type: string}
+        - name: project_id
+          in: query
+          description: Only events of these projects.
+          style: form
+          explode: false
+          schema:
+            type: array
+            items: {$ref: '#/components/schemas/Id'}
+      responses:
+        '200':
+          description: The stream. Each event's `data` is a `StreamEvent`.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: 'Lines of `id:`, `event:` and `data:`, as in the HTML Living Standard.'
+              example: |
+                id: 18442
+                event: check.updated
+                data: {"type":"check.updated","check":{"id":"chk_01HZY8","name":"nightly-backup","state":"up"}}
+
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+components:
+
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: |
+        A project API key, or an OAuth access token of a person. The scopes in a
+        security requirement are the token scopes an operation needs: `read` or
+        `manage`. A ping-only key works on the ping endpoints alone.
+
+  parameters:
+    CheckUuid:
+      name: check_uuid
+      in: path
+      required: true
+      description: The check's ping UUID, from its ping URL.
+      schema: {type: string, format: uuid}
+    PingKey:
+      name: ping_key
+      in: path
+      required: true
+      description: The project's ping key, for pings by slug.
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{22}$'
+    Slug:
+      name: slug
+      in: path
+      required: true
+      description: |
+        The check's slug, unique in its project. `start`, `fail` and `log` are not
+        allowed as slugs.
+      schema: {$ref: '#/components/schemas/Slug'}
+    ExitStatus:
+      name: exit_status
+      in: path
+      required: true
+      description: The job's exit status. `0` is success, `1` to `255` failure.
+      schema:
+        type: integer
+        minimum: 0
+        maximum: 255
+    RunId:
+      name: rid
+      in: query
+      description: |
+        A UUID the job chooses per run, to pair a start with its end when runs
+        overlap. `allstill run` sets it.
+      schema: {type: string, format: uuid}
+    Values:
+      name: v
+      in: query
+      description: |
+        A value measured by the job, as `name:number`, for example `v=size:18400000000`.
+        Repeat for more values. Names are lower case; numbers are plain decimals.
+        A check's rules judge these values.
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 32
+        items:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{0,63}:-?[0-9]{1,15}(\.[0-9]{1,6})?$'
+    ValuesHeader:
+      name: Allstill-Values
+      in: header
+      description: |
+        The same values as a Structured Field dictionary (RFC 9651), for example
+        `size=18400000000, rows=312`. Values in the query win over values here.
+      schema: {type: string}
+    Create:
+      name: create
+      in: query
+      description: |
+        With `1`, a ping by slug to a check that does not exist yet creates it, with
+        the project's defaults. Without it, such a ping gets `404`.
+      schema:
+        type: integer
+        enum: [0, 1]
+    ProjectId:
+      name: project_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    CheckId:
+      name: check_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    IncidentId:
+      name: incident_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    Cursor:
+      name: cursor
+      in: query
+      description: The `next_cursor` of the previous page.
+      schema: {type: string}
+    Limit:
+      name: limit
+      in: query
+      description: The most items on one page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        A unique value per intended change. Repeating the request with the same key
+        within 24 hours returns the first result instead of acting twice.
+      schema:
+        type: string
+        maxLength: 255
+    IfMatch:
+      name: If-Match
+      in: header
+      description: The ETag of the version you are changing.
+      schema: {type: string}
+
+  headers:
+    ETag:
+      description: The version of the resource, for `If-Match`.
+      schema: {type: string}
+    PingBodyLimit:
+      description: The largest request body, in bytes, that is stored; the rest is cut off.
+      schema: {type: integer}
+    RetryAfter:
+      description: Seconds to wait before trying again.
+      schema: {type: integer}
+
+  requestBodies:
+    PingBody:
+      description: |
+        The job's output, stored as the run's log up to `Ping-Body-Limit` bytes.
+        Any content type is accepted and stored as text.
+      content:
+        '*/*':
+          schema: {type: string}
+
+  responses:
+    PingOk:
+      description: Received.
+      headers:
+        Ping-Body-Limit: {$ref: '#/components/headers/PingBodyLimit'}
+      content:
+        text/plain:
+          schema: {type: string, const: 'OK'}
+    PingCreated:
+      description: Received, and the check was created first (`create=1`).
+      headers:
+        Ping-Body-Limit: {$ref: '#/components/headers/PingBodyLimit'}
+      content:
+        text/plain:
+          schema: {type: string, const: 'OK (created)'}
+    PingBadRequest:
+      description: The ping is not valid, such as a malformed `rid` or value.
+      content:
+        text/plain:
+          schema: {type: string}
+    PingNotFound:
+      description: No check has this UUID, or this project has no check with this slug.
+      content:
+        text/plain:
+          schema: {type: string, const: 'OK (not found)'}
+    PingConflict:
+      description: More than one check matches the slug.
+      content:
+        text/plain:
+          schema: {type: string, const: 'OK (not unique)'}
+    PingRateLimited:
+      description: Too many pings for this check or from this address.
+      headers:
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+      content:
+        text/plain:
+          schema: {type: string}
+    BadRequest:
+      description: The request is malformed.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    Unauthorized:
+      description: No valid token.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    Forbidden:
+      description: The token's scope or the caller's role does not allow this.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    NotFound:
+      description: It does not exist, or the caller may not see it.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    Conflict:
+      description: It conflicts with something that exists, such as a slug in use.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    PreconditionFailed:
+      description: The resource changed since the ETag in `If-Match`.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+    Unprocessable:
+      description: The request is well-formed but its values are not valid together.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
+
+  schemas:
+
+    Id:
+      type: string
+      description: An opaque identifier. Never a secret.
+      minLength: 1
+      maxLength: 64
+
+    Slug:
+      type: string
+      pattern: '^[a-z0-9][a-z0-9_-]{0,99}$'
+
+    TimeOfDay:
+      type: string
+      description: Local time as `HH:MM`, 24-hour clock.
+      pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+
+    Weekday:
+      type: string
+      enum: [mon, tue, wed, thu, fri, sat, sun]
+
+    Problem:
+      type: object
+      description: Problem Details (RFC 9457).
+      required: [title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: Identifies the kind of problem; `about:blank` when nothing more specific.
+        title: {type: string}
+        status: {type: integer}
+        detail: {type: string}
+        instance: {type: string, format: uri-reference}
+        errors:
+          type: array
+          description: Which fields are wrong, for validation problems.
+          items:
+            type: object
+            required: [pointer, detail]
+            properties:
+              pointer:
+                type: string
+                description: A JSON Pointer (RFC 6901) into the request body.
+              detail: {type: string}
+
+    Role:
+      type: string
+      enum: [viewer, editor, owner]
+
+    Scope:
+      type: string
+      enum: [ping, read, manage]
+
+    Me:
+      type: object
+      required: [kind, scopes, projects]
+      properties:
+        kind:
+          type: string
+          enum: [person, api_key]
+        person:
+          type: object
+          description: Present when a person is signed in.
+          required: [id, name]
+          properties:
+            id: {$ref: '#/components/schemas/Id'}
+            name: {type: string}
+            email: {type: string, format: email}
+            workspace_admin: {type: boolean}
+            quiet_hours:
+              $ref: '#/components/schemas/QuietHours'
+        scopes:
+          type: array
+          items: {$ref: '#/components/schemas/Scope'}
+        projects:
+          type: array
+          items:
+            type: object
+            required: [id, name, role]
+            properties:
+              id: {$ref: '#/components/schemas/Id'}
+              name: {type: string}
+              role: {$ref: '#/components/schemas/Role'}
+
+    QuietHours:
+      type: object
+      description: When the person may not be disturbed, except by checks marked critical.
+      required: [time_zone, periods]
+      properties:
+        time_zone: {type: string, description: An IANA time zone name.}
+        periods:
+          type: array
+          items:
+            type: object
+            required: [days, start, end]
+            properties:
+              days:
+                type: array
+                items: {$ref: '#/components/schemas/Weekday'}
+              start: {$ref: '#/components/schemas/TimeOfDay'}
+              end: {$ref: '#/components/schemas/TimeOfDay'}
+
+    CheckState:
+      type: string
+      description: |
+        - `new`: never pinged.
+        - `up`: ran on time and every rule passed.
+        - `warning`: ran, but a rule warns, such as a run far slower than usual.
+        - `late`: overdue, within its grace period.
+        - `down`: failed, or overdue past its grace period.
+        - `paused`: paused by someone, until resumed or pinged.
+        - `off_hours`: outside its calendar, so it does not count now.
+        - `maintenance`: inside a maintenance window.
+        - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+      enum: [new, up, warning, late, down, paused, off_hours, maintenance, unknown]
+
+    StateCounts:
+      type: object
+      description: How many checks are in each state; states with none are left out.
+      additionalProperties:
+        type: integer
+        minimum: 0
+      propertyNames:
+        $ref: '#/components/schemas/CheckState'
+
+    Project:
+      type: object
+      required: [id, name, role, counts, worst_state]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        calendar_id:
+          $ref: '#/components/schemas/Id'
+          description: The project's default calendar.
+        recovery_messages:
+          type: boolean
+          description: Whether an alert is followed by a message when it recovers.
+        counts: {$ref: '#/components/schemas/StateCounts'}
+        worst_state: {$ref: '#/components/schemas/CheckState'}
+
+    ProjectPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Project'}
+        next_cursor: {type: string}
+
+    Schedule:
+      description: When a check expects to be pinged.
+      oneOf:
+        - $ref: '#/components/schemas/IntervalSchedule'
+        - $ref: '#/components/schemas/CronSchedule'
+      discriminator:
+        propertyName: kind
+        mapping:
+          interval: '#/components/schemas/IntervalSchedule'
+          cron: '#/components/schemas/CronSchedule'
+
+    IntervalSchedule:
+      type: object
+      required: [kind, every]
+      properties:
+        kind: {type: string, const: interval}
+        every:
+          type: integer
+          format: int64
+          minimum: 60
+          description: Seconds between pings.
+
+    CronSchedule:
+      type: object
+      required: [kind, expression, time_zone]
+      properties:
+        kind: {type: string, const: cron}
+        expression:
+          type: string
+          description: A cron expression with five fields, as in crontab.
+          examples: ['0 3 * * *']
+        time_zone:
+          type: string
+          description: An IANA time zone name, such as `Europe/Amsterdam`.
+
+    Rule:
+      description: A condition on what a check reports. Each rule warns or fails.
+      oneOf:
+        - $ref: '#/components/schemas/ThresholdRule'
+        - $ref: '#/components/schemas/PreviousRunRule'
+        - $ref: '#/components/schemas/RunTimeRule'
+        - $ref: '#/components/schemas/CountRule'
+      discriminator:
+        propertyName: kind
+        mapping:
+          threshold: '#/components/schemas/ThresholdRule'
+          previous_run: '#/components/schemas/PreviousRunRule'
+          run_time: '#/components/schemas/RunTimeRule'
+          count: '#/components/schemas/CountRule'
+
+    RuleSeverity:
+      type: string
+      enum: [warn, fail]
+
+    ThresholdRule:
+      type: object
+      description: A value stays within bounds, such as `queue` at most 100.
+      required: [kind, value, severity]
+      properties:
+        kind: {type: string, const: threshold}
+        value: {type: string, description: The value's name.}
+        min: {type: number, format: double}
+        max: {type: number, format: double}
+        severity: {$ref: '#/components/schemas/RuleSeverity'}
+
+    PreviousRunRule:
+      type: object
+      description: A value compared with the previous run's, such as `size` at least 90% of it.
+      required: [kind, value, severity]
+      properties:
+        kind: {type: string, const: previous_run}
+        value: {type: string}
+        min_ratio: {type: number, format: double, minimum: 0}
+        max_ratio: {type: number, format: double, minimum: 0}
+        severity: {$ref: '#/components/schemas/RuleSeverity'}
+
+    RunTimeRule:
+      type: object
+      description: |
+        A run takes no longer than a limit: a fixed number of seconds, or a multiple
+        of the usual run time (the median of the last 30 runs).
+      required: [kind, severity]
+      properties:
+        kind: {type: string, const: run_time}
+        max_seconds: {type: integer, format: int64, minimum: 1}
+        max_ratio_of_usual: {type: number, format: double, minimum: 1}
+        severity: {$ref: '#/components/schemas/RuleSeverity'}
+
+    CountRule:
+      type: object
+      description: |
+        The number of pings in a sliding window, counted only within the check's
+        calendar: too few means something stopped, too many means something runs
+        twice.
+      required: [kind, window, severity]
+      properties:
+        kind: {type: string, const: count}
+        window: {type: integer, format: int64, minimum: 60, description: Seconds.}
+        min: {type: integer, minimum: 0}
+        max: {type: integer, minimum: 1}
+        of:
+          type: string
+          enum: [any, success, fail]
+          default: any
+        severity: {$ref: '#/components/schemas/RuleSeverity'}
+
+    ValueDeclaration:
+      type: object
+      description: A value a check expects, and how to show it.
+      required: [name, unit]
+      properties:
+        name: {type: string, pattern: '^[a-z][a-z0-9_]{0,63}$'}
+        unit:
+          type: string
+          enum: [none, count, bytes, seconds, percent, days]
+
+    HttpCheck:
+      type: object
+      description: An HTTP request Allstill makes itself, on its schedule.
+      required: [url]
+      properties:
+        url: {type: string, format: uri}
+        method:
+          type: string
+          enum: [GET, HEAD]
+          default: GET
+        expected_status:
+          type: array
+          description: Status codes that count as up. Default any 2xx.
+          items: {type: integer, minimum: 100, maximum: 599}
+        json_field:
+          type: object
+          description: A field in a JSON body that must equal a value, such as a health endpoint's status.
+          required: [pointer, equals]
+          properties:
+            pointer:
+              type: string
+              description: A JSON Pointer (RFC 6901), such as `/status`.
+            equals: {type: string}
+        timeout:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 10
+          description: Seconds.
+        probe_id:
+          $ref: '#/components/schemas/Id'
+          description: Run from this probe instead of the server.
+
+    CertificateCheck:
+      type: object
+      description: The TLS certificate of a host, checked daily.
+      required: [host]
+      properties:
+        host: {type: string}
+        port: {type: integer, minimum: 1, maximum: 65535, default: 443}
+        warn_days: {type: integer, minimum: 1, default: 14}
+        fail_days: {type: integer, minimum: 0, default: 3}
+        probe_id: {$ref: '#/components/schemas/Id'}
+
+    Alerting:
+      type: object
+      description: How a problem with this check reaches people. The project's routing says who.
+      properties:
+        urgency:
+          type: string
+          description: |
+            `now` alerts people's phones, `digest` waits for the morning digest, `none`
+            shows the problem but never alerts, for a machine that is often off.
+          enum: [now, digest, none]
+          default: now
+        critical:
+          type: boolean
+          default: false
+          description: Breaks through people's quiet hours.
+
+    CheckKind:
+      type: string
+      enum: [ping, http, certificate]
+
+    CheckSettings:
+      type: object
+      description: What a check is and how it is judged; the part a client can change.
+      properties:
+        name: {type: string, minLength: 1, maxLength: 200}
+        slug: {$ref: '#/components/schemas/Slug'}
+        description: {type: string, maxLength: 2000}
+        tags:
+          type: array
+          items: {type: string, maxLength: 50}
+          maxItems: 20
+        kind: {$ref: '#/components/schemas/CheckKind'}
+        schedule: {$ref: '#/components/schemas/Schedule'}
+        grace:
+          type: integer
+          format: int64
+          minimum: 60
+          description: Seconds after the expected time before a check is down.
+        calendar_id:
+          $ref: '#/components/schemas/Id'
+          description: When the check counts. Default the project's calendar; none means always.
+        values:
+          type: array
+          items: {$ref: '#/components/schemas/ValueDeclaration'}
+        rules:
+          type: array
+          items: {$ref: '#/components/schemas/Rule'}
+        depends_on:
+          type: array
+          description: Checks this one depends on, in any project of the workspace.
+          items: {$ref: '#/components/schemas/Id'}
+        http: {$ref: '#/components/schemas/HttpCheck'}
+        certificate: {$ref: '#/components/schemas/CertificateCheck'}
+        alerting: {$ref: '#/components/schemas/Alerting'}
+
+    CheckInput:
+      description: |
+        A new check. `http` is required for `kind: http`, `certificate` for
+        `kind: certificate`.
+      allOf:
+        - $ref: '#/components/schemas/CheckSettings'
+        - type: object
+          required: [name, kind]
+          properties:
+            name: {type: string, minLength: 1, maxLength: 200}
+            kind: {$ref: '#/components/schemas/CheckKind'}
+
+    CheckPatch:
+      description: |
+        Fields to change, as a JSON Merge Patch: a field sent as `null` returns to its
+        default; fields left out stay as they are.
+      $ref: '#/components/schemas/CheckSettings'
+
+    Check:
+      allOf:
+        - $ref: '#/components/schemas/CheckSettings'
+        - type: object
+          required: [id, project_id, name, kind, state, state_since, created_at]
+          properties:
+            id: {$ref: '#/components/schemas/Id'}
+            name: {type: string, minLength: 1, maxLength: 200}
+            kind: {$ref: '#/components/schemas/CheckKind'}
+            project_id: {$ref: '#/components/schemas/Id'}
+            state: {$ref: '#/components/schemas/CheckState'}
+            state_since: {type: string, format: date-time}
+            state_reason:
+              type: string
+              description: Why it is in this state, in a short sentence, such as `Run time 2 h 50 min, 4.2 times the usual`.
+            paused: {type: boolean}
+            ping_url:
+              type: string
+              format: uri
+              description: The check's secret ping URL. Only for the `manage` scope.
+            last_ping_at: {type: string, format: date-time}
+            next_expected_at: {type: string, format: date-time}
+            usual_run_time:
+              type: integer
+              format: int64
+              description: Median run time of the last 30 runs, in seconds.
+            last_run: {$ref: '#/components/schemas/Run'}
+            created_at: {type: string, format: date-time}
+
+    CheckPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Check'}
+        next_cursor: {type: string}
+
+    RunOutcome:
+      type: string
+      enum: [running, success, warning, fail, timeout]
+
+    Run:
+      type: object
+      description: One run of a job, from its start ping (if any) to its end.
+      required: [id, check_id, outcome]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        check_id: {$ref: '#/components/schemas/Id'}
+        outcome: {$ref: '#/components/schemas/RunOutcome'}
+        started_at: {type: string, format: date-time}
+        ended_at: {type: string, format: date-time}
+        run_time:
+          type: integer
+          format: int64
+          description: Seconds, when both start and end are known.
+        exit_status: {type: integer, minimum: 0, maximum: 255}
+        values:
+          type: object
+          additionalProperties: {type: number, format: double}
+        failed_rules:
+          type: array
+          description: Indexes into the check's `rules` that warned or failed for this run.
+          items: {type: integer, minimum: 0}
+
+    RunDetail:
+      allOf:
+        - $ref: '#/components/schemas/Run'
+        - type: object
+          properties:
+            log:
+              type: string
+              description: The bodies of the run's pings, in order, cut off at the body limit.
+            log_truncated: {type: boolean}
+
+    RunPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Run'}
+        next_cursor: {type: string}
+
+    IncidentState:
+      type: string
+      enum: [open, acknowledged, resolved]
+
+    Incident:
+      type: object
+      description: |
+        One problem, with the checks it touches. Shown per caller: checks in
+        projects the caller cannot see are left out, and `cause_hidden` says the
+        cause is among them.
+      required: [id, title, state, opened_at, checks]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        title: {type: string, examples: ['shop.example.com is down']}
+        state: {$ref: '#/components/schemas/IncidentState'}
+        urgency:
+          type: string
+          enum: [now, digest]
+        opened_at: {type: string, format: date-time}
+        acknowledged_at: {type: string, format: date-time}
+        acknowledged_by: {type: string, description: The name of who acknowledged it.}
+        resolved_at: {type: string, format: date-time}
+        snoozed_until:
+          type: string
+          format: date-time
+          description: Until when the caller's own alerts for it are held.
+        cause_check_id:
+          $ref: '#/components/schemas/Id'
+          description: The check that most likely caused the others, when the caller may see it.
+        cause_hidden:
+          type: boolean
+          description: The likely cause is a check the caller may not see.
+        checks:
+          type: array
+          items:
+            type: object
+            required: [id, name, project_id, state]
+            properties:
+              id: {$ref: '#/components/schemas/Id'}
+              name: {type: string}
+              project_id: {$ref: '#/components/schemas/Id'}
+              state: {$ref: '#/components/schemas/CheckState'}
+
+    IncidentPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Incident'}
+        next_cursor: {type: string}
+
+    Calendar:
+      type: object
+      description: When checks count, and when a problem is urgent.
+      required: [id, name, time_zone, working_hours]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string, examples: ['Factory floor']}
+        time_zone: {type: string}
+        working_hours:
+          type: array
+          description: Empty means every hour of every day.
+          items:
+            type: object
+            required: [days, start, end]
+            properties:
+              days:
+                type: array
+                items: {$ref: '#/components/schemas/Weekday'}
+              start: {$ref: '#/components/schemas/TimeOfDay'}
+              end: {$ref: '#/components/schemas/TimeOfDay'}
+        public_holidays:
+          type: string
+          description: An ISO 3166 country code, optionally with a subdivision (`NL`, `DE-BY`), whose public holidays are days off.
+        closures:
+          type: array
+          items:
+            type: object
+            required: [date]
+            properties:
+              date: {type: string, format: date}
+              name: {type: string}
+
+    CalendarPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Calendar'}
+        next_cursor: {type: string}
+
+    MaintenanceWindow:
+      type: object
+      description: A time when the checks it covers stay quiet.
+      required: [id, name, starts_at, duration]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        starts_at:
+          type: string
+          format: date-time
+          description: The first occurrence.
+        duration: {type: integer, format: int64, minimum: 60, description: Seconds.}
+        recurrence:
+          type: string
+          description: An RRULE (RFC 5545) for a window that repeats, such as `FREQ=WEEKLY;BYDAY=SU`.
+        time_zone: {type: string, description: The zone the recurrence is counted in.}
+        project_ids:
+          type: array
+          items: {$ref: '#/components/schemas/Id'}
+        check_ids:
+          type: array
+          items: {$ref: '#/components/schemas/Id'}
+        next_occurrence_at: {type: string, format: date-time}
+
+    MaintenanceWindowPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/MaintenanceWindow'}
+        next_cursor: {type: string}
+
+    Status:
+      type: object
+      required: [generated_at, event_id, overall, counts, projects, open_incidents, upcoming]
+      properties:
+        generated_at: {type: string, format: date-time}
+        event_id:
+          type: string
+          description: The position in `/events` this snapshot matches; continue the stream from here.
+        overall:
+          type: string
+          description: |
+            `all_still` when nothing needs attention, `attention` for warnings and
+            late checks, `incident` when an incident is open, `unknown` when Allstill
+            cannot tell.
+          enum: [all_still, attention, incident, unknown]
+        counts: {$ref: '#/components/schemas/StateCounts'}
+        projects:
+          type: array
+          items: {$ref: '#/components/schemas/Project'}
+        open_incidents:
+          type: array
+          items: {$ref: '#/components/schemas/Incident'}
+        upcoming:
+          type: array
+          description: Runs expected in the next 24 hours, soonest first, at most 20.
+          items:
+            type: object
+            required: [check_id, name, expected_at]
+            properties:
+              check_id: {$ref: '#/components/schemas/Id'}
+              name: {type: string}
+              expected_at: {type: string, format: date-time}
+
+    StreamEvent:
+      description: The data of one event in `/events`.
+      oneOf:
+        - $ref: '#/components/schemas/CheckUpdatedEvent'
+        - $ref: '#/components/schemas/CheckRemovedEvent'
+        - $ref: '#/components/schemas/IncidentEvent'
+        - $ref: '#/components/schemas/StatusEvent'
+        - $ref: '#/components/schemas/ResetEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          check.updated: '#/components/schemas/CheckUpdatedEvent'
+          check.removed: '#/components/schemas/CheckRemovedEvent'
+          incident.opened: '#/components/schemas/IncidentEvent'
+          incident.updated: '#/components/schemas/IncidentEvent'
+          incident.resolved: '#/components/schemas/IncidentEvent'
+          status.updated: '#/components/schemas/StatusEvent'
+          reset: '#/components/schemas/ResetEvent'
+
+    CheckUpdatedEvent:
+      type: object
+      description: 'A check changed: its state, its settings or its last run.'
+      required: [type, check]
+      properties:
+        type: {type: string, const: check.updated}
+        check: {$ref: '#/components/schemas/Check'}
+
+    CheckRemovedEvent:
+      type: object
+      description: A check was deleted, or the caller may no longer see it.
+      required: [type, check_id]
+      properties:
+        type: {type: string, const: check.removed}
+        check_id: {$ref: '#/components/schemas/Id'}
+
+    IncidentEvent:
+      type: object
+      required: [type, incident]
+      properties:
+        type:
+          type: string
+          enum: [incident.opened, incident.updated, incident.resolved]
+        incident: {$ref: '#/components/schemas/Incident'}
+
+    StatusEvent:
+      type: object
+      description: The overall state or the counts changed.
+      required: [type, overall, counts]
+      properties:
+        type: {type: string, const: status.updated}
+        overall:
+          type: string
+          enum: [all_still, attention, incident, unknown]
+        counts: {$ref: '#/components/schemas/StateCounts'}
+
+    ResetEvent:
+      type: object
+      description: The stream cannot replay from `Last-Event-ID`; fetch `/status` again.
+      required: [type]
+      properties:
+        type: {type: string, const: reset}
