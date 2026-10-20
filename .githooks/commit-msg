@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# Commit messages are public too: no session links, no names from other work.
+set -e
+msg="$1"
+
+if grep -q -i -E '^Claude-Session:|claude\.ai/code/session' "$msg"; then
+  echo "commit-msg: remove the Claude-Session trailer or session link; Co-Authored-By is fine." >&2
+  exit 1
+fi
+
+denylist="$(git rev-parse --git-dir)/info/denylist"
+if [ -s "$denylist" ]; then
+  terms=$(mktemp)
+  grep -v -e '^#' -e '^[[:space:]]*$' "$denylist" > "$terms" || true
+  hits=$(grep -v '^#' "$msg" | grep -i -n -F -f "$terms" || true)
+  rm -f "$terms"
+  if [ -n "$hits" ]; then
+    echo "commit-msg: the message contains terms from .git/info/denylist:" >&2
+    echo "$hits" >&2
+    exit 1
+  fi
+fi

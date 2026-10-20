@@ -7,3 +7,9 @@
 .env
 .env.*
 !.env.example
+
+# Claude Code, per person
+.claude/settings.local.json
+.claude/hooks.log
+.claude/worktrees/
+__pycache__/

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-only
+# Blocks a commit that would put something on the record that must not be
+# public (AGENTS.md, "Written to be public"). Install with `make hooks`.
+set -e
+
+# The identities git will record, environment overrides included.
+for ident in "$(git var GIT_AUTHOR_IDENT)" "$(git var GIT_COMMITTER_IDENT)"; do
+  case "$ident" in
+    *@users.noreply.github.com\>*) ;;
+    *) echo "pre-commit: commit with your GitHub noreply address (author and committer)." >&2; exit 1 ;;
+  esac
+done
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks is not installed (brew install gitleaks); refusing to commit unscanned." >&2
+  exit 1
+fi
+gitleaks git --pre-commit --staged --redact --no-banner --log-level warn
+
+if git diff --cached --name-only | grep -q '^\.notes/'; then
+  echo "pre-commit: .notes/ is private and is never committed here." >&2
+  exit 1
+fi
+
+# Names from other work and personal terms, kept outside the repository in
+# .git/info/denylist, one per line, matched without regard to case.
+denylist="$(git rev-parse --git-dir)/info/denylist"
+if [ -s "$denylist" ]; then
+  terms=$(mktemp)
+  grep -v -e '^#' -e '^[[:space:]]*$' "$denylist" > "$terms" || true
+  hits=$( { git -c core.quotePath=false diff --cached --name-only; git diff --cached -U0 --no-color --no-ext-diff --no-textconv | grep '^+' | grep -v -E '^\+\+\+ (b/|/dev/null)'; } \
+    | grep -i -n -F -f "$terms" || true)
+  rm -f "$terms"
+  if [ -n "$hits" ]; then
+    echo "pre-commit: staged file names or lines contain terms from .git/info/denylist:" >&2
+    echo "$hits" | cut -c1-160 >&2
+    exit 1
+  fi
+fi
+
+# Format what is staged, not what is in the working tree.
+unformatted=""
+git diff --cached --name-only --diff-filter=ACM -z -- '*.go' | while IFS= read -r -d '' f; do
+  if [ -n "$(git show ":$f" | gofmt -l 2>&1)" ]; then echo "$f"; fi
+done > "$(git rev-parse --git-dir)/gofmt-check" || true
+unformatted=$(cat "$(git rev-parse --git-dir)/gofmt-check"); rm -f "$(git rev-parse --git-dir)/gofmt-check"
+if [ -n "$unformatted" ]; then
+  echo "pre-commit: run 'gofmt -w' on:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi

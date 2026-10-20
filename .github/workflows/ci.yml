@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: make check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: make check
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks
+        run: >
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1
+          git /repo --redact --verbose --no-banner
+
+  private-terms:
+    name: Private terms
+    # The backstop for the local git hooks: every commit's content, file names
+    # and message, checked against the terms in the DENYLIST secret. It prints
+    # commit hashes only, never a term, so the log stays safe to publish.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan the history
+        shell: bash
+        env:
+          DENYLIST: ${{ secrets.DENYLIST }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          terms=$(mktemp)
+          printf '%s\n' "${DENYLIST:-}" | tr -d '\r' | { grep -v -e '^#' -e '^[[:space:]]*$' || true; } > "$terms"
+          if [ ! -s "$terms" ]; then
+            if [ "$EVENT" = "pull_request" ]; then
+              echo "::notice::No DENYLIST secret for this pull request (a fork or Dependabot); skipped."
+              exit 0
+            fi
+            echo "::error::The DENYLIST secret is missing or empty; the history cannot be checked."
+            exit 1
+          fi
+          found=0
+          for c in $(git rev-list --all); do
+            # Write to a file first: grep -q would stop reading early and, with
+            # pipefail, hide the rest of a large commit.
+            git -c core.quotePath=false show --text --format=%B --name-only "$c" > show.txt
+            git show --text --no-ext-diff --no-textconv --format= -U0 "$c" >> show.txt
+            if grep -i -F -f "$terms" show.txt > /dev/null; then
+              echo "::error::commit $c contains a private term"
+              found=1
+            fi
+          done
+          rm -f "$terms" show.txt
+          exit $found
+
+  identity:
+    name: Commit identity
+    # Every author and committer uses a GitHub noreply address. Prints commit
+    # hashes only, never an address.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check every commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          found=0
+          while read -r c author committer; do
+            for e in "$author" "$committer"; do
+              case "$e" in
+                *@users.noreply.github.com|noreply@github.com) ;;
+                *) echo "::error::commit $c is not by a noreply address"; found=1 ;;
+              esac
+            done
+          done < <(git log --all --format='%H %ae %ce')
+          exit $found
