@@ -39,3 +39,9 @@ SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NU
 
 -- name: AllProjects :many
 SELECT id, name FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY name, id;
+
+-- name: RenameProject :execrows
+UPDATE projects SET name = ? WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
+
+-- name: ProjectInWorkspace :one
+SELECT id FROM projects WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;

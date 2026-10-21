@@ -143,3 +143,10 @@ WHERE id IN (
     WHERE p.check_id = sqlc.arg(of_check) AND p.run_id IS NULL AND p.id <= sqlc.arg(up_to) AND p.body IS NOT NULL
     LIMIT sqlc.arg(batch)
 );
+
+-- name: ProjectOfCheck :one
+SELECT project_id FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
+
+-- name: MoveCheck :exec
+UPDATE checks SET project_id = sqlc.arg(project_id), version = version + 1, updated_at = sqlc.arg(updated_at)
+WHERE workspace_id = sqlc.arg(workspace_id) AND id = sqlc.arg(id);

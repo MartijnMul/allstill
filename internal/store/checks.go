@@ -145,3 +145,46 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 	}
 	return c, nil
 }
+
+// MoveCheck moves a check to another project. Its ping UUID, runs and pings go
+// with it; a ping by slug needs the new project's ping key. A slug the new
+// project already uses is refused. It is for the administrator's command line:
+// it checks no caller's access.
+func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID string) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	from, err := q.ProjectOfCheck(ctx, db.ProjectOfCheckParams{WorkspaceID: workspaceID, ID: checkID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil || from == toProjectID {
+		return err
+	}
+	if _, err := q.ProjectInWorkspace(ctx, db.ProjectInWorkspaceParams{WorkspaceID: workspaceID, ID: toProjectID}); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	at := now()
+	if err := q.MoveCheck(ctx, db.MoveCheckParams{ProjectID: toProjectID, UpdatedAt: at, WorkspaceID: workspaceID, ID: checkID}); err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: checks.project_id, checks.slug") {
+			return &InvalidError{"slug", "the other project has a check with this slug"}
+		}
+		return err
+	}
+	// It leaves the one project and arrives in the other, in that order, so
+	// who sees both ends up with the check.
+	for _, e := range []struct{ project, kind string }{{from, "check.removed"}, {toProjectID, "check.updated"}} {
+		if err := q.CreateEvent(ctx, db.CreateEventParams{
+			WorkspaceID: workspaceID, ProjectID: sql.NullString{String: e.project, Valid: true},
+			Type: e.kind, SubjectID: checkID, CreatedAt: at,
+		}); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

@@ -3,6 +3,7 @@
 package importer
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -83,6 +84,20 @@ func TestImport(t *testing.T) {
 		if r.CheckID != "" || r.Note != "already in Allstill" {
 			t.Errorf("second import of %s: %+v", r.Name, r)
 		}
+	}
+}
+
+func TestWithTags(t *testing.T) {
+	var all struct{ Checks []HCCheck }
+	if err := json.Unmarshal([]byte(listing), &all); err != nil {
+		t.Fatal(err)
+	}
+	got := WithTags(all.Checks, "prod", "elsewhere")
+	if len(got) != 1 || got[0].Name != "Nightly backup" || len(all.Checks) != 4 {
+		t.Fatalf("with tags: %+v", got)
+	}
+	if got := WithTags(all.Checks, "none"); len(got) != 0 {
+		t.Fatalf("an unknown tag: %+v", got)
 	}
 }
 

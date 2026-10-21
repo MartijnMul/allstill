@@ -171,6 +171,13 @@ func keys(v any) []string {
 	return out
 }
 
+// WithTags keeps the checks that have at least one of the tags.
+func WithTags(checks []HCCheck, want ...string) []HCCheck {
+	return slices.DeleteFunc(slices.Clone(checks), func(c HCCheck) bool {
+		return !slices.ContainsFunc(strings.Fields(c.Tags), func(t string) bool { return slices.Contains(want, t) })
+	})
+}
+
 // tags splits Healthchecks' space-separated tags, cut to what Allstill keeps:
 // 20 tags of at most 50 characters.
 func tags(s string) []string {

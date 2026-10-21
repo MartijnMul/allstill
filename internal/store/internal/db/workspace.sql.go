@@ -160,6 +160,22 @@ func (q *Queries) Person(ctx context.Context, arg PersonParams) (Person, error) 
 	return i, err
 }
 
+const projectInWorkspace = `-- name: ProjectInWorkspace :one
+SELECT id FROM projects WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+`
+
+type ProjectInWorkspaceParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) ProjectInWorkspace(ctx context.Context, arg ProjectInWorkspaceParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, projectInWorkspace, arg.WorkspaceID, arg.ID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const projectsByName = `-- name: ProjectsByName :many
 SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY id
 `
@@ -238,6 +254,24 @@ func (q *Queries) ProjectsOfPerson(ctx context.Context, arg ProjectsOfPersonPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const renameProject = `-- name: RenameProject :execrows
+UPDATE projects SET name = ? WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+`
+
+type RenameProjectParams struct {
+	Name        string
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renameProject, arg.Name, arg.WorkspaceID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const workspace = `-- name: Workspace :one

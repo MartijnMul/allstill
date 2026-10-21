@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ const adminUsage = `Usage:
   allstill admin create-user -name NAME [-email EMAIL] [flags]
   allstill admin passkey-link (-email EMAIL | -person ID) [flags]
   allstill admin create-project [-db file] NAME
+  allstill admin rename-project [-db file] NAME NEW-NAME
+  allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
 `
 
 func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -40,6 +43,10 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return createUser(ctx, args[1:], stdout, stderr)
 	case "passkey-link":
 		return passkeyLink(ctx, args[1:], stdout, stderr)
+	case "rename-project":
+		return renameProject(ctx, args[1:], stdout, stderr)
+	case "move-checks":
+		return moveChecks(ctx, args[1:], stdout, stderr)
 	}
 	fmt.Fprint(stderr, adminUsage)
 	return fmt.Errorf("unknown admin command %q", args[0])
@@ -68,6 +75,138 @@ func createProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return err
 	}
 	fmt.Fprintf(stdout, "Created project %s (%s).\nIts ping key, for pings by slug, is shown only now:\n\n  %s\n", fs.Arg(0), projectID, key)
+	return nil
+}
+
+func renameProject(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("admin rename-project", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("give the project's name and its new name")
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	projectID, err := st.ProjectByName(ctx, ws, fs.Arg(0))
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("no project is named %q", fs.Arg(0))
+	} else if err != nil {
+		return err
+	}
+	if err := st.RenameProject(ctx, ws, projectID, fs.Arg(1)); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Renamed %s to %s.\n", fs.Arg(0), fs.Arg(1))
+	return nil
+}
+
+func moveChecks(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("admin move-checks", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
+
+Moves the checks of one project that have one of the tags, or one of the names,
+to another project, creating it when needed. Their ping URLs, runs and pings
+stay the same; a job that pings by slug needs the new project's ping key.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	from := fs.String("from", "", "the project the checks are in")
+	to := fs.String("to", "", "the project to move them to")
+	tags, names := map[string]bool{}, map[string]bool{}
+	fs.Func("tag", "move the checks with this tag; repeat it for several", func(v string) error {
+		tags[v] = true
+		return nil
+	})
+	fs.Func("check", "move the check with this name; repeat it for several", func(v string) error {
+		names[v] = true
+		return nil
+	})
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *from == "" || *to == "" || len(tags)+len(names) == 0 || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -from, -to, and at least one -tag or -check")
+	}
+	if *from == *to {
+		return errors.New("-from and -to name the same project")
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	fromID, err := st.ProjectByName(ctx, ws, *from)
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("no project is named %q", *from)
+	} else if err != nil {
+		return err
+	}
+	admin, err := st.AdminAccess(ctx, ws)
+	if err != nil {
+		return err
+	}
+	checks, err := st.Checks(ctx, admin)
+	if err != nil {
+		return err
+	}
+	var moving []store.CheckView
+	found := map[string]bool{}
+	for _, c := range checks {
+		if c.ProjectID != fromID {
+			continue
+		}
+		if names[c.Name] || slices.ContainsFunc(c.Tags, func(t string) bool { return tags[t] }) {
+			moving = append(moving, c)
+			found[c.Name] = true
+		}
+	}
+	for name := range names {
+		if !found[name] {
+			fmt.Fprintf(stderr, "%s has no check named %q\n", *from, name)
+		}
+	}
+	if len(moving) == 0 {
+		return fmt.Errorf("no check in %s matches", *from)
+	}
+	toID, err := st.ProjectByName(ctx, ws, *to)
+	if errors.Is(err, store.ErrNotFound) {
+		var pingKey string
+		if toID, pingKey, err = st.CreateProject(ctx, ws, *to); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "Created project %s. Its ping key, shown only now: %s\n\n", *to, pingKey)
+	} else if err != nil {
+		return err
+	}
+	moved := 0
+	for _, c := range moving {
+		if err := st.MoveCheck(ctx, ws, c.ID, toID); err != nil {
+			fmt.Fprintf(stdout, "not moved  %s: %v\n", c.Name, err)
+			continue
+		}
+		line := "moved      " + c.Name
+		if c.Slug != "" {
+			line += " (pinged by slug: use the new project's ping key)"
+		}
+		fmt.Fprintln(stdout, line)
+		moved++
+	}
+	fmt.Fprintf(stdout, "\n%d of %d checks moved from %s to %s.\n", moved, len(moving), *from, *to)
+	if moved < len(moving) {
+		return errors.New("some checks were not moved")
+	}
 	return nil
 }
 
@@ -241,8 +380,9 @@ func importCommand(ctx context.Context, args []string, stdout, stderr io.Writer)
 Copies the checks of one Healthchecks project into an Allstill project,
 creating it when needed. Each check keeps its UUID, so jobs keep their ping
 URLs apart from the host. Checks already in Allstill are skipped, so it can
-run again. The project's read-write API key is read from HEALTHCHECKS_API_KEY;
-the import only reads from Healthchecks.
+run again; with -tag, only the checks with one of the tags are copied, to split
+one Healthchecks project over several. The project's read-write API key is
+read from HEALTHCHECKS_API_KEY; the import only reads from Healthchecks.
 
 Flags:
 `)
@@ -251,6 +391,11 @@ Flags:
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
 	base := fs.String("url", "https://healthchecks.io", "the Healthchecks site")
 	project := fs.String("project", "", "the Allstill project to import into")
+	var tags []string
+	fs.Func("tag", "copy only the checks with this Healthchecks tag; repeat it for several", func(v string) error {
+		tags = append(tags, v)
+		return nil
+	})
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -263,6 +408,11 @@ Flags:
 	checks, err := importer.Fetch(ctx, http.DefaultClient, *base, key)
 	if err != nil {
 		return err
+	}
+	if len(tags) > 0 {
+		if checks = importer.WithTags(checks, tags...); len(checks) == 0 {
+			return errors.New("no check at Healthchecks has one of these tags")
+		}
 	}
 	st, ws, err := openStore(ctx, *dbPath)
 	if err != nil {

@@ -152,3 +152,74 @@ func TestAdminCommands(t *testing.T) {
 		t.Fatalf("Ada is not in the copy: %v", err)
 	}
 }
+
+// An import put the checks of a customer and a home lab in one project; they
+// are split by tag and by name.
+func TestMoveChecksAndRenameProject(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	st, ws, err := openStore(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab, _, _ := st.CreateProject(ctx, ws, "Imported")
+	admin, _ := st.AdminAccess(ctx, ws)
+	for _, c := range []store.NewCheck{
+		{Name: "printer-api", Tags: []string{"customer"}},
+		{Name: "dashboard", Tags: []string{"customer", "web"}},
+		{Name: "shop-backup", Tags: []string{"backup"}},
+		{Name: "hypervisor-backup", Tags: []string{"backup"}},
+		{Name: "shop-backup", Slug: "shop-db", Tags: []string{"database"}},
+	} {
+		c.Interval, c.Grace = time.Hour, time.Hour
+		if _, err := st.CreateCheck(ctx, admin, lab, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st.Close()
+
+	var out, errOut bytes.Buffer
+	adminCmd := func(args ...string) error {
+		out.Reset()
+		errOut.Reset()
+		return run(ctx, append([]string{"admin"}, args...), &out, &errOut)
+	}
+	if err := adminCmd("move-checks", "-db", dbPath, "-from", "Imported", "-to", "Customer", "-tag", "customer"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Created project Customer") || !strings.Contains(out.String(), "2 of 2 checks moved") {
+		t.Fatalf("move by tag printed %q", out.String())
+	}
+	if err := adminCmd("move-checks", "-db", dbPath, "-from", "Imported", "-to", "Shop", "-check", "shop-backup", "-check", "nothing"); err != nil {
+		t.Fatal(err)
+	}
+	// Both checks named shop-backup go; the one pinged by slug says so.
+	if !strings.Contains(errOut.String(), `no check named "nothing"`) || !strings.Contains(out.String(), "2 of 2 checks moved") ||
+		!strings.Contains(out.String(), "shop-backup (pinged by slug") {
+		t.Fatalf("move by name printed %q / %q", out.String(), errOut.String())
+	}
+	if err := adminCmd("move-checks", "-db", dbPath, "-from", "Imported", "-to", "Shop", "-tag", "customer"); err == nil {
+		t.Fatal("a move that matched nothing")
+	}
+	if err := adminCmd("move-checks", "-db", dbPath, "-from", "Shop", "-to", "Shop", "-tag", "backup"); err == nil {
+		t.Fatal("a move within one project")
+	}
+	if err := adminCmd("rename-project", "-db", dbPath, "Imported", "Home lab"); err != nil {
+		t.Fatal(err)
+	}
+
+	st, ws, _ = openStore(ctx, dbPath)
+	defer st.Close()
+	admin, _ = st.AdminAccess(ctx, ws)
+	checks, _ := st.Checks(ctx, admin)
+	got := map[string]string{}
+	for _, c := range checks {
+		got[c.Name] = c.ProjectName
+	}
+	want := map[string]string{"printer-api": "Customer", "dashboard": "Customer", "shop-backup": "Shop", "hypervisor-backup": "Home lab"}
+	for name, project := range want {
+		if got[name] != project {
+			t.Errorf("%s is in %q, want %q", name, got[name], project)
+		}
+	}
+}

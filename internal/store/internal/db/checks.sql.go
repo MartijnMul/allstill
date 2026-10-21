@@ -637,6 +637,28 @@ func (q *Queries) MergeMeasured(ctx context.Context, arg MergeMeasuredParams) er
 	return err
 }
 
+const moveCheck = `-- name: MoveCheck :exec
+UPDATE checks SET project_id = ?1, version = version + 1, updated_at = ?2
+WHERE workspace_id = ?3 AND id = ?4
+`
+
+type MoveCheckParams struct {
+	ProjectID   string
+	UpdatedAt   int64
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) MoveCheck(ctx context.Context, arg MoveCheckParams) error {
+	_, err := q.db.ExecContext(ctx, moveCheck,
+		arg.ProjectID,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	return err
+}
+
 const openRuns = `-- name: OpenRuns :many
 SELECT id, rid, started_at, timed_out_at FROM runs
 WHERE check_id = ? AND ended_at IS NULL AND started_at IS NOT NULL
@@ -742,6 +764,22 @@ func (q *Queries) ProjectByPingKeyHash(ctx context.Context, pingKeyHash []byte) 
 		&i.DeletedAt,
 	)
 	return i, err
+}
+
+const projectOfCheck = `-- name: ProjectOfCheck :one
+SELECT project_id FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+`
+
+type ProjectOfCheckParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) ProjectOfCheck(ctx context.Context, arg ProjectOfCheckParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, projectOfCheck, arg.WorkspaceID, arg.ID)
+	var project_id string
+	err := row.Scan(&project_id)
+	return project_id, err
 }
 
 const restartRun = `-- name: RestartRun :exec

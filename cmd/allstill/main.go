@@ -38,6 +38,8 @@ Usage:
   allstill admin create-user [flags]     add a person, with a link to make a passkey
   allstill admin passkey-link [flags]    a new passkey link for someone
   allstill admin create-project NAME     create a project
+  allstill admin rename-project NAME NEW rename a project
+  allstill admin move-checks [flags]     move checks to another project
   allstill backup [flags] FILE           copy the database while it runs
   allstill version                       print the version
 

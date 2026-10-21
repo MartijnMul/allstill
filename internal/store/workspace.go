@@ -182,3 +182,31 @@ func (s *Store) AdminAccess(ctx context.Context, workspaceID string) (Access, er
 	}
 	return a, nil
 }
+
+// RenameProject gives a project a new name, which no other project may have.
+func (s *Store) RenameProject(ctx context.Context, workspaceID, projectID, name string) error {
+	if name == "" {
+		return &InvalidError{"name", "a project needs a name"}
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	ids, err := q.ProjectsByName(ctx, db.ProjectsByNameParams{WorkspaceID: workspaceID, Name: name})
+	if err != nil {
+		return err
+	}
+	if len(ids) > 0 && ids[0] != projectID {
+		return &InvalidError{"name", fmt.Sprintf("a project named %q exists already", name)}
+	}
+	n, err := q.RenameProject(ctx, db.RenameProjectParams{Name: name, WorkspaceID: workspaceID, ID: projectID})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return tx.Commit()
+}
