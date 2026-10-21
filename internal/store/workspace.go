@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/id"
@@ -150,4 +151,34 @@ func boolInt(b bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+// ProjectByName returns the id of the project with this name, ErrNotFound when
+// there is none, and an error when several share it.
+func (s *Store) ProjectByName(ctx context.Context, workspaceID, name string) (string, error) {
+	ids, err := db.New(s.r).ProjectsByName(ctx, db.ProjectsByNameParams{WorkspaceID: workspaceID, Name: name})
+	switch {
+	case err != nil:
+		return "", err
+	case len(ids) == 0:
+		return "", ErrNotFound
+	case len(ids) > 1:
+		return "", fmt.Errorf("%d projects are named %q", len(ids), name)
+	}
+	return ids[0], nil
+}
+
+// AdminAccess is the access of the administrator's command line: every
+// project, as owner. It is for commands run on the server itself, never for a
+// request.
+func (s *Store) AdminAccess(ctx context.Context, workspaceID string) (Access, error) {
+	rows, err := db.New(s.r).AllProjects(ctx, workspaceID)
+	if err != nil {
+		return Access{}, err
+	}
+	a := Access{WorkspaceID: workspaceID, Admin: true}
+	for _, r := range rows {
+		a.Projects = append(a.Projects, ProjectAccess{ID: r.ID, Name: r.Name, Role: Owner})
+	}
+	return a, nil
 }

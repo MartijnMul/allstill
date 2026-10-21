@@ -33,3 +33,9 @@ WHERE p.workspace_id = sqlc.arg(workspace_id)
   AND per.disabled_at IS NULL
   AND (m.role IS NOT NULL OR per.workspace_admin = 1)
 ORDER BY p.name, p.id;
+
+-- name: ProjectsByName :many
+SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY id;
+
+-- name: AllProjects :many
+SELECT id, name FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY name, id;

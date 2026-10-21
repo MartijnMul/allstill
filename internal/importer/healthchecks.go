@@ -1,0 +1,237 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Package importer brings checks over from Healthchecks.io or a self-hosted
+// Healthchecks through its API. Each check keeps its UUID, so a job that pings
+// it moves over by changing only the host in its ping URL; until then it can
+// ping both. Healthchecks projects map one to one onto Allstill projects.
+package importer
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/MartijnMul/allstill/internal/id"
+	"github.com/MartijnMul/allstill/internal/schedule"
+	"github.com/MartijnMul/allstill/internal/store"
+)
+
+// HCCheck is a check as Healthchecks' API (v3) describes it. Fields Allstill
+// does not use are kept in the check's settings, so nothing is lost.
+type HCCheck struct {
+	Name          string `json:"name"`
+	Status        string `json:"status"`
+	Slug          string `json:"slug"`
+	Tags          string `json:"tags"`
+	Desc          string `json:"desc"`
+	Grace         int64  `json:"grace"`
+	Timeout       int64  `json:"timeout"`
+	Schedule      string `json:"schedule"`
+	TZ            string `json:"tz"`
+	UUID          string `json:"uuid"`
+	ManualResume  bool   `json:"manual_resume"`
+	Methods       string `json:"methods"`
+	Subject       string `json:"subject"`
+	SubjectFail   string `json:"subject_fail"`
+	StartKw       string `json:"start_kw"`
+	SuccessKw     string `json:"success_kw"`
+	FailureKw     string `json:"failure_kw"`
+	FilterSubject bool   `json:"filter_subject"`
+	FilterBody    bool   `json:"filter_body"`
+}
+
+// Fetch lists the checks of the Healthchecks project the API key belongs to.
+// The key must be a read-write key: only that shows the checks' UUIDs. Fetch
+// only reads. The key travels only over HTTPS (plain HTTP to this machine
+// aside), and never follows a redirect to another host.
+func Fetch(ctx context.Context, client *http.Client, baseURL, apiKey string) ([]HCCheck, error) {
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api/v3/checks/")
+	if err != nil || u.Host == "" {
+		return nil, fmt.Errorf("%q is not a URL", baseURL)
+	}
+	if u.Scheme != "https" && !(u.Scheme == "http" && isLoopback(u.Hostname())) {
+		return nil, errors.New("the Healthchecks URL must use https, so the API key is not sent in the clear")
+	}
+	c := *client
+	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Host != u.Host || req.URL.Scheme != u.Scheme || len(via) > 5 {
+			return errors.New("refused a redirect elsewhere, which would carry the API key")
+		}
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("X-Api-Key", apiKey)
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("the Healthchecks API answered %s", resp.Status)
+	}
+	var body struct {
+		Checks []HCCheck `json:"checks"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&body); err != nil {
+		return nil, fmt.Errorf("reading the checks: %w", err)
+	}
+	for _, c := range body.Checks {
+		if c.UUID == "" {
+			return nil, errors.New("the checks have no UUIDs: use the project's read-write API key, not the read-only one")
+		}
+	}
+	return body.Checks, nil
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// Result says what became of one check.
+type Result struct {
+	Name    string
+	CheckID string // empty when not imported
+	Note    string // why it was skipped, or what changed
+}
+
+// Import creates the checks in a project. A check whose UUID is already in
+// Allstill is skipped, so an import can run again. A schedule Allstill cannot
+// read, such as systemd's OnCalendar, skips the check. A slug that a check
+// before it already took is left out, so the later check keeps its UUID pings
+// but not its slug pings.
+func Import(ctx context.Context, st *store.Store, a store.Access, projectID string, checks []HCCheck) ([]Result, error) {
+	taken := map[string]bool{}
+	var results []Result
+	for _, hc := range checks {
+		r := Result{Name: hc.Name}
+		n, why := convert(hc)
+		if n == nil {
+			r.Note = why
+			results = append(results, r)
+			continue
+		}
+		var notes []string
+		if n.Settings != nil {
+			notes = append(notes, "kept settings Allstill does not use yet: "+strings.Join(keys(n.Settings["healthchecks"]), ", "))
+		}
+		if n.Slug != "" && taken[n.Slug] {
+			notes = append(notes, fmt.Sprintf("its slug %q is used by an earlier check, so it was left out", n.Slug))
+			n.Slug = ""
+		}
+		c, err := st.CreateCheck(ctx, a, projectID, *n)
+		var inv *store.InvalidError
+		if errors.As(err, &inv) && inv.Field == "slug" && n.Slug != "" {
+			notes = append(notes, fmt.Sprintf("its slug %q is already used in the project, so it was left out", n.Slug))
+			n.Slug = ""
+			c, err = st.CreateCheck(ctx, a, projectID, *n)
+		}
+		switch {
+		case errors.Is(err, store.ErrExists):
+			notes = []string{"already in Allstill"}
+		case errors.As(err, &inv):
+			notes = []string{inv.Error()}
+		case err != nil:
+			return results, fmt.Errorf("%s: %w", hc.Name, err)
+		default:
+			r.CheckID = c.ID
+			if n.Slug != "" {
+				taken[n.Slug] = true
+			}
+		}
+		r.Note = strings.Join(notes, "; ")
+		results = append(results, r)
+	}
+	return results, nil
+}
+
+func keys(v any) []string {
+	m, _ := v.(map[string]any)
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// tags splits Healthchecks' space-separated tags, cut to what Allstill keeps:
+// 20 tags of at most 50 characters.
+func tags(s string) []string {
+	var out []string
+	for _, t := range strings.Fields(s) {
+		if len(out) == 20 {
+			break
+		}
+		if len(t) > 50 {
+			t = strings.ToValidUTF8(t[:50], "")
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+// convert maps a Healthchecks check onto a new Allstill check, or says why it
+// cannot.
+func convert(hc HCCheck) (*store.NewCheck, string) {
+	u, ok := id.ParseUUID(hc.UUID)
+	if !ok {
+		return nil, fmt.Sprintf("its UUID %q is not valid", hc.UUID)
+	}
+	name := strings.TrimSpace(hc.Name)
+	if name == "" {
+		name = hc.Slug
+	}
+	if name == "" {
+		name = u
+	}
+	n := &store.NewCheck{
+		Name:        name,
+		Slug:        hc.Slug,
+		Description: hc.Desc,
+		Tags:        tags(hc.Tags),
+		Paused:      hc.Status == "paused",
+		Grace:       time.Duration(hc.Grace) * time.Second,
+		PingUUID:    u,
+	}
+	if hc.Schedule != "" && hc.Timeout == 0 {
+		if _, err := schedule.ParseCron(hc.Schedule, hc.TZ); err != nil {
+			return nil, fmt.Sprintf("its schedule %q cannot be read: %v", hc.Schedule, err)
+		}
+		n.Cron, n.TimeZone = hc.Schedule, hc.TZ
+	} else {
+		n.Interval = time.Duration(hc.Timeout) * time.Second
+	}
+
+	// What Allstill does not use yet, kept for later and for the record.
+	kept := map[string]any{}
+	for k, v := range map[string]any{
+		"manual_resume": hc.ManualResume, "methods": hc.Methods, "subject": hc.Subject,
+		"subject_fail": hc.SubjectFail, "start_kw": hc.StartKw, "success_kw": hc.SuccessKw,
+		"failure_kw": hc.FailureKw, "filter_subject": hc.FilterSubject, "filter_body": hc.FilterBody,
+	} {
+		if v != "" && v != false {
+			kept[k] = v
+		}
+	}
+	if len(kept) > 0 {
+		n.Settings = map[string]any{"healthchecks": kept}
+	}
+	return n, ""
+}

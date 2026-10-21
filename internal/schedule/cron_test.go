@@ -211,3 +211,13 @@ func TestAgreesWithCronsim(t *testing.T) {
 		}
 	}
 }
+
+func TestAHugeStep(t *testing.T) {
+	c, err := ParseCron("1/9223372036854775807 * * * *", "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := c.Next(utc("2026-10-21T10:00:00Z")); !got.Equal(utc("2026-10-21T10:01:00Z")) {
+		t.Fatalf("%s", got)
+	}
+}

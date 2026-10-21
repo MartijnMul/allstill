@@ -6,7 +6,7 @@ Orientation and rules for AI coding assistants in this repository, and for anyon
 
 **Allstill**: a self-hosted dead man's switch and check service that replaces Healthchecks.io and does more, with a native macOS menu bar app. Goal: `README.md`. Stack and architecture: [ADR 0001](docs/adr/0001-stack-and-architecture.md); licences: [ADR 0002](docs/adr/0002-licence-and-contributor-agreement.md); the API: [`api/`](api/README.md). Don't add a dependency or an external service ADR 0001 doesn't allow without a new ADR.
 
-**Current status: phase 0**, the foundation. Go code lives in `internal/` (ids, cron schedules, the store and its migrations so far); `cmd/allstill` will only wire it together.
+**Current status: phase 0**, the foundation. The server receives pings and applies deadlines, and `allstill run` reports jobs; the importer, the dashboard and passkey login are next. Logic lives in `internal/`; `cmd/allstill` only wires it together.
 
 ## Commands
 

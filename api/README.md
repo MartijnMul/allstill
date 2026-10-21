@@ -14,7 +14,7 @@ curl -fsS -m 10 --retry 3 https://ping.example.com/ping/5f3e…/start
 curl -fsS -m 10 --retry 3 "https://ping.example.com/ping/5f3e…/$?"
 ```
 
-or, with the wrapper that does all of that and more: `allstill run --check backup -- ./backup.sh`.
+or, with the wrapper that does all of that and more: `allstill run --url https://ping.example.com/ping/5f3e… -- ./backup.sh`.
 
 Beyond Healthchecks, a ping can carry values for a check's rules: `v=name:number` in the query, repeatable (`/ping/5f3e…?v=size:18400000000&v=rows:312`), or an `Allstill-Values` header holding a Structured Field dictionary (RFC 9651), such as `size=18400000000, rows=312`.
 

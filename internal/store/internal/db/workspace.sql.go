@@ -37,6 +37,38 @@ func (q *Queries) AddMember(ctx context.Context, arg AddMemberParams) error {
 	return err
 }
 
+const allProjects = `-- name: AllProjects :many
+SELECT id, name FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY name, id
+`
+
+type AllProjectsRow struct {
+	ID   string
+	Name string
+}
+
+func (q *Queries) AllProjects(ctx context.Context, workspaceID string) ([]AllProjectsRow, error) {
+	rows, err := q.db.QueryContext(ctx, allProjects, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AllProjectsRow{}
+	for rows.Next() {
+		var i AllProjectsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createPerson = `-- name: CreatePerson :exec
 INSERT INTO people (id, workspace_id, name, email, workspace_admin, time_zone, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -126,6 +158,38 @@ func (q *Queries) Person(ctx context.Context, arg PersonParams) (Person, error) 
 		&i.DisabledAt,
 	)
 	return i, err
+}
+
+const projectsByName = `-- name: ProjectsByName :many
+SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY id
+`
+
+type ProjectsByNameParams struct {
+	WorkspaceID string
+	Name        string
+}
+
+func (q *Queries) ProjectsByName(ctx context.Context, arg ProjectsByNameParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, projectsByName, arg.WorkspaceID, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const projectsOfPerson = `-- name: ProjectsOfPerson :many

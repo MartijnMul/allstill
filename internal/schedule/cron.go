@@ -182,6 +182,9 @@ func parseField(f string, lo, hi int, names map[string]int) (uint64, error) {
 		}
 		for v := a; v <= b; v += step {
 			bits |= 1 << v
+			if step > b-v { // also keeps a huge step from overflowing
+				break
+			}
 		}
 	}
 	return bits, nil
