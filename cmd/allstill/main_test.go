@@ -144,4 +144,11 @@ func TestAdminCommands(t *testing.T) {
 	if err := admin("passkey-link", "-db", dbPath, "-email", "bob@example.com", "-base-url", "https://allstill.example.com"); err == nil {
 		t.Fatal("a link for nobody")
 	}
+	copyPath := filepath.Join(t.TempDir(), "copy.db")
+	if err := run(ctx, []string{"backup", "-db", dbPath, copyPath}, &out, &errOut); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin("passkey-link", "-db", copyPath, "-email", "ada@example.com", "-base-url", "https://allstill.example.com"); err != nil {
+		t.Fatalf("Ada is not in the copy: %v", err)
+	}
 }

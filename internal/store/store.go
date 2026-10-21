@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/url"
+	"os"
 	"runtime"
 	"sort"
 	"strconv"
@@ -41,8 +42,15 @@ type Store struct {
 }
 
 // Open opens or creates the database at path and brings its schema up to date.
+// Before it changes the schema of a database in use, it copies the database to
+// path.before-NNNN, NNNN being the first migration it applies.
 func Open(ctx context.Context, path string) (*Store, error) {
-	pragmas := []string{"foreign_keys(1)", "journal_mode(WAL)", "synchronous(NORMAL)", "busy_timeout(10000)"}
+	return openWith(ctx, path, migrations)
+}
+
+func openWith(ctx context.Context, path string, schema fs.FS) (*Store, error) {
+	// journal_size_limit shrinks the WAL file back after a burst of writes.
+	pragmas := []string{"foreign_keys(1)", "journal_mode(WAL)", "synchronous(NORMAL)", "busy_timeout(10000)", "journal_size_limit(67108864)"}
 	q := url.Values{"_pragma": pragmas}
 	// SQLite reads the path as a URI: escape what would end it or be decoded.
 	file := "file:" + strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
@@ -59,7 +67,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 	r.SetMaxOpenConns(max(4, runtime.NumCPU()))
 	s := &Store{w: w, r: r}
-	if err := s.migrate(ctx); err != nil {
+	if err := s.migrate(ctx, path, schema); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("migrating %s: %w", path, err)
 	}
@@ -76,8 +84,8 @@ type migration struct {
 	name    string
 }
 
-func list() ([]migration, error) {
-	names, err := fs.Glob(migrations, "migrations/*.sql")
+func list(schema fs.FS) ([]migration, error) {
+	names, err := fs.Glob(schema, "migrations/*.sql")
 	if err != nil {
 		return nil, err
 	}
@@ -105,21 +113,42 @@ func list() ([]migration, error) {
 // database as it was. The version is read inside the transaction, so two
 // processes opening a new file at once do not both migrate it. A database newer
 // than this binary is refused.
-func (s *Store) migrate(ctx context.Context) error {
-	ms, err := list()
+//
+// Foreign keys are off while migrating: a migration that rebuilds a table
+// drops it, and with them on, dropping a table deletes every row that refers
+// to it. SQLite ignores the pragma inside a transaction, so it is set around
+// them, and each migration must leave no reference broken.
+func (s *Store) migrate(ctx context.Context, path string, schema fs.FS) (err error) {
+	ms, err := list(schema)
 	if err != nil {
 		return err
 	}
+	if err := s.backUp(ctx, path, len(ms)); err != nil {
+		return err
+	}
+	conn, err := s.w.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		return err
+	}
+	defer func() {
+		// The connection is the store's only writer: it must not keep them off.
+		_, on := conn.ExecContext(context.WithoutCancel(ctx), "PRAGMA foreign_keys = ON")
+		err = errors.Join(err, on)
+	}()
 	for {
-		done, err := s.migrateOne(ctx, ms)
+		done, err := migrateOne(ctx, conn, schema, ms)
 		if done || err != nil {
 			return err
 		}
 	}
 }
 
-func (s *Store) migrateOne(ctx context.Context, ms []migration) (done bool, err error) {
-	tx, err := s.w.BeginTx(ctx, nil)
+func migrateOne(ctx context.Context, conn *sql.Conn, schema fs.FS, ms []migration) (done bool, err error) {
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
@@ -135,15 +164,70 @@ func (s *Store) migrateOne(ctx context.Context, ms []migration) (done bool, err 
 		return true, nil
 	}
 	m := ms[current]
-	body, err := migrations.ReadFile(m.name)
+	body, err := fs.ReadFile(schema, m.name)
 	if err != nil {
 		return false, err
 	}
 	if _, err := tx.ExecContext(ctx, string(body)); err != nil {
 		return false, fmt.Errorf("%s: %w", m.name, err)
 	}
+	var table string
+	switch err := tx.QueryRowContext(ctx, "PRAGMA foreign_key_check").Scan(&table, new(any), new(any), new(any)); {
+	case err == nil:
+		return false, fmt.Errorf("%s: leaves rows in %s that refer to a row that is gone", m.name, table)
+	case !errors.Is(err, sql.ErrNoRows):
+		return false, fmt.Errorf("%s: %w", m.name, err)
+	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", m.version)); err != nil {
 		return false, err
 	}
 	return false, tx.Commit()
+}
+
+// backUp copies a database in use whose schema is about to change. A copy
+// already there is kept: it is complete, and from before an earlier attempt.
+func (s *Store) backUp(ctx context.Context, path string, latest int) error {
+	var current int
+	if err := s.w.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
+		return err
+	}
+	if current == 0 || current >= latest {
+		return nil
+	}
+	err := s.Backup(ctx, fmt.Sprintf("%s.before-%04d", path, current+1))
+	if err != nil && !errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("copying the database before changing it: %w", err)
+	}
+	return nil
+}
+
+// Backup writes a consistent copy of the database to a new file, while it is
+// in use, readable by its owner only. The copy is written under another name
+// first, so a copy cut short leaves nothing at to. VACUUM INTO only reads, but
+// SQLite refuses it on a read-only connection; the copy holds up this store's
+// writes, not those of another process.
+func (s *Store) Backup(ctx context.Context, to string) error {
+	if _, err := os.Lstat(to); err == nil {
+		return fmt.Errorf("%s: %w", to, fs.ErrExist)
+	}
+	part := fmt.Sprintf("%s.partial-%d", to, os.Getpid())
+	os.Remove(part)
+	defer os.Remove(part)
+	// VACUUM INTO takes an empty file, made here so it is never readable by others.
+	f, err := os.OpenFile(part, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	if _, err := s.w.ExecContext(ctx, "VACUUM INTO ?", part); err != nil {
+		return err
+	}
+	// A link, unlike a rename, never replaces a copy another process made.
+	if err := os.Link(part, to); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("%s: %w", to, fs.ErrExist)
+		}
+		return os.Rename(part, to)
+	}
+	return nil
 }

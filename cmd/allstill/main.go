@@ -38,6 +38,7 @@ Usage:
   allstill admin create-user [flags]     add a person, with a link to make a passkey
   allstill admin passkey-link [flags]    a new passkey link for someone
   allstill admin create-project NAME     create a project
+  allstill backup [flags] FILE           copy the database while it runs
   allstill version                       print the version
 
 Run 'allstill <command> -h' for a command's flags.
@@ -76,6 +77,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return importCommand(ctx, args[1:], stdout, stderr)
 	case "admin":
 		return adminCommand(ctx, args[1:], stdout, stderr)
+	case "backup":
+		return backup(ctx, args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, "allstill", version())
 		return nil

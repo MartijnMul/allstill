@@ -71,6 +71,38 @@ func createProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 	return nil
 }
 
+func backup(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill backup [-db file] FILE
+
+Writes a consistent copy of the database to FILE, which must not exist yet,
+while Allstill runs. The copy is readable by its owner only.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("give the file to write the copy to; it must not exist yet")
+	}
+	st, err := store.Open(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if err := st.Backup(ctx, fs.Arg(0)); err != nil {
+		return fmt.Errorf("writing %s: %w", fs.Arg(0), err)
+	}
+	fmt.Fprintf(stdout, "Copied %s to %s.\n", *dbPath, fs.Arg(0))
+	return nil
+}
+
 func createUser(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("admin create-user", flag.ContinueOnError)
 	fs.SetOutput(stderr)

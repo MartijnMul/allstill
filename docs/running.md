@@ -36,7 +36,7 @@ A package upgrade restarts a running service; removing the package stops it and 
 
 ## Move from Healthchecks
 
-1. Copy a project's checks: `HEALTHCHECKS_API_KEY=… allstill import healthchecks -project "Backups"` (add `-url` for a self-hosted Healthchecks). Each check keeps its UUID, so a job only changes the host it pings.
+1. Copy a project's checks: `HEALTHCHECKS_API_KEY=… allstill import healthchecks -project "Backups"` (add `-url` for a self-hosted Healthchecks). Each check keeps its UUID, so a job that pings by UUID only changes the host. A job that pings by slug needs the project's new ping key as well, printed once when the import creates the project: Healthchecks does not hand out its own.
 2. Let jobs report to both for a while: `allstill run --url https://hc-ping.com/… --url https://allstill.example.com/ping/… -- ./backup.sh`, or two space-separated URLs in `ALLSTILL_URL`.
 3. Switch a check off at Healthchecks once Allstill has seen it as well for a few weeks.
 
@@ -44,7 +44,8 @@ The ping URLs and answers are those of Healthchecks, with one difference: hc-pin
 
 ## Keep it
 
-- **Backups.** Copy the database while it runs with `sqlite3 /var/lib/allstill/allstill.db ".backup /backup/allstill.db"`. Copying the file alone is not enough while Allstill runs.
+- **Backups.** Copy the database while it runs with `sudo -u allstill allstill backup -db /var/lib/allstill/allstill.db /var/lib/allstill/backup-$(date +%F).db` (in the container: `docker exec allstill allstill backup /home/nonroot/backup.db`), then move the copy somewhere else. Copying the file alone is not enough while Allstill runs.
+- **Upgrades.** Before a new version changes the database, it copies it next to itself, as `allstill.db.before-0003` for example. Delete the copy once the new version works.
 - **History.** Each check keeps its newest 1000 runs, and the output of its newest 100; `-keep-runs` and `-keep-output` change that.
 - **Watch Allstill itself** from somewhere else, such as one check at another service that Allstill's host pings.
 
