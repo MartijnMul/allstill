@@ -139,6 +139,38 @@ func TestPingsAndDeadlines(t *testing.T) {
 	}
 }
 
+func TestPingsWrittenOutOfOrderKeepTheirOrder(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two runs overlap: the second start is written first, then an end that
+	// arrived 5 ms earlier.
+	if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Start, "", t0.Add(time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", t0.Add(995*time.Millisecond))); err != nil {
+		t.Fatalf("the late end: %v", err)
+	}
+	runs, _ := db.New(f.s.r).RunsOfCheck(ctx, db.RunsOfCheckParams{CheckID: c.ID, ID: "run_~", Limit: 10})
+	if len(runs) != 1 || runs[0].Outcome != "success" || runs[0].EndedAt.Int64 != runs[0].StartedAt.Int64 {
+		t.Fatalf("runs %+v", runs)
+	}
+	// Only the run's end moves: the check's deadline follows the ping.
+	if got := f.get(t, c.ID); msTime(got.Deadline) != t0.Add(time.Hour+995*time.Millisecond) {
+		t.Fatalf("deadline %v", msTime(got.Deadline))
+	}
+	// So does a clock set back an hour: the deadline does not stay an hour late.
+	if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", t0.Add(-time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t, c.ID); msTime(got.Deadline) != t0 {
+		t.Fatalf("deadline after the clock went back %v", msTime(got.Deadline))
+	}
+}
+
 func TestPingsBySlug(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()

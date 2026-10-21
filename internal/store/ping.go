@@ -96,7 +96,7 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 		err = q.RestartRun(ctx, db.RestartRunParams{StartedAt: sql.NullInt64{Int64: at, Valid: true}, ID: act.RunID})
 	case check.Finish:
 		err = q.FinishRun(ctx, db.FinishRunParams{
-			Outcome: string(in.Kind), EndedAt: sql.NullInt64{Int64: at, Valid: true}, ExitStatus: exit, ID: act.RunID,
+			Outcome: string(in.Kind), EndedAt: sql.NullInt64{Int64: endOf(act.RunID, open, at), Valid: true}, ExitStatus: exit, ID: act.RunID,
 		})
 	case check.EndOnly:
 		runID = sql.NullString{String: id.New(id.Run), Valid: true}
@@ -355,6 +355,19 @@ func statusOf(c db.Check) check.Status {
 		NextExpected: msTime(c.NextExpectedAt),
 		Deadline:     msTime(c.Deadline),
 	}
+}
+
+// endOf is when a run ends: when its end arrived, but never before its start.
+// A ping is timed when it arrives and written when it gets the lock, so the
+// start of an overlapping run can be written first, a few milliseconds after
+// the end that closes it.
+func endOf(runID string, open []check.OpenRun, at int64) int64 {
+	for _, r := range open {
+		if r.ID == runID {
+			return max(at, r.Started.UnixMilli())
+		}
+	}
+	return at
 }
 
 func openRuns(ctx context.Context, q *db.Queries, checkID string) ([]check.OpenRun, error) {
