@@ -2,7 +2,7 @@
 
 Is it all still running? Allstill watches your cron jobs, backups, scripts and websites, tells you whether they ran and whether they actually worked, and keeps it calm: live status in your macOS menu bar, a digest in the morning, and your phone only when you need to act now.
 
-> **Status: early development.** Nothing to install yet. The architecture is in [ADR 0001](docs/adr/0001-stack-and-architecture.md), the API in [`api/`](api/README.md).
+> **Status: early development.** Not released yet; [docs/running.md](docs/running.md) describes how it will be installed and run. The architecture is in [ADR 0001](docs/adr/0001-stack-and-architecture.md), the API in [`api/`](api/README.md).
 
 ## What it does
 
@@ -15,7 +15,7 @@ Is it all still running? Allstill watches your cron jobs, backups, scripts and w
 
 ## How it runs
 
-One Go binary and one SQLite file. No database server, no cloud account. The same binary is the server, the job wrapper (`allstill run -- ./backup.sh`) and the probe.
+One Go binary and one SQLite file. No database server, no cloud account. The same binary is the server, the job wrapper (`allstill run -- ./backup.sh`) and the probe. It comes as a Linux package, a container image or a plain archive; [docs/running.md](docs/running.md) explains how to set it up.
 
 ## Licence
 

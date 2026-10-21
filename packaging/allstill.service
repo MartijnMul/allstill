@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Runs `allstill serve` as the user allstill, with its database in
+# /var/lib/allstill. Settings go in /etc/allstill/allstill.env.
+[Unit]
+Description=Allstill, which watches jobs, backups and sites
+Documentation=https://github.com/MartijnMul/allstill
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=allstill
+Group=allstill
+StateDirectory=allstill
+StateDirectoryMode=0750
+Environment=ALLSTILL_DB=/var/lib/allstill/allstill.db
+EnvironmentFile=-/etc/allstill/allstill.env
+ExecStart=/usr/bin/allstill serve
+Restart=on-failure
+RestartSec=5s
+
+# Allstill needs its state directory and the network, nothing else.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

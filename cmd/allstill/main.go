@@ -253,7 +253,13 @@ func envInt(name string, fallback int) (int, error) {
 	return n, nil
 }
 
+// buildVersion is set by the release build, as `-X main.buildVersion=1.2.3`.
+var buildVersion string
+
 func version() string {
+	if buildVersion != "" {
+		return buildVersion
+	}
 	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
 		return info.Main.Version
 	}

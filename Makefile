@@ -4,11 +4,13 @@
 # Node.js is needed on the machine.
 REDOCLY := docker run --rm -v "$(CURDIR)/api:/spec:ro" -w /spec redocly/cli:2.11.1
 
-# Go tools are pinned as `tool` directives in go.mod.
+# Go tools are pinned as `tool` directives in go.mod. GoReleaser is not: it
+# would add hundreds of modules to go.mod, so it runs pinned by version.
 GENERATED := internal/store/internal/db
+GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.18.2
 
 .PHONY: help check go-check fmt-check vet staticcheck test vulncheck generate generated-check \
-	api-lint hooks hooks-test secrets
+	api-lint hooks hooks-test secrets release-snapshot
 
 help: ## List the commands
 	@grep -E '^[a-z-]+:.*##' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -53,3 +55,6 @@ hooks: ## Install the git hooks: secrets, private terms, identity, trailers
 
 secrets: ## Scan the whole git history for committed secrets
 	gitleaks git --redact --verbose
+
+release-snapshot: ## Build every release artifact in dist/, without signing or publishing
+	$(GORELEASER) release --snapshot --clean --skip=sign,sbom

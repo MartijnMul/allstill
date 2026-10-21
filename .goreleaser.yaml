@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# How a release is built. Pushing a tag vX.Y.Z runs .github/workflows/release.yml,
+# which runs GoReleaser with this file: binaries for every platform ADR 0001
+# names, archives, Linux packages and a container image, with SBOMs, a
+# checksum file signed with cosign (keyless, by the workflow's identity) and
+# GitHub attestations. The release is made as a draft; a person publishes it.
+# A Homebrew tap comes later: it needs a repository of its own.
+version: 2
+project_name: allstill
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: allstill
+    main: ./cmd/allstill
+    binary: allstill
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.buildVersion={{ .Version }}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64, arm]
+    goarm: ["6", "7"]
+    ignore:
+      - {goos: darwin, goarch: arm}
+      - {goos: windows, goarch: arm}
+
+archives:
+  - formats: [tar.gz]
+    format_overrides:
+      - {goos: windows, formats: [zip]}
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args: [sign-blob, "--bundle=${signature}", "${artifact}", --yes]
+    artifacts: checksum
+
+nfpms:
+  - package_name: allstill
+    homepage: https://github.com/MartijnMul/allstill
+    maintainer: Martijn Mullié <74239755+MartijnMul@users.noreply.github.com>
+    description: Watches cron jobs, backups, scripts and websites, and tells you calmly whether they ran and worked.
+    license: AGPL-3.0-only
+    formats: [deb, rpm, apk]
+    bindir: /usr/bin
+    contents:
+      - src: packaging/allstill.service
+        dst: /usr/lib/systemd/system/allstill.service
+      - src: packaging/allstill.env
+        dst: /etc/allstill/allstill.env
+        type: config|noreplace
+        file_info: {mode: 0640}
+    scripts:
+      postinstall: packaging/postinstall.sh
+      preremove: packaging/preremove.sh
+    apk:
+      scripts:
+        postupgrade: packaging/postupgrade.sh
+
+dockers_v2:
+  - images: [ghcr.io/martijnmul/allstill]
+    # The version only: `latest` would point at a release still in draft.
+    tags: ["{{ .Version }}"]
+    dockerfile: packaging/Dockerfile
+    platforms: [linux/amd64, linux/arm64, linux/arm/v7]
+    annotations:
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.description": Watches cron jobs, backups, scripts and websites.
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.source": https://github.com/MartijnMul/allstill
+      "org.opencontainers.image.licenses": AGPL-3.0-only
+
+docker_signs:
+  - artifacts: all
+    args: [sign, "${artifact}@${digest}", --yes]
+
+docker_digest:
+  name_template: digests.txt
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^chore", "^docs", "^test"]
+
+release:
+  draft: true
+  prerelease: auto
