@@ -44,6 +44,15 @@ One Healthchecks project often holds checks that belong to different parties, to
 
 The ping URLs and answers are those of Healthchecks, with one difference: hc-ping.com answers a ping to a UUID it does not know with 200, Allstill with 404, as self-hosted Healthchecks does. A script that pings with `curl -f` fails on a wrong URL instead of passing quietly.
 
+## Alerts
+
+Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere; Web Push to your phone and email follow ([intent/alerts](../intent/alerts/spec.md)).
+
+- Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project.
+- New people have quiet hours from 22:00 to 07:00 in their time zone. An alert waits for the morning unless its check is critical.
+- After Allstill was down, or its host slept or its clock jumped forward, checks whose deadline passed meanwhile become unknown, not down, and nobody is alerted for them.
+- `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` (the daily digest at 08:00) or `none`. `-critical` breaks through quiet hours.
+
 ## Keep it
 
 - **Backups.** Copy the database while it runs with `sudo -u allstill allstill backup -db /var/lib/allstill/allstill.db /var/lib/allstill/backup-$(date +%F).db` (in the container: `docker exec allstill allstill backup /home/nonroot/backup.db`), then move the copy somewhere else. Copying the file alone is not enough while Allstill runs.

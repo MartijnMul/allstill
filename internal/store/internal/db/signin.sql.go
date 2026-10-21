@@ -226,7 +226,7 @@ func (q *Queries) PeopleCount(ctx context.Context, workspaceID string) (int64, e
 
 const personByEmail = `-- name: PersonByEmail :one
 
-SELECT id, workspace_id, name, email, workspace_admin, time_zone, created_at, disabled_at FROM people
+SELECT id, workspace_id, name, email, workspace_admin, time_zone, created_at, disabled_at, quiet_hours, digest_time, digest_at FROM people
 WHERE workspace_id = ? AND email = ?2 COLLATE NOCASE AND disabled_at IS NULL
 `
 
@@ -248,6 +248,9 @@ func (q *Queries) PersonByEmail(ctx context.Context, arg PersonByEmailParams) (P
 		&i.TimeZone,
 		&i.CreatedAt,
 		&i.DisabledAt,
+		&i.QuietHours,
+		&i.DigestTime,
+		&i.DigestAt,
 	)
 	return i, err
 }

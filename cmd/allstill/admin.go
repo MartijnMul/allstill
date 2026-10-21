@@ -29,6 +29,7 @@ const adminUsage = `Usage:
   allstill admin create-project [-db file] NAME
   allstill admin rename-project [-db file] NAME NEW-NAME
   allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
+  allstill admin set-alerting -project PROJECT -check NAME -urgency now|digest|none [-critical] [-db file]
 `
 
 func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -47,6 +48,8 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return renameProject(ctx, args[1:], stdout, stderr)
 	case "move-checks":
 		return moveChecks(ctx, args[1:], stdout, stderr)
+	case "set-alerting":
+		return setAlerting(ctx, args[1:], stdout, stderr)
 	}
 	fmt.Fprint(stderr, adminUsage)
 	return fmt.Errorf("unknown admin command %q", args[0])
@@ -207,6 +210,75 @@ Flags:
 	if moved < len(moving) {
 		return errors.New("some checks were not moved")
 	}
+	return nil
+}
+
+func setAlerting(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("admin set-alerting", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill admin set-alerting -project PROJECT -check NAME -urgency now|digest|none [-critical] [-db file]
+
+Sets how fast a problem with a check reaches people: now (their phone), digest
+(the daily digest) or none (shown, never sent). A critical check breaks
+through quiet hours.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	project := fs.String("project", "", "the project of the check")
+	name := fs.String("check", "", "the check's name")
+	urgency := fs.String("urgency", "now", "now, digest or none")
+	critical := fs.Bool("critical", false, "break through quiet hours")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" || *name == "" || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -project and -check")
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	projectID, err := st.ProjectByName(ctx, ws, *project)
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("no project is named %q", *project)
+	} else if err != nil {
+		return err
+	}
+	admin, err := st.AdminAccess(ctx, ws)
+	if err != nil {
+		return err
+	}
+	checks, err := st.Checks(ctx, admin)
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for _, c := range checks {
+		if c.ProjectID == projectID && c.Name == *name {
+			ids = append(ids, c.ID)
+		}
+	}
+	switch len(ids) {
+	case 0:
+		return fmt.Errorf("%s has no check named %q", *project, *name)
+	case 1:
+	default:
+		return fmt.Errorf("%s has %d checks named %q", *project, len(ids), *name)
+	}
+	if err := st.SetAlerting(ctx, ws, ids[0], *urgency, *critical); err != nil {
+		return err
+	}
+	what := *urgency
+	if *critical {
+		what += ", critical"
+	}
+	fmt.Fprintf(stdout, "%s in %s: %s.\n", *name, *project, what)
 	return nil
 }
 

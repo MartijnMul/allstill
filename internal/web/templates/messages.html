@@ -1,0 +1,42 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="page">
+  <div class="title">
+    <div><h1>Messages to you</h1></div>
+    {{if .Shadow}}
+    <p class="reason">Shadow mode: Allstill decides what it would tell you and records it here, but sends nothing yet. Compare it with the alerts you get elsewhere before relying on it.</p>
+    {{end}}
+  </div>
+
+  {{if .Nobody}}
+  <section class="panel">
+    <h2>Nobody would be told</h2>
+    <p class="muted">Nobody gets alerts for these projects: {{range $i, $p := .Nobody}}{{if $i}}, {{end}}{{$p}}{{end}}.</p>
+  </section>
+  {{end}}
+
+  <section class="panel">
+    <h2>Newest first</h2>
+    {{if .Messages}}
+    <div class="runs">
+      <table>
+        <caption class="sr">Messages to you, newest first</caption>
+        <thead><tr><th scope="col">When</th><th scope="col">Kind</th><th scope="col">What</th><th scope="col">Result</th></tr></thead>
+        <tbody>
+          {{range .Messages}}
+          <tr>
+            <td class="mono">{{.When}}</td>
+            <td>{{.Kind}}</td>
+            <td>{{range .Lines}}<div>{{.}}</div>{{end}}</td>
+            <td><span class="result"><i class="dot {{.Class}}" aria-hidden="true"></i>{{.State}}</span></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <p class="muted">Nothing yet. When a check goes down, what you are told appears here.</p>
+    {{end}}
+  </section>
+</main>
+{{end}}{{end}}

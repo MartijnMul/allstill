@@ -22,6 +22,7 @@ import (
 	"time"
 	_ "time/tzdata" // every time zone, also on hosts without a zone database
 
+	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/ingest"
 	"github.com/MartijnMul/allstill/internal/runner"
 	"github.com/MartijnMul/allstill/internal/scheduler"
@@ -40,6 +41,7 @@ Usage:
   allstill admin create-project NAME     create a project
   allstill admin rename-project NAME NEW rename a project
   allstill admin move-checks [flags]     move checks to another project
+  allstill admin set-alerting [flags]    how fast a check's problems reach people
   allstill backup [flags] FILE           copy the database while it runs
   allstill version                       print the version
 
@@ -168,8 +170,12 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		MaxHeaderBytes:    64 << 10,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
-	errs := make(chan error, 2)
+	// It records what it would send until an administrator switches alerts
+	// on; there are no channels yet (intent/alerts/spec.md).
+	sender := &alert.Sender{Store: st, Log: log, Now: time.Now}
+	errs := make(chan error, 3)
 	go func() { errs <- sched.Run(ctx) }()
+	go func() { errs <- sender.Run(ctx) }()
 	go func() {
 		log.Info("listening", "address", *listen, "dashboard", base.String(), "version", version())
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {

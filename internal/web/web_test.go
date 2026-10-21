@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/store"
 )
@@ -407,5 +408,40 @@ func disable(t *testing.T, f fixture, personID string) {
 	defer db.Close()
 	if _, err := db.Exec("UPDATE people SET disabled_at = 1 WHERE id = ?", personID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMessagesShowWhatWouldHaveBeenSent(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	if !strings.Contains(string(b.ok("GET", "/messages", nil)), "Nothing yet") {
+		t.Fatal("messages before any incident")
+	}
+
+	// A critical check, so quiet hours do not hold the alert back whenever the test runs.
+	if err := f.st.SetAlerting(ctx, f.ws, f.checkID, "now", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Ping(ctx, store.PingIn{CheckUUID: strings.TrimPrefix(f.pingURL, site+"/ping/"), Kind: check.Fail, ExitStatus: 3, Method: "POST", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	sender := &alert.Sender{Store: f.st, Log: slog.New(slog.DiscardHandler), Now: time.Now}
+	if err := sender.Pass(ctx); err != nil {
+		t.Fatal(err)
+	}
+	page := string(b.ok("GET", "/messages", nil))
+	if !strings.Contains(page, "Down: nightly-backup is down") || !strings.Contains(page, "Would have been sent") || !strings.Contains(page, "Shadow mode") {
+		t.Fatalf("messages page:\n%s", page)
+	}
+	if !strings.Contains(string(b.ok("GET", "/checks/"+f.checkID, nil)), "An incident is open since") {
+		t.Fatal("the check page does not show its incident")
+	}
+	// Bob is a viewer: he gets no alerts.
+	bob := f.browser(t)
+	f.register(t, bob, f.bob)
+	if !strings.Contains(string(bob.ok("GET", "/messages", nil)), "Nothing yet") {
+		t.Fatal("a viewer was alerted")
 	}
 }

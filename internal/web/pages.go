@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/store"
 )
@@ -252,6 +253,7 @@ type checkData struct {
 	C        store.CheckView
 	Look     look
 	Since    string
+	Incident string
 	Tiles    []tile
 	Schedule []pair
 	Chart    *chart
@@ -305,6 +307,18 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 	now := s.Now()
 	d := checkData{C: c, Look: lookOf(c.Status.State)}
 	d.Since = "since " + clock(now, c.Status.Since, v.Loc)
+	inc, err := s.Store.OpenIncident(r.Context(), c)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if inc != nil {
+		d.Incident = "An incident is open since " + clock(now, inc.OpenedAt, v.Loc) + "."
+		if !inc.RecoveringSince.IsZero() {
+			d.Incident += " It is back since " + clock(now, inc.RecoveringSince, v.Loc) +
+				", and closes at " + clock(now, inc.RecoveringSince.Add(alert.Settle), v.Loc) + " if it stays so."
+		}
+	}
 	d.PingURL = s.base.String() + "/ping/" + c.PingUUID
 	if c.Slug != "" {
 		d.SlugURL = s.base.String() + "/ping/<ping key>/" + c.Slug

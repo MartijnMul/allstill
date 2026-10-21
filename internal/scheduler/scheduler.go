@@ -19,6 +19,12 @@ const Heartbeat = 30 * time.Second
 // retry is how long the scheduler waits after a failed pass.
 const retry = 5 * time.Second
 
+// JumpLimit is how far the clock may move forward beyond the time that
+// passed before the scheduler treats it as a restart: a board without a clock
+// that learns the time after it started would otherwise see every deadline
+// pass at once, and alert for each.
+const JumpLimit = time.Minute
+
 // TidyEvery is how often history beyond what checks keep is removed, the
 // first time a minute after the start. A round goes a few checks at a time,
 // with a pause between, so pings get in.
@@ -44,6 +50,8 @@ type Scheduler struct {
 	mu      sync.Mutex
 	pending time.Time // the earliest nudged deadline not yet seen by Run
 	wake    chan struct{}
+
+	seen time.Time // when Run last looked at the clock, with its monotonic reading
 }
 
 // New returns a scheduler; Run starts it.
@@ -68,6 +76,7 @@ func (s *Scheduler) Nudge(deadline time.Time) {
 // unknown, then applies deadlines until ctx ends.
 func (s *Scheduler) Run(ctx context.Context) error {
 	now := time.Now()
+	s.seen = now
 	if err := s.store.Recover(ctx, now); err != nil {
 		return err
 	}
@@ -102,7 +111,8 @@ func (s *Scheduler) Run(ctx context.Context) error {
 			}
 			s.pending = time.Time{}
 			s.mu.Unlock()
-		case now := <-heartbeat.C:
+		case <-heartbeat.C:
+			now := s.look(ctx)
 			if err := s.store.Alive(ctx, now); err != nil && ctx.Err() == nil {
 				s.log.Error("recording the heartbeat", "error", err)
 			}
@@ -110,9 +120,27 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 }
 
+// look reads the clock. When it jumped forward, the deadlines it skipped are
+// handled as after a restart: their checks become unknown, not down.
+func (s *Scheduler) look(ctx context.Context) time.Time {
+	now := time.Now()
+	if jumped(now.Round(0).Sub(s.seen.Round(0)), now.Sub(s.seen)) {
+		s.log.Warn("the clock jumped forward; checks whose deadlines it skipped are unknown", "by", now.Round(0).Sub(s.seen.Round(0))-now.Sub(s.seen))
+		if err := s.store.Recover(ctx, now); err != nil && ctx.Err() == nil {
+			s.log.Error("recovering after the clock jumped", "error", err)
+		}
+	}
+	s.seen = now
+	return now
+}
+
+// jumped says whether the wall clock moved more than JumpLimit beyond the
+// time that passed.
+func jumped(wall, elapsed time.Duration) bool { return wall-elapsed > JumpLimit }
+
 // pass applies the deadlines that have passed and returns the next one.
 func (s *Scheduler) pass(ctx context.Context) time.Time {
-	next, err := s.store.ProcessDue(ctx, time.Now())
+	next, err := s.store.ProcessDue(ctx, s.look(ctx))
 	if err != nil {
 		if ctx.Err() == nil {
 			s.log.Error("applying deadlines", "error", err)

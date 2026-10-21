@@ -94,7 +94,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{},
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html"))
-	for _, name := range []string{"login", "setup", "overview", "check", "error"} {
+	for _, name := range []string{"login", "setup", "overview", "check", "messages", "error"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}
@@ -110,6 +110,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	}
 	handle("GET /{$}", s.signedIn(s.overview))
 	handle("GET /checks/{id}", s.signedIn(s.checkPage))
+	handle("GET /messages", s.signedIn(s.messagesPage))
 	handle("GET /login", s.loginPage)
 	handle("POST /login/begin", s.loginBegin)
 	handle("POST /login/finish", s.loginFinish)

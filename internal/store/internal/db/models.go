@@ -10,6 +10,18 @@ import (
 	"database/sql"
 )
 
+type Channel struct {
+	ID          string
+	WorkspaceID string
+	PersonID    sql.NullString
+	Kind        string
+	Name        string
+	Config      string
+	VerifiedAt  sql.NullInt64
+	FailedAt    sql.NullInt64
+	CreatedAt   int64
+}
+
 type Check struct {
 	ID              string
 	WorkspaceID     string
@@ -36,6 +48,22 @@ type Check struct {
 	CreatedAt       int64
 	UpdatedAt       int64
 	DeletedAt       sql.NullInt64
+	Urgency         string
+	Critical        int64
+}
+
+type Delivery struct {
+	ID          string
+	WorkspaceID string
+	PersonID    string
+	ChannelID   sql.NullString
+	Kind        string
+	Items       string
+	State       string
+	Attempts    int64
+	LastError   sql.NullString
+	CreatedAt   int64
+	SentAt      sql.NullInt64
 }
 
 type Event struct {
@@ -45,6 +73,34 @@ type Event struct {
 	Type        string
 	SubjectID   string
 	CreatedAt   int64
+}
+
+type Incident struct {
+	ID              string
+	WorkspaceID     string
+	Title           string
+	State           string
+	Urgency         string
+	Critical        int64
+	CauseCheckID    sql.NullString
+	OpenedAt        int64
+	RecoveringSince sql.NullInt64
+	AcknowledgedAt  sql.NullInt64
+	AcknowledgedBy  sql.NullString
+	ResolvedAt      sql.NullInt64
+	ResolveReason   sql.NullString
+	MergedInto      sql.NullString
+}
+
+type IncidentCheck struct {
+	WorkspaceID string
+	IncidentID  string
+	CheckID     string
+	CheckName   string
+	ProjectID   string
+	JoinedAt    int64
+	LeftAt      sql.NullInt64
+	Open        int64
 }
 
 type Installation struct {
@@ -58,6 +114,7 @@ type Membership struct {
 	PersonID    string
 	Role        string
 	CreatedAt   int64
+	Alerts      int64
 }
 
 type Passkey struct {
@@ -90,6 +147,9 @@ type Person struct {
 	TimeZone       string
 	CreatedAt      int64
 	DisabledAt     sql.NullInt64
+	QuietHours     sql.NullString
+	DigestTime     string
+	DigestAt       sql.NullInt64
 }
 
 type Ping struct {
@@ -117,6 +177,17 @@ type Project struct {
 	DefaultGrace     int64
 	CreatedAt        int64
 	DeletedAt        sql.NullInt64
+}
+
+type Recipient struct {
+	WorkspaceID string
+	IncidentID  string
+	PersonID    string
+	Told        string
+	ToldAt      sql.NullInt64
+	ToldHow     sql.NullString
+	ToldShadow  int64
+	DueAt       sql.NullInt64
 }
 
 type Run struct {

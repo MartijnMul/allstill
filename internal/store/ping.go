@@ -382,7 +382,8 @@ func openRuns(ctx context.Context, q *db.Queries, checkID string) ([]check.OpenR
 	return open, nil
 }
 
-// saveStatus writes a check's new status, and an event when its state changed.
+// saveStatus writes a check's new status, and when its state changed, an
+// event and the change to its incident.
 func saveStatus(ctx context.Context, q *db.Queries, c db.Check, before, after check.Status) error {
 	if after == before {
 		return nil
@@ -393,6 +394,9 @@ func saveStatus(ctx context.Context, q *db.Queries, c db.Check, before, after ch
 		ID: c.ID,
 	})
 	if err != nil || after.State == before.State {
+		return err
+	}
+	if err := incidentStep(ctx, q, c, after); err != nil {
 		return err
 	}
 	return q.CreateEvent(ctx, db.CreateEventParams{

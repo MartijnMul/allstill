@@ -176,6 +176,19 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 		}
 		return err
 	}
+	// An open incident goes along: the new project's people follow it from now.
+	if open, err := q.OpenIncidentOfCheck(ctx, checkID); err == nil {
+		if err := q.MoveIncidentCheck(ctx, db.MoveIncidentCheckParams{ProjectID: toProjectID, CheckID: checkID}); err != nil {
+			return err
+		}
+		// They should have known since it opened, so the sender looks at once.
+		err := q.AddFollowers(ctx, db.AddFollowersParams{IncidentID: open.ID, DueAt: sql.NullInt64{Int64: open.OpenedAt, Valid: true}, ProjectID: toProjectID, WorkspaceID: workspaceID})
+		if err != nil {
+			return err
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	// It leaves the one project and arrives in the other, in that order, so
 	// who sees both ends up with the check.
 	for _, e := range []struct{ project, kind string }{{from, "check.removed"}, {toProjectID, "check.updated"}} {

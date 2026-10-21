@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.2.0
+  version: 0.3.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -1479,8 +1479,21 @@ components:
         state: {$ref: '#/components/schemas/IncidentState'}
         urgency:
           type: string
-          enum: [now, digest]
+          description: |
+            How fast it reaches people, from its cause's Alerting: `now`, `digest`, or
+            `none`, shown but never sent. Clients should expect new values.
+          enum: [now, digest, none]
         opened_at: {type: string, format: date-time}
+        recovering_since:
+          type: string
+          format: date-time
+          description: |
+            Its checks are back up since then. It stays open until they have stayed
+            up for the settle period, so a check that flaps stays in one incident.
+        resolve_reason:
+          type: string
+          description: Why it resolved. Clients should expect new values.
+          enum: [recovered, paused, deleted]
         acknowledged_at: {type: string, format: date-time}
         acknowledged_by: {type: string, description: The name of who acknowledged it.}
         resolved_at: {type: string, format: date-time}

@@ -87,7 +87,7 @@ The sender compares that with what was told and sends only the difference. So se
 - Who follows an incident is worked out from each check's current project, so a check moved to another project during an incident is followed by the new project's people. Those who now follow it are added as recipients when it moves.
 - `projects.recovery_messages` exists already.
 - A check gets the urgency and critical flag the API describes.
-- A person gets quiet hours and a digest time. The quiet hours carry their own time zone (as in the API), defaulting to the person's. A period that crosses midnight belongs to the day it starts. An end inside a daylight-saving gap moves to the first valid time.
+- A person gets quiet hours and a digest time. The quiet hours carry their own time zone (as in the API), defaulting to the person's. A period that crosses midnight belongs to the day it starts. An end inside a daylight-saving gap moves on by the length of the gap (02:30 becomes 03:30).
 
 **Channels.**
 - One `Channel` interface, as in ADR 0001. Send returns whether to retry, whether the address is gone (a Web Push subscription that answers 404 or 410 is removed) or whether the failure is permanent.

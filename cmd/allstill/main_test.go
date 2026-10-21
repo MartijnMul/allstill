@@ -204,6 +204,18 @@ func TestMoveChecksAndRenameProject(t *testing.T) {
 	if err := adminCmd("move-checks", "-db", dbPath, "-from", "Shop", "-to", "Shop", "-tag", "backup"); err == nil {
 		t.Fatal("a move within one project")
 	}
+	if err := adminCmd("set-alerting", "-db", dbPath, "-project", "Customer", "-check", "printer-api", "-urgency", "digest", "-critical"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "printer-api in Customer: digest, critical") {
+		t.Fatalf("set-alerting printed %q", out.String())
+	}
+	if err := adminCmd("set-alerting", "-db", dbPath, "-project", "Shop", "-check", "shop-backup"); err == nil {
+		t.Fatal("two checks with one name")
+	}
+	if err := adminCmd("set-alerting", "-db", dbPath, "-project", "Customer", "-check", "printer-api", "-urgency", "loud"); err == nil {
+		t.Fatal("an urgency that does not exist")
+	}
 	if err := adminCmd("rename-project", "-db", dbPath, "Imported", "Home lab"); err != nil {
 		t.Fatal(err)
 	}

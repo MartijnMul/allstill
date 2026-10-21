@@ -7,6 +7,7 @@
       <span class="pill {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}} {{.Since}}</span>
     </div>
     {{if .C.Status.Reason}}<p class="reason">{{.C.Status.Reason}}</p>{{end}}
+    {{if .Incident}}<p class="reason">{{.Incident}} <a href="/messages">Messages</a></p>{{end}}
     <p>{{if .C.Description}}{{.C.Description}} · {{end}}{{.C.ProjectName}}</p>
   </div>
 

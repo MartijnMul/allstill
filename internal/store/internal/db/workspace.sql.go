@@ -13,9 +13,11 @@ import (
 )
 
 const addMember = `-- name: AddMember :exec
-INSERT INTO memberships (workspace_id, project_id, person_id, role, created_at)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT (project_id, person_id) DO UPDATE SET role = excluded.role
+INSERT INTO memberships (workspace_id, project_id, person_id, role, created_at, alerts)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (project_id, person_id) DO UPDATE SET
+    role = excluded.role,
+    alerts = CASE WHEN memberships.role = 'viewer' AND excluded.role <> 'viewer' THEN 1 ELSE memberships.alerts END
 `
 
 type AddMemberParams struct {
@@ -24,8 +26,11 @@ type AddMemberParams struct {
 	PersonID    string
 	Role        string
 	CreatedAt   int64
+	Alerts      int64
 }
 
+// A new member gets alerts unless they are a viewer; so does a viewer who
+// becomes an editor or owner. Other changes of role keep the setting.
 func (q *Queries) AddMember(ctx context.Context, arg AddMemberParams) error {
 	_, err := q.db.ExecContext(ctx, addMember,
 		arg.WorkspaceID,
@@ -33,6 +38,7 @@ func (q *Queries) AddMember(ctx context.Context, arg AddMemberParams) error {
 		arg.PersonID,
 		arg.Role,
 		arg.CreatedAt,
+		arg.Alerts,
 	)
 	return err
 }
@@ -70,8 +76,8 @@ func (q *Queries) AllProjects(ctx context.Context, workspaceID string) ([]AllPro
 }
 
 const createPerson = `-- name: CreatePerson :exec
-INSERT INTO people (id, workspace_id, name, email, workspace_admin, time_zone, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO people (id, workspace_id, name, email, workspace_admin, time_zone, created_at, quiet_hours)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreatePersonParams struct {
@@ -82,6 +88,7 @@ type CreatePersonParams struct {
 	WorkspaceAdmin int64
 	TimeZone       string
 	CreatedAt      int64
+	QuietHours     sql.NullString
 }
 
 func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) error {
@@ -93,6 +100,7 @@ func (q *Queries) CreatePerson(ctx context.Context, arg CreatePersonParams) erro
 		arg.WorkspaceAdmin,
 		arg.TimeZone,
 		arg.CreatedAt,
+		arg.QuietHours,
 	)
 	return err
 }
@@ -136,7 +144,7 @@ func (q *Queries) CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams
 }
 
 const person = `-- name: Person :one
-SELECT id, workspace_id, name, email, workspace_admin, time_zone, created_at, disabled_at FROM people WHERE workspace_id = ? AND id = ? AND disabled_at IS NULL
+SELECT id, workspace_id, name, email, workspace_admin, time_zone, created_at, disabled_at, quiet_hours, digest_time, digest_at FROM people WHERE workspace_id = ? AND id = ? AND disabled_at IS NULL
 `
 
 type PersonParams struct {
@@ -156,6 +164,9 @@ func (q *Queries) Person(ctx context.Context, arg PersonParams) (Person, error) 
 		&i.TimeZone,
 		&i.CreatedAt,
 		&i.DisabledAt,
+		&i.QuietHours,
+		&i.DigestTime,
+		&i.DigestAt,
 	)
 	return i, err
 }

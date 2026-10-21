@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -59,7 +60,18 @@ type NewPerson struct {
 	WorkspaceAdmin bool
 }
 
-// CreatePerson adds a person to the workspace and returns their id.
+// DefaultQuietHours is when a new person may not be disturbed, except by a
+// critical check: every night from 22:00 to 07:00 in their time zone.
+func DefaultQuietHours(timeZone string) string {
+	b, _ := json.Marshal(map[string]any{"time_zone": timeZone, "periods": []map[string]any{{
+		"days":  []string{"mon", "tue", "wed", "thu", "fri", "sat", "sun"},
+		"start": "22:00", "end": "07:00",
+	}}})
+	return string(b)
+}
+
+// CreatePerson adds a person to the workspace and returns their id. They get
+// the default quiet hours.
 func (s *Store) CreatePerson(ctx context.Context, workspaceID string, p NewPerson) (string, error) {
 	personID := id.New(id.Person)
 	if p.TimeZone == "" {
@@ -73,6 +85,7 @@ func (s *Store) CreatePerson(ctx context.Context, workspaceID string, p NewPerso
 		WorkspaceAdmin: boolInt(p.WorkspaceAdmin),
 		TimeZone:       p.TimeZone,
 		CreatedAt:      now(),
+		QuietHours:     sql.NullString{String: DefaultQuietHours(p.TimeZone), Valid: true},
 	})
 	return personID, err
 }
@@ -88,10 +101,12 @@ func (s *Store) CreateProject(ctx context.Context, workspaceID, name string) (pr
 	return projectID, pingKey, err
 }
 
-// SetMember gives a person a role in a project.
+// SetMember gives a person a role in a project. A new member who is no viewer
+// gets alerts for it.
 func (s *Store) SetMember(ctx context.Context, workspaceID, projectID, personID string, role Role) error {
 	return db.New(s.w).AddMember(ctx, db.AddMemberParams{
 		WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID, Role: string(role), CreatedAt: now(),
+		Alerts: boolInt(role != Viewer),
 	})
 }
 

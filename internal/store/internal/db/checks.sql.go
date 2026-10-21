@@ -13,7 +13,7 @@ import (
 )
 
 const checkByID = `-- name: CheckByID :one
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
 `
 
 type CheckByIDParams struct {
@@ -50,13 +50,15 @@ func (q *Queries) CheckByID(ctx context.Context, arg CheckByIDParams) (Check, er
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Urgency,
+		&i.Critical,
 	)
 	return i, err
 }
 
 const checkByPingUUID = `-- name: CheckByPingUUID :one
 
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at FROM checks WHERE ping_uuid = ? AND deleted_at IS NULL
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks WHERE ping_uuid = ? AND deleted_at IS NULL
 `
 
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -89,12 +91,14 @@ func (q *Queries) CheckByPingUUID(ctx context.Context, pingUuid string) (Check, 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Urgency,
+		&i.Critical,
 	)
 	return i, err
 }
 
 const checkBySlug = `-- name: CheckBySlug :one
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at FROM checks WHERE project_id = ? AND slug = ? AND deleted_at IS NULL
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks WHERE project_id = ? AND slug = ? AND deleted_at IS NULL
 `
 
 type CheckBySlugParams struct {
@@ -131,6 +135,8 @@ func (q *Queries) CheckBySlug(ctx context.Context, arg CheckBySlugParams) (Check
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Urgency,
+		&i.Critical,
 	)
 	return i, err
 }
@@ -171,7 +177,7 @@ func (q *Queries) ChecksAfter(ctx context.Context, arg ChecksAfterParams) ([]str
 }
 
 const checksOfProject = `-- name: ChecksOfProject :many
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at FROM checks
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks
 WHERE workspace_id = ? AND project_id = ? AND deleted_at IS NULL
 ORDER BY name, id
 `
@@ -216,6 +222,8 @@ func (q *Queries) ChecksOfProject(ctx context.Context, arg ChecksOfProjectParams
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Urgency,
+			&i.Critical,
 		); err != nil {
 			return nil, err
 		}
@@ -502,7 +510,7 @@ func (q *Queries) DropOutputUpTo(ctx context.Context, arg DropOutputUpToParams) 
 }
 
 const dueChecks = `-- name: DueChecks :many
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at FROM checks
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks
 WHERE deadline IS NOT NULL AND deadline <= ? AND deleted_at IS NULL
 ORDER BY deadline
 LIMIT ?
@@ -548,6 +556,8 @@ func (q *Queries) DueChecks(ctx context.Context, arg DueChecksParams) ([]Check, 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Urgency,
+			&i.Critical,
 		); err != nil {
 			return nil, err
 		}
@@ -871,6 +881,33 @@ func (q *Queries) RunsOfCheck(ctx context.Context, arg RunsOfCheckParams) ([]Run
 		return nil, err
 	}
 	return items, nil
+}
+
+const setAlerting = `-- name: SetAlerting :execrows
+UPDATE checks SET urgency = ?, critical = ?, version = version + 1, updated_at = ?
+WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+`
+
+type SetAlertingParams struct {
+	Urgency     string
+	Critical    int64
+	UpdatedAt   int64
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) SetAlerting(ctx context.Context, arg SetAlertingParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAlerting,
+		arg.Urgency,
+		arg.Critical,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setInstallationValue = `-- name: SetInstallationValue :exec

@@ -177,3 +177,19 @@ func TestTidiesEveryTenMinutes(t *testing.T) {
 		}
 	})
 }
+
+func TestAJumpForwardIsARestart(t *testing.T) {
+	for _, c := range []struct {
+		wall, elapsed time.Duration
+		jumped        bool
+	}{
+		{30 * time.Second, 30 * time.Second, false},
+		{2 * time.Minute, time.Minute, false},
+		{3 * time.Hour, 30 * time.Second, true}, // the clock learnt the time after the start
+		{-time.Hour, 30 * time.Second, false},   // set back: the deadlines are still ahead
+	} {
+		if got := jumped(c.wall, c.elapsed); got != c.jumped {
+			t.Errorf("wall %s, elapsed %s: jumped %v", c.wall, c.elapsed, got)
+		}
+	}
+}

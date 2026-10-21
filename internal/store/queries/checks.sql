@@ -150,3 +150,7 @@ SELECT project_id FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at I
 -- name: MoveCheck :exec
 UPDATE checks SET project_id = sqlc.arg(project_id), version = version + 1, updated_at = sqlc.arg(updated_at)
 WHERE workspace_id = sqlc.arg(workspace_id) AND id = sqlc.arg(id);
+
+-- name: SetAlerting :execrows
+UPDATE checks SET urgency = ?, critical = ?, version = version + 1, updated_at = ?
+WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
