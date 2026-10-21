@@ -166,7 +166,7 @@ func TestFetchFlips(t *testing.T) {
 		}
 		gotQuery = r.URL.RawQuery
 		// Newest first, as Healthchecks lists them.
-		w.Write([]byte(`[{"timestamp": "2026-10-02T03:40:00+00:00", "up": 1}, {"timestamp": "2026-10-02T03:12:00+02:00", "up": 0}]`))
+		w.Write([]byte(`{"flips": [{"timestamp": "2026-10-02T03:40:00+00:00", "up": 1}, {"timestamp": "2026-10-02T03:12:00+02:00", "up": 0}]}`))
 	}))
 	defer hc.Close()
 	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
@@ -180,5 +180,33 @@ func TestFetchFlips(t *testing.T) {
 	}
 	if _, err := FetchFlips(t.Context(), http.DefaultClient, hc.URL, "rw-key", unknown, since); err == nil || !strings.Contains(err.Error(), "404") {
 		t.Fatalf("an unknown check: %v", err)
+	}
+}
+
+func TestReadFlips(t *testing.T) {
+	change := `{"timestamp": "2026-10-02T03:40:00+00:00", "up": 1}`
+	for _, c := range []struct {
+		answer string
+		n      int // changes read, or -1 for refused
+	}{
+		{`{"flips": [` + change + `]}`, 1},
+		{`[` + change + `]`, 1}, // as the documentation shows it
+		{`{"flips": []}`, 0},
+		{`[]`, 0},
+		// Never taken for no changes:
+		{`{}`, -1},
+		{`{"detail": "something else"}`, -1},
+		{`{"flips": null}`, -1},
+		{`null`, -1},
+		{`"text"`, -1},
+		{`{"flips": [{}]}`, -1},
+		{`{"flips": [{"timestamp": "2026-10-02T03:40:00+00:00"}]}`, -1},
+		{`{"flips": [{"timestamp": "2026-10-02T03:40:00+00:00", "up": true}]}`, -1},
+		{`{"flips": [{"timestamp": "2026-10-02T03:40:00+00:00", "up": 2}]}`, -1},
+	} {
+		flips, err := readFlips(json.RawMessage(c.answer))
+		if (c.n < 0) != (err != nil) || (c.n >= 0 && len(flips) != c.n) {
+			t.Errorf("%s: %d changes, %v", c.answer, len(flips), err)
+		}
 	}
 }

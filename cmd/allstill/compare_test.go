@@ -68,8 +68,8 @@ func TestCompareHealthchecks(t *testing.T) {
 	// Healthchecks saw the backup the same, the heartbeat down for ten
 	// minutes, and has a check Allstill does not.
 	flips := map[string]string{
-		uuids["backup"]:    fmt.Sprintf(`[{"timestamp": %q, "up": 1}, {"timestamp": %q, "up": 0}]`, ago(39).Format(time.RFC3339), ago(51).Format(time.RFC3339)),
-		uuids["heartbeat"]: fmt.Sprintf(`[{"timestamp": %q, "up": 1}, {"timestamp": %q, "up": 0}]`, ago(20).Format(time.RFC3339), ago(30).Format(time.RFC3339)),
+		uuids["backup"]:    fmt.Sprintf(`{"flips": [{"timestamp": %q, "up": 1}, {"timestamp": %q, "up": 0}]}`, ago(39).Format(time.RFC3339), ago(51).Format(time.RFC3339)),
+		uuids["heartbeat"]: fmt.Sprintf(`{"flips": [{"timestamp": %q, "up": 1}, {"timestamp": %q, "up": 0}]}`, ago(20).Format(time.RFC3339), ago(30).Format(time.RFC3339)),
 	}
 	hc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v3/checks/" {

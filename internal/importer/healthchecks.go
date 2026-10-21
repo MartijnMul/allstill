@@ -7,6 +7,7 @@
 package importer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -75,20 +76,53 @@ type Flip struct {
 // FetchFlips lists a check's status changes since a time, oldest first.
 // Healthchecks keeps them for the current month and the two before it.
 func FetchFlips(ctx context.Context, client *http.Client, baseURL, apiKey, uuid string, since time.Time) ([]Flip, error) {
-	var body []struct {
-		Timestamp time.Time `json:"timestamp"`
-		Up        int       `json:"up"`
-	}
+	var raw json.RawMessage
 	path := "/api/v3/checks/" + url.PathEscape(uuid) + "/flips/"
 	query := url.Values{"start": {strconv.FormatInt(since.Unix(), 10)}}
-	if err := get(ctx, client, baseURL, apiKey, path, query, &body); err != nil {
+	if err := get(ctx, client, baseURL, apiKey, path, query, &raw); err != nil {
 		return nil, fmt.Errorf("reading its status changes: %w", err)
 	}
-	flips := make([]Flip, len(body))
-	for i, f := range body {
-		flips[i] = Flip{At: f.Timestamp.UTC(), Up: f.Up == 1}
+	flips, err := readFlips(raw)
+	if err != nil {
+		return nil, fmt.Errorf("reading its status changes: %w", err)
 	}
 	slices.SortStableFunc(flips, func(a, b Flip) int { return a.At.Compare(b.At) })
+	return flips, nil
+}
+
+// readFlips reads Healthchecks' answer, {"flips": [...]}, or the bare list
+// its documentation shows. An answer without the list is refused, so it is
+// never taken for no changes.
+func readFlips(raw json.RawMessage) ([]Flip, error) {
+	var list []struct {
+		Timestamp time.Time `json:"timestamp"`
+		Up        *int      `json:"up"`
+	}
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || trimmed[0] != '[' {
+		var body struct {
+			Flips *json.RawMessage `json:"flips"`
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			return nil, fmt.Errorf("the answer is not a list of changes: %w", err)
+		}
+		if body.Flips == nil {
+			return nil, errors.New("the answer holds no list of changes")
+		}
+		raw = *body.Flips
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil, fmt.Errorf("the answer is not a list of changes: %w", err)
+	}
+	if list == nil {
+		return nil, errors.New("the answer holds no list of changes")
+	}
+	flips := make([]Flip, len(list))
+	for i, f := range list {
+		if f.Timestamp.IsZero() || f.Up == nil || (*f.Up != 0 && *f.Up != 1) {
+			return nil, errors.New("a status change has no time, or is neither up nor down")
+		}
+		flips[i] = Flip{At: f.Timestamp.UTC(), Up: *f.Up == 1}
+	}
 	return flips, nil
 }
 
