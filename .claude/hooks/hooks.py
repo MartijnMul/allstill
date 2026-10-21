@@ -78,13 +78,16 @@ HEREDOC = re.compile(r"(?<!<)<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 
 
 def split_heredocs(text):
-    """Return the command text without heredoc bodies, and the bodies fed to a shell."""
-    out, shell_bodies, end, body, to_shell = [], [], None, [], False
+    """Return the command text without heredoc bodies, the bodies fed to a shell,
+    and the unquoted bodies, whose substitutions the shell runs."""
+    out, shell_bodies, expanded, end, body, to_shell, quoted = [], [], [], None, [], False, False
     for line in text.replace("\\\n", " ").split("\n"):
         if end is not None:
             if line.strip() == end:
                 if to_shell:
                     shell_bodies.append("\n".join(body))
+                elif not quoted:
+                    expanded.append("\n".join(body))
                 end, body = None, []
             else:
                 body.append(line)
@@ -92,10 +95,10 @@ def split_heredocs(text):
         out.append(line)
         m = HEREDOC.search(line)
         if m:
-            end = m.group(2)
+            end, quoted = m.group(2), bool(m.group(1))
             words = line[:m.start()].split()
             to_shell = bool(words) and os.path.basename(words[-1]) in SHELLS
-    return "\n".join(out), shell_bodies
+    return "\n".join(out), shell_bodies, expanded
 
 
 def tokenize(text, comments):
@@ -112,14 +115,17 @@ def segments(text):
     Read as a whole first, so quoted text may span lines; a comment's words
     then become harmless words of their own. When that fails (an apostrophe
     in a comment), read line by line with comments dropped. Returns None when
-    a line still cannot be read."""
+    a line still cannot be read.
+
+    A comment starts only where `#` begins a word, as in the shell; shlex would
+    also start one inside a word (`a#b`) and hide what follows."""
     try:
         tokens = tokenize(text, comments=False)
     except ValueError:
         tokens = []
         for line in text.split("\n"):
             try:
-                tokens += tokenize(line, comments=True) + ["\n"]
+                tokens += tokenize(re.sub(r"(^|[\s;&|()])#.*", r"\1", line, count=1), comments=False) + ["\n"]
             except ValueError:
                 return None
     segs, seg = [], []
@@ -230,9 +236,32 @@ def judge_gh(args):
     return "allow", ""
 
 
+def judge_substitutions(text, depth):
+    """Judge what `$(...)` and backticks in text run.
+
+    Where a substitution ends depends on comments, case patterns and quoting,
+    which this guard does not parse. So each one is judged from its opening to
+    the end of the text: that may judge words after it as a command too, which
+    errs towards asking, never towards allowing."""
+    if text.count("`") % 2 or text.count("$(") > text.count(")"):
+        return "ask", "a command substitution that does not close cannot be judged"
+    verdict = ("allow", "")
+    for m in re.finditer(r"\$\(|`", text):
+        # Later openers become separators: each is judged in its own turn here.
+        rest = re.sub(r"\$\(|`", ";", text[m.end():])
+        verdict = worst(verdict, judge_command(rest, depth + 1))
+    return verdict
+
+
 def judge(tokens, depth):
+    verdict = ("allow", "")
     if any("`" in t or "$(" in t for t in tokens):
-        return "ask", "a command substitution inside a word cannot be judged"
+        # Joined, because shlex splits an unquoted `...` into several words.
+        verdict = judge_substitutions(" ".join(tokens), depth)
+    return worst(verdict, judge_program(tokens, depth))
+
+
+def judge_program(tokens, depth):
     while tokens:
         t = tokens[0]
         if t in GRAMMAR or re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", t):
@@ -274,7 +303,7 @@ def worst(a, b):
 def judge_command(text, depth=0):
     if depth > 4:
         return "ask", "this command nests shells too deeply to read"
-    command, shell_bodies = split_heredocs(text)
+    command, shell_bodies, expanded = split_heredocs(text)
     verdict = ("allow", "")
     low = (command + "\n" + "\n".join(shell_bodies)).lower()
     for needle, reason in RAW_ASK:
@@ -287,6 +316,9 @@ def judge_command(text, depth=0):
         verdict = worst(verdict, judge(seg, depth))
     for body in shell_bodies:
         verdict = worst(verdict, judge_command(body, depth + 1))
+    for body in expanded:
+        if "`" in body or "$(" in body:
+            verdict = worst(verdict, judge_substitutions(body, depth))
     return verdict
 
 
