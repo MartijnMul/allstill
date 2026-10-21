@@ -3,7 +3,12 @@ name: Release
 
 # Pushing a tag vX.Y.Z builds a release with .goreleaser.yaml: a draft, which a
 # person reads and publishes. The container image is pushed at once, under its
-# version only.
+# version only. A release candidate is vX.Y.Z-rcN, without a dot: apk refuses
+# rc.N. To run a tag again, delete its draft first, or a second one is made.
+#
+# While the repository is private, nothing is signed or attested: keyless
+# signing writes the repository's name to the public transparency log for
+# good, and GitHub attests private repositories only on Enterprise Cloud.
 on:
   push:
     tags: ["v[0-9]*"]
@@ -64,14 +69,16 @@ jobs:
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.18.2
-          args: release --clean
+          args: ${{ github.event.repository.private && 'release --clean --skip=sign' || 'release --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Attest the archives and packages
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: ./dist/checksums.txt
       - name: Attest the images
+        if: ${{ !github.event.repository.private }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: ./dist/digests.txt

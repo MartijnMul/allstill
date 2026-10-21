@@ -4,6 +4,7 @@
 # names, archives, Linux packages and a container image, with SBOMs, a
 # checksum file signed with cosign (keyless, by the workflow's identity) and
 # GitHub attestations. The release is made as a draft; a person publishes it.
+# While the repository is private the workflow skips signing and attestations.
 # A Homebrew tap comes later: it needs a repository of its own.
 version: 2
 project_name: allstill

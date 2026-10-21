@@ -51,7 +51,7 @@ The ping URLs and answers are those of Healthchecks, with one difference: hc-pin
 
 ## Check a release
 
-Each release has a `checksums.txt`, signed by the release workflow with cosign, and GitHub attestations for every file and image:
+Each release has a `checksums.txt`, signed by the release workflow with cosign, and GitHub attestations for every file and image (releases made before the repository was public have neither):
 
 ```sh
 cosign verify-blob \
