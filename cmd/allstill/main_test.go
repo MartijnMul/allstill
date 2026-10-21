@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +64,12 @@ func TestServeAndRun(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
+	resp, err := http.Get("http://" + addr + "/login")
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("the sign-in page: %v %v", resp, err)
+	}
+	resp.Body.Close()
+
 	var out, errOut bytes.Buffer
 	err = run(ctx, []string{"run", "-url", "http://" + addr + "/ping/" + c.PingUUID, "--", "sh", "-c",
 		`echo "files=42" > "$ALLSTILL_VALUES_FILE"; echo done; exit 2`}, &out, &errOut)
@@ -73,6 +80,16 @@ func TestServeAndRun(t *testing.T) {
 	stop()
 	if err := <-served; err != nil {
 		t.Fatalf("serve: %v", err)
+	}
+
+	// The admin commands print links to the address the server ran with.
+	out.Reset()
+	if err := run(ctx, []string{"admin", "create-user", "-db", dbPath, "-name", "Ada", "-email", "ada@example.com"}, &out, &errOut); err != nil {
+		t.Fatalf("create-user: %v %s", err, errOut.String())
+	}
+	_, port, _ := net.SplitHostPort(addr)
+	if !strings.Contains(out.String(), "http://localhost:"+port+"/setup#") {
+		t.Fatalf("create-user printed %q", out.String())
 	}
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -86,5 +103,45 @@ func TestServeAndRun(t *testing.T) {
 	db.QueryRow("SELECT outcome, exit_status, measured FROM runs WHERE check_id = ?", c.ID).Scan(&outcome, &exitCode, &measured)
 	if state != "down" || outcome != "fail" || exitCode != 2 || measured != `{"files":42}` {
 		t.Fatalf("check %s, run %s %d %s", state, outcome, exitCode, measured)
+	}
+}
+
+func TestAdminCommands(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	var out, errOut bytes.Buffer
+	admin := func(args ...string) error {
+		out.Reset()
+		errOut.Reset()
+		return run(ctx, append([]string{"admin"}, args...), &out, &errOut)
+	}
+	if err := admin("create-user", "-db", dbPath, "-name", "Ada"); err == nil || !strings.Contains(err.Error(), "base-url") {
+		t.Fatalf("without a base URL: %v", err)
+	}
+	if err := admin("create-user", "-db", dbPath, "-name", "Ada", "-base-url", "http://allstill.example.com"); err == nil {
+		t.Fatal("a base URL over http was accepted")
+	}
+	if err := admin("create-user", "-db", dbPath, "-name", "Ada", "-email", "ada@example.com", "-time-zone", "Mars/Olympus"); err == nil {
+		t.Fatal("an unknown time zone was accepted")
+	}
+	if err := admin("create-user", "-db", dbPath, "-name", "Ada", "-email", "ada@example.com", "-time-zone", "Europe/Amsterdam",
+		"-base-url", "https://allstill.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	first := out.String()
+	if !strings.Contains(first, "https://allstill.example.com/setup#") {
+		t.Fatalf("create-user printed %q", first)
+	}
+	if err := admin("create-user", "-db", dbPath, "-name", "Ada again", "-email", "ADA@example.com", "-base-url", "https://allstill.example.com"); err == nil {
+		t.Fatal("a second person with the same email address")
+	}
+	if err := admin("passkey-link", "-db", dbPath, "-email", "ada@example.com", "-base-url", "https://allstill.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "for Ada") || out.String() == first {
+		t.Fatalf("passkey-link printed %q", out.String())
+	}
+	if err := admin("passkey-link", "-db", dbPath, "-email", "bob@example.com", "-base-url", "https://allstill.example.com"); err == nil {
+		t.Fatal("a link for nobody")
 	}
 }

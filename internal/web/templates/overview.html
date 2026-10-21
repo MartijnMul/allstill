@@ -1,0 +1,58 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<div class="layout" id="live">
+  <nav class="side" aria-label="Views and projects">
+    {{range .Views}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span>{{.Name}}</span><span class="count">{{.Count}}</span></a>{{end}}
+    {{if .Projects}}<p>Projects</p>{{end}}
+    {{range .Projects}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><i class="dot {{.Class}}" aria-hidden="true"></i><span>{{.Name}}</span><span class="count">{{.Count}}</span></a>{{end}}
+  </nav>
+
+  <main class="main">
+    <div class="heading">
+      <h1>{{.Headline}}</h1>
+      <p>{{.Summary}}</p>
+    </div>
+
+    {{if .Attention}}
+    <div class="cards">
+      {{range .Attention}}
+      <a class="card {{.Class}}" href="{{.Href}}">
+        <strong><i class="dot big {{.Class}}" aria-hidden="true"></i>{{.Title}}</strong>
+        <span>{{.Line}}</span>
+        {{if .Note}}<span>{{.Note}}</span>{{end}}
+      </a>
+      {{end}}
+    </div>
+    {{end}}
+
+    <div class="panel table">
+      {{if .Groups}}
+      <table class="checks">
+        <caption class="sr">Checks</caption>
+        <thead>
+          <tr><th scope="col">Status</th><th scope="col">Check</th><th scope="col">Schedule</th><th scope="col">Last runs</th><th scope="col">Last ping</th><th scope="col">Value</th><th scope="col">Next</th></tr>
+        </thead>
+        {{range .Groups}}
+        <tbody>
+          <tr class="group"><th colspan="7" scope="rowgroup">{{.Name}}</th></tr>
+          {{range .Checks}}
+          <tr>
+            <td><span class="state {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span></td>
+            <td><a class="name" href="{{.Href}}"><span>{{.Name}}</span><span>{{.Sub}}</span></a></td>
+            <td class="mono nowrap">{{.Schedule}}</td>
+            <td><span class="bars"><span class="sr">{{.BarsLabel}}</span>{{range .Bars}}<i class="{{.Class}}" aria-hidden="true"></i>{{end}}</span></td>
+            <td class="nowrap">{{.Last}}</td>
+            <td class="mono nowrap">{{.Value}}</td>
+            <td class="nowrap">{{.Next}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+        {{end}}
+      </table>
+      {{else}}
+      <p class="empty">{{.Empty}}</p>
+      {{end}}
+    </div>
+  </main>
+</div>
+{{end}}{{end}}

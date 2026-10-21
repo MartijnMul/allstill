@@ -21,6 +21,8 @@ const (
 	Project   = "prj"
 	Check     = "chk"
 	Run       = "run"
+	Passkey   = "pky"
+	Session   = "ses"
 )
 
 // Crockford's base32, lower case: no i, l, o or u, so ids read aloud well.

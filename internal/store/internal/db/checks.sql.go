@@ -585,6 +585,22 @@ func (q *Queries) RestartRun(ctx context.Context, arg RestartRunParams) error {
 	return err
 }
 
+const runOfCheck = `-- name: RunOfCheck :one
+SELECT id FROM runs WHERE check_id = ? AND id = ?
+`
+
+type RunOfCheckParams struct {
+	CheckID string
+	ID      string
+}
+
+func (q *Queries) RunOfCheck(ctx context.Context, arg RunOfCheckParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, runOfCheck, arg.CheckID, arg.ID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const runsOfCheck = `-- name: RunsOfCheck :many
 SELECT id, workspace_id, check_id, rid, outcome, started_at, ended_at, timed_out_at, exit_status, measured FROM runs WHERE check_id = ? AND id < ? ORDER BY id DESC LIMIT ?
 `

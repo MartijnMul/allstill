@@ -87,3 +87,6 @@ ON CONFLICT (key) DO UPDATE SET value = excluded.value;
 -- Values a ping carries join those of its run; a later value of the same name wins.
 -- name: MergeMeasured :exec
 UPDATE runs SET measured = json_patch(measured, ?) WHERE id = ?;
+
+-- name: RunOfCheck :one
+SELECT id FROM runs WHERE check_id = ? AND id = ?;

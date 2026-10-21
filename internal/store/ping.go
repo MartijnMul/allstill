@@ -240,11 +240,31 @@ func (s *Store) processBatch(ctx context.Context, now time.Time, batch int64) (i
 	return len(due), tx.Commit()
 }
 
-// Alive records that the server runs at now.
+// Alive records that the server runs at now, and removes sessions and links
+// that have ended.
 func (s *Store) Alive(ctx context.Context, now time.Time) error {
-	return db.New(s.w).SetInstallationValue(ctx, db.SetInstallationValueParams{
+	q := db.New(s.w)
+	err := q.SetInstallationValue(ctx, db.SetInstallationValueParams{
 		Key: "alive_at", Value: strconv.FormatInt(now.UnixMilli(), 10),
 	})
+	if err != nil {
+		return err
+	}
+	return prune(ctx, q, now)
+}
+
+// Setting returns an installation setting, or "" when it is not set.
+func (s *Store) Setting(ctx context.Context, key string) (string, error) {
+	v, err := db.New(s.r).InstallationValue(ctx, key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetSetting stores an installation setting.
+func (s *Store) SetSetting(ctx context.Context, key, value string) error {
+	return db.New(s.w).SetInstallationValue(ctx, db.SetInstallationValueParams{Key: key, Value: value})
 }
 
 // Recover is called when the server starts: checks whose deadline passed

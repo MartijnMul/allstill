@@ -60,6 +60,27 @@ type Membership struct {
 	CreatedAt   int64
 }
 
+type Passkey struct {
+	ID           string
+	WorkspaceID  string
+	PersonID     string
+	CredentialID []byte
+	RpID         string
+	Name         string
+	Record       string
+	CreatedAt    int64
+	LastUsedAt   sql.NullInt64
+}
+
+type PasskeyLink struct {
+	TokenHash   []byte
+	WorkspaceID string
+	PersonID    string
+	CreatedAt   int64
+	ExpiresAt   int64
+	UsedAt      sql.NullInt64
+}
+
 type Person struct {
 	ID             string
 	WorkspaceID    string
@@ -109,6 +130,18 @@ type Run struct {
 	TimedOutAt  sql.NullInt64
 	ExitStatus  sql.NullInt64
 	Measured    string
+}
+
+type Session struct {
+	ID          string
+	TokenHash   []byte
+	WorkspaceID string
+	PersonID    string
+	PasskeyID   string
+	UserAgent   string
+	CreatedAt   int64
+	SeenAt      int64
+	ExpiresAt   int64
 }
 
 type Workspace struct {

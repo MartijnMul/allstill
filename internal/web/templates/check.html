@@ -1,0 +1,85 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="page" id="live">
+  <div class="title">
+    <div>
+      <h1>{{.C.Name}}</h1>
+      <span class="pill {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}} {{.Since}}</span>
+    </div>
+    {{if .C.Status.Reason}}<p class="reason">{{.C.Status.Reason}}</p>{{end}}
+    <p>{{if .C.Description}}{{.C.Description}} · {{end}}{{.C.ProjectName}}</p>
+  </div>
+
+  <div class="tiles">
+    {{range .Tiles}}
+    <div class="panel tile"><span>{{.Label}}</span><strong>{{.Value}}</strong><span>{{.Note}}</span></div>
+    {{end}}
+  </div>
+
+  {{with .Chart}}
+  <section class="panel chart">
+    <h2>Run time</h2>
+    <svg viewBox="0 0 {{.Width}} {{.Height}}" preserveAspectRatio="none" role="img" aria-label="{{.Label}}">
+      {{range .Bars}}<rect class="{{.Class}}" x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}" rx="2"><title>{{.Title}}</title></rect>{{end}}
+    </svg>
+    <div class="axis"><span>{{.From}}</span><span>{{.To}}</span></div>
+  </section>
+  {{end}}
+
+  <div class="grid wide">
+    <section class="panel">
+      <h2>Recent runs</h2>
+      {{if .Runs}}
+      <div class="runs">
+        <table>
+          <caption class="sr">Recent runs; choose one to see its output</caption>
+          <thead><tr><th scope="col">Started</th><th scope="col">Run time</th><th scope="col">Exit</th><th scope="col">Values</th><th scope="col">Result</th></tr></thead>
+          <tbody>
+            {{range .Runs}}
+            <tr{{if .Current}} class="current"{{end}}>
+              <td><a class="stretch" href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Started}}</a></td>
+              <td class="mono">{{.Took}}</td>
+              <td class="mono">{{.Exit}}</td>
+              <td class="mono">{{.Values}}</td>
+              <td><span class="result"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span></td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <p class="muted">No runs yet. The first ping starts one.</p>
+      {{end}}
+    </section>
+
+    <section class="panel">
+      <h2>{{if .Log}}{{.Log.Title}}{{else}}Output{{end}}</h2>
+      {{if and .Log .Log.Text}}
+      <pre class="log">{{.Log.Text}}</pre>
+      {{if .Log.Truncated}}<p class="muted">The output was longer; only its start was kept.</p>{{end}}
+      {{else}}
+      <p class="muted">No output was sent with this run.</p>
+      {{end}}
+    </section>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Schedule</h2>
+      <dl>{{range .Schedule}}<div><dt>{{.K}}</dt><dd{{if .Mono}} class="mono"{{end}}>{{.V}}</dd></div>{{end}}</dl>
+    </section>
+
+    <section class="panel how">
+      <h2>How a job reports</h2>
+      <span class="muted">Ping this URL when the job ends; anyone who has it can ping this check.</span>
+      <div>
+        <code id="ping-url">{{.PingURL}}</code>
+        <button type="button" class="small" data-copy="ping-url">Copy</button>
+      </div>
+      {{if .SlugURL}}<span class="muted">Or by slug, with the project's ping key:</span><code>{{.SlugURL}}</code>{{end}}
+      <span class="muted">Or wrap the job, to report its start, exit status and output:</span>
+      <code>{{.Example}}</code>
+    </section>
+  </div>
+</main>
+{{end}}{{end}}
