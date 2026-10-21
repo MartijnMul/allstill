@@ -257,6 +257,7 @@ type checkData struct {
 	Chart    *chart
 	Runs     []runRow
 	Log      *runLog
+	NoOutput string
 	PingURL  string
 	SlugURL  string
 	Example  string
@@ -386,6 +387,18 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 			return
 		}
 		d.Log = logOf(pings, now, v.Loc)
+		// Output is kept for the newest runs only.
+		keep := s.Store.Keeps().Output
+		d.NoOutput = fmt.Sprintf("No output for this run: none was sent, or the run is older than the last %d, whose output Allstill keeps.", keep)
+		for i, run := range c.Recent {
+			if run.ID == selected {
+				if i < keep {
+					d.NoOutput = "No output was sent with this run."
+				} else {
+					d.NoOutput = fmt.Sprintf("No output for this run: Allstill keeps the output of the last %d runs.", keep)
+				}
+			}
+		}
 	}
 	crumbs := []crumb{{c.ProjectName, "/?project=" + c.ProjectID}, {c.Name, ""}}
 	s.render(w, r, http.StatusOK, "check", page{Title: c.Name, Person: v.Name, Crumbs: crumbs, Data: d})

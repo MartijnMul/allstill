@@ -20,6 +20,15 @@ type fakeStore struct {
 	alive     int
 	recovered bool
 	fail      int // fail this many passes
+	tidied    []time.Time
+}
+
+// Tidy needs three calls for a round.
+func (f *fakeStore) Tidy(_ context.Context, now time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.tidied = append(f.tidied, now)
+	return len(f.tidied)%3 != 0, nil
 }
 
 func (f *fakeStore) ProcessDue(_ context.Context, now time.Time) (time.Time, error) {
@@ -142,6 +151,29 @@ func TestRetriesAfterAFailure(t *testing.T) {
 		synctest.Wait()
 		if f.passCount() != 3 {
 			t.Fatalf("%d passes", f.passCount())
+		}
+	})
+}
+
+func TestTidiesEveryTenMinutes(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		begin := time.Now()
+		f := &fakeStore{}
+		_, cancel, done := start(t, f)
+		time.Sleep(tidyFirst + TidyEvery + time.Second)
+		synctest.Wait()
+		f.mu.Lock()
+		tidied := append([]time.Time(nil), f.tidied...)
+		f.mu.Unlock()
+		// A round of three calls a minute after the start, and one ten
+		// minutes after that round began.
+		if len(tidied) != 6 || !tidied[0].Equal(begin.Add(tidyFirst)) || !tidied[2].Equal(begin.Add(tidyFirst+2*tidyPause)) ||
+			!tidied[3].Equal(begin.Add(tidyFirst+TidyEvery)) {
+			t.Fatalf("tidied at %v", tidied)
+		}
+		cancel()
+		if err := <-done; err != nil {
+			t.Fatal(err)
 		}
 	})
 }

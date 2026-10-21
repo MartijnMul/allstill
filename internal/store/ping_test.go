@@ -166,6 +166,32 @@ func TestPingsBySlug(t *testing.T) {
 	}
 }
 
+func TestPingsCreateAtMostALimitOfChecks(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	// Fill the project to one below the limit, as a leaked key would.
+	_, err := f.s.w.Exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+		INSERT INTO checks (id, workspace_id, project_id, ping_uuid, name, kind, schedule_kind, interval_seconds,
+			grace_seconds, state_since, created_at, updated_at)
+		SELECT printf('chk_%05d', i), ?, ?, printf('00000000-0000-4000-8000-%012d', i), 'x', 'ping', 'interval', 60, 60, 0, 0, 0
+		FROM n`, CreateLimit-1, f.ws, f.project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := PingIn{PingKey: f.pingKey, Slug: "last", Create: true, Kind: check.Success, ExitStatus: -1, Method: "GET", At: t0}
+	if out, err := f.s.Ping(ctx, in); err != nil || !out.Created {
+		t.Fatalf("the last check: %+v, %v", out, err)
+	}
+	in.Slug = "one-too-many"
+	if _, err := f.s.Ping(ctx, in); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("past the limit: %v", err)
+	}
+	in.Slug = "last"
+	if _, err := f.s.Ping(ctx, in); err != nil {
+		t.Fatalf("an existing check in a full project: %v", err)
+	}
+}
+
 func TestRecoverMarksMissedDeadlinesUnknown(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()

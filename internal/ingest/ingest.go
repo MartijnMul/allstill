@@ -8,8 +8,12 @@
 //	/ping/{uuid}/{exit-status}   0 is success, 1 to 255 failure
 //	/ping/{ping-key}/{slug}...   the same, by a project's ping key and a slug
 //
-// Answers are plain text. A ping never needs a token and never gets a cookie;
-// the ping URL is the credential, so it is never logged.
+// Answers are plain text and those of Healthchecks: "OK", "Created" (201)
+// for a check made by `create=1`, and "not found" (404). A check pinged far
+// too often has its extra pings dropped, as on hc-ping.com: by UUID the answer
+// is still 200, "OK (rate limited)", so a script that checks the status does
+// not start failing; by slug it is 429. A ping never needs a token and never
+// gets a cookie; the ping URL is the credential, so it is never logged.
 package ingest
 
 import (
@@ -45,6 +49,8 @@ type Handler struct {
 	Nudge func(deadline time.Time)
 	Log   *slog.Logger
 	Now   func() time.Time
+
+	limit limiter
 }
 
 // Register adds the ping routes to mux.
@@ -84,11 +90,30 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	key := in.CheckUUID
+	if key == "" {
+		key = in.PingKey + "/" + in.Slug
+	}
+	if ok, warn := h.limit.allow(key, in.At); !ok {
+		if warn {
+			// Enough of the URL to find the job, not enough to ping it.
+			h.Log.Warn("a check is pinged more than once a second; the extra pings are dropped",
+				"ping", "…"+key[len(key)-4:], "slug", in.Slug)
+		}
+		if in.CheckUUID != "" {
+			io.WriteString(w, "OK (rate limited)")
+			return
+		}
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(http.StatusTooManyRequests)
+		io.WriteString(w, "rate limit exceeded")
+		return
+	}
 	out, err := h.Store.Ping(r.Context(), in)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		w.WriteHeader(http.StatusNotFound)
-		io.WriteString(w, "OK (not found)")
+		io.WriteString(w, "not found")
 		return
 	case err != nil:
 		h.fail(w, r, err)
@@ -100,7 +125,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Ping-Body-Limit", strconv.Itoa(BodyLimit))
 	if out.Created {
 		w.WriteHeader(http.StatusCreated)
-		io.WriteString(w, "OK (created)")
+		io.WriteString(w, "Created")
 		return
 	}
 	io.WriteString(w, "OK")

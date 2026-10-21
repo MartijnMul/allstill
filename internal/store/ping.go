@@ -137,6 +137,10 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 	return out, tx.Commit()
 }
 
+// CreateLimit is how many checks a project may have for a ping with
+// `create=1` to add another.
+const CreateLimit = 1000
+
 func (s *Store) findCheck(ctx context.Context, q *db.Queries, in PingIn, out *PingOut) (db.Check, error) {
 	if in.CheckUUID != "" {
 		c, err := q.CheckByPingUUID(ctx, in.CheckUUID)
@@ -159,6 +163,13 @@ func (s *Store) findCheck(ctx context.Context, q *db.Queries, in PingIn, out *Pi
 			return c, ErrNotFound
 		}
 		return c, err
+	}
+	// A leaked ping key must not fill the database with checks: as in
+	// Healthchecks, pings create no more once a project is full.
+	if n, err := q.CountChecksOfProject(ctx, p.ID); err != nil {
+		return db.Check{}, err
+	} else if n >= CreateLimit {
+		return db.Check{}, ErrNotFound
 	}
 	// The project's defaults, as Healthchecks gives a check made by a ping.
 	checkID, at := id.New(id.Check), in.At.UnixMilli()

@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
@@ -29,8 +30,14 @@ var migrations embed.FS
 
 // Store is an open database.
 type Store struct {
+	// Retention is how much history Tidy keeps; zero is DefaultRetention.
+	Retention Retention
+
 	w *sql.DB // the single writer
 	r *sql.DB // readers
+
+	tidy      sync.Mutex
+	tidyAfter string // the check id the last Tidy stopped after
 }
 
 // Open opens or creates the database at path and brings its schema up to date.

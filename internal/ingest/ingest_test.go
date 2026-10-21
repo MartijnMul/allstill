@@ -116,12 +116,12 @@ func TestBadPaths(t *testing.T) {
 
 func TestAnswers(t *testing.T) {
 	f := &fakeStore{err: store.ErrNotFound}
-	if w := serve(t, f, "GET", "/ping/"+uuid, "", nil); w.Code != 404 || w.Body.String() != "OK (not found)" {
+	if w := serve(t, f, "GET", "/ping/"+uuid, "", nil); w.Code != 404 || w.Body.String() != "not found" {
 		t.Fatalf("not found: %d %q", w.Code, w.Body)
 	}
 	f = &fakeStore{out: store.PingOut{Created: true}}
 	w := serve(t, f, "GET", "/ping/"+key+"/new-job?create=1", "", nil)
-	if w.Code != 201 || w.Body.String() != "OK (created)" || !f.got[0].Create {
+	if w.Code != 201 || w.Body.String() != "Created" || !f.got[0].Create {
 		t.Fatalf("created: %d %q %+v", w.Code, w.Body, f.got)
 	}
 	if w.Header().Get("Access-Control-Allow-Origin") != "*" || w.Header().Get("Ping-Body-Limit") != "100000" {
@@ -135,6 +135,74 @@ func TestAnswers(t *testing.T) {
 	}
 	if w := serve(t, &fakeStore{}, "HEAD", "/ping/"+uuid, "", nil); w.Code != 200 {
 		t.Fatalf("HEAD: %d", w.Code)
+	}
+}
+
+// A script stuck in a loop: after the burst, about one ping a second counts.
+// By UUID the answer stays 200, so `curl -f` in the script does not fail.
+func TestAPingLoopIsLimited(t *testing.T) {
+	var logged strings.Builder
+	now := t0
+	f := &fakeStore{}
+	h := &Handler{Store: f, Log: slog.New(slog.NewTextHandler(&logged, nil)), Now: func() time.Time { return now }}
+	mux := http.NewServeMux()
+	h.Register(mux)
+	ping := func(path string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		return w
+	}
+	for range Burst {
+		if w := ping("/ping/" + uuid); w.Body.String() != "OK" {
+			t.Fatalf("within the burst: %d %q", w.Code, w.Body)
+		}
+	}
+	if w := ping("/ping/" + uuid); w.Code != 200 || w.Body.String() != "OK (rate limited)" || len(f.got) != Burst {
+		t.Fatalf("past the burst: %d %q, %d stored", w.Code, w.Body, len(f.got))
+	}
+	if strings.Count(logged.String(), "dropped") != 1 || strings.Contains(logged.String(), uuid) {
+		t.Fatalf("log %q", logged.String())
+	}
+	ping("/ping/" + uuid)
+	if strings.Count(logged.String(), "dropped") != 1 {
+		t.Fatal("logged twice within the hour")
+	}
+	// Other checks are not held up.
+	for range Burst {
+		if w := ping("/ping/" + key + "/db-dump"); w.Code != 200 {
+			t.Fatalf("another check: %d", w.Code)
+		}
+	}
+	if w := ping("/ping/" + key + "/db-dump"); w.Code != 429 || w.Header().Get("Retry-After") != "1" || w.Body.String() != "rate limit exceeded" {
+		t.Fatalf("a slug past the burst: %d %q", w.Code, w.Body)
+	}
+	now = now.Add(2 * time.Second)
+	for i := range 2 {
+		if w := ping("/ping/" + uuid); w.Body.String() != "OK" {
+			t.Fatalf("ping %d two seconds later: %q", i, w.Body)
+		}
+	}
+	if w := ping("/ping/" + uuid); w.Body.String() != "OK (rate limited)" {
+		t.Fatalf("a third ping in those two seconds: %q", w.Body)
+	}
+}
+
+func TestTheLimiterForgetsQuietChecks(t *testing.T) {
+	var l limiter
+	l.allow("quiet", t0)
+	for range Burst + 1 {
+		l.allow("loud", t0) // emptied, and warned about
+	}
+	l.allow("busy", t0)
+	for range Burst - 1 {
+		l.allow("busy", t0.Add(50*time.Second))
+	}
+	// A minute on: quiet is full again and forgotten; busy is still
+	// refilling; loud is full but was warned about, so it is not warned again
+	// within the hour.
+	l.allow("other", t0.Add(61*time.Second))
+	if l.buckets["quiet"] != nil || l.buckets["busy"] == nil || l.buckets["loud"] == nil {
+		t.Fatalf("buckets %v", l.buckets)
 	}
 }
 

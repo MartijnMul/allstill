@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.1.0
+  version: 0.2.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -85,7 +85,6 @@ paths:
         '200': {$ref: '#/components/responses/PingOk'}
         '400': {$ref: '#/components/responses/PingBadRequest'}
         '404': {$ref: '#/components/responses/PingNotFound'}
-        '429': {$ref: '#/components/responses/PingRateLimited'}
     post:
       tags: [Ping]
       operationId: pingSuccessWithBody
@@ -921,19 +920,25 @@ components:
 
   responses:
     PingOk:
-      description: Received.
+      description: |
+        Received. A check pinged far more than once a second has its extra
+        pings dropped; by UUID the answer is then still 200, with the text
+        `OK (rate limited)`, as on hc-ping.com, so a script that checks the
+        status does not start failing.
       headers:
         Ping-Body-Limit: {$ref: '#/components/headers/PingBodyLimit'}
       content:
         text/plain:
-          schema: {type: string, const: 'OK'}
+          schema: {type: string, enum: ['OK', 'OK (rate limited)']}
     PingCreated:
-      description: Received, and the check was created first (`create=1`).
+      description: |
+        Received, and the check was created first (`create=1`). A project
+        with 1000 checks gets no more from pings; the answer is then 404.
       headers:
         Ping-Body-Limit: {$ref: '#/components/headers/PingBodyLimit'}
       content:
         text/plain:
-          schema: {type: string, const: 'OK (created)'}
+          schema: {type: string, const: 'Created'}
     PingBadRequest:
       description: The ping is not valid, such as a malformed `rid` or value.
       content:
@@ -943,14 +948,16 @@ components:
       description: No check has this UUID, or this project has no check with this slug.
       content:
         text/plain:
-          schema: {type: string, const: 'OK (not found)'}
+          schema: {type: string, const: 'not found'}
     PingRateLimited:
-      description: Too many pings for this check or from this address.
+      description: |
+        A check pinged by slug far more than once a second: the ping was
+        dropped. Bursts of 60 pass, then one a second.
       headers:
         Retry-After: {$ref: '#/components/headers/RetryAfter'}
       content:
         text/plain:
-          schema: {type: string}
+          schema: {type: string, const: 'rate limit exceeded'}
     BadRequest:
       description: The request is malformed.
       content:

@@ -58,7 +58,7 @@
       <pre class="log">{{.Log.Text}}</pre>
       {{if .Log.Truncated}}<p class="muted">The output was longer; only its start was kept.</p>{{end}}
       {{else}}
-      <p class="muted">No output was sent with this run.</p>
+      <p class="muted">{{if .NoOutput}}{{.NoOutput}}{{else}}No runs yet.{{end}}</p>
       {{end}}
     </section>
   </div>

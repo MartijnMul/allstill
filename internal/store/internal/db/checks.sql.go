@@ -135,6 +135,41 @@ func (q *Queries) CheckBySlug(ctx context.Context, arg CheckBySlugParams) (Check
 	return i, err
 }
 
+const checksAfter = `-- name: ChecksAfter :many
+
+SELECT id FROM checks WHERE id > ? ORDER BY id LIMIT ?
+`
+
+type ChecksAfterParams struct {
+	ID    string
+	Limit int64
+}
+
+// Keeping history in bounds. Deletes go in batches, so pings never wait long
+// for the write lock.
+func (q *Queries) ChecksAfter(ctx context.Context, arg ChecksAfterParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, checksAfter, arg.ID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const checksOfProject = `-- name: ChecksOfProject :many
 SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at FROM checks
 WHERE workspace_id = ? AND project_id = ? AND deleted_at IS NULL
@@ -193,6 +228,17 @@ func (q *Queries) ChecksOfProject(ctx context.Context, arg ChecksOfProjectParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const countChecksOfProject = `-- name: CountChecksOfProject :one
+SELECT count(*) FROM checks WHERE project_id = ? AND deleted_at IS NULL
+`
+
+func (q *Queries) CountChecksOfProject(ctx context.Context, projectID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChecksOfProject, projectID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const createCheck = `-- name: CreateCheck :exec
@@ -345,6 +391,116 @@ func (q *Queries) CreateRun(ctx context.Context, arg CreateRunParams) error {
 	return err
 }
 
+const deleteEventsBefore = `-- name: DeleteEventsBefore :execrows
+DELETE FROM events WHERE id IN (
+    SELECT e.id FROM events e WHERE e.created_at < ?1 ORDER BY e.id LIMIT ?2
+)
+`
+
+type DeleteEventsBeforeParams struct {
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) DeleteEventsBefore(ctx context.Context, arg DeleteEventsBeforeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteEventsBefore, arg.Before, arg.Batch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteLoosePingsUpTo = `-- name: DeleteLoosePingsUpTo :execrows
+DELETE FROM pings WHERE id IN (
+    SELECT p.id FROM pings p
+    WHERE p.check_id = ?1 AND p.run_id IS NULL AND p.id <= ?2
+    ORDER BY p.id LIMIT ?3
+)
+`
+
+type DeleteLoosePingsUpToParams struct {
+	OfCheck string
+	UpTo    int64
+	Batch   int64
+}
+
+func (q *Queries) DeleteLoosePingsUpTo(ctx context.Context, arg DeleteLoosePingsUpToParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteLoosePingsUpTo, arg.OfCheck, arg.UpTo, arg.Batch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteRunsUpTo = `-- name: DeleteRunsUpTo :execrows
+DELETE FROM runs WHERE id IN (
+    SELECT r.id FROM runs r
+    WHERE r.check_id = ?1 AND r.id <= ?2 AND r.outcome <> 'running'
+    ORDER BY r.id LIMIT ?3
+)
+`
+
+type DeleteRunsUpToParams struct {
+	OfCheck string
+	UpTo    string
+	Batch   int64
+}
+
+// A run still waiting for its end is kept: its check counts on it.
+func (q *Queries) DeleteRunsUpTo(ctx context.Context, arg DeleteRunsUpToParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteRunsUpTo, arg.OfCheck, arg.UpTo, arg.Batch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const dropLooseOutputUpTo = `-- name: DropLooseOutputUpTo :execrows
+UPDATE pings SET body = NULL
+WHERE id IN (
+    SELECT p.id FROM pings p
+    WHERE p.check_id = ?1 AND p.run_id IS NULL AND p.id <= ?2 AND p.body IS NOT NULL
+    LIMIT ?3
+)
+`
+
+type DropLooseOutputUpToParams struct {
+	OfCheck string
+	UpTo    int64
+	Batch   int64
+}
+
+func (q *Queries) DropLooseOutputUpTo(ctx context.Context, arg DropLooseOutputUpToParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, dropLooseOutputUpTo, arg.OfCheck, arg.UpTo, arg.Batch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const dropOutputUpTo = `-- name: DropOutputUpTo :execrows
+UPDATE pings SET body = NULL
+WHERE id IN (
+    SELECT p.id FROM pings p JOIN runs r ON r.id = p.run_id
+    WHERE r.check_id = ?1 AND r.id <= ?2 AND p.body IS NOT NULL
+    LIMIT ?3
+)
+`
+
+type DropOutputUpToParams struct {
+	OfCheck string
+	UpTo    string
+	Batch   int64
+}
+
+func (q *Queries) DropOutputUpTo(ctx context.Context, arg DropOutputUpToParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, dropOutputUpTo, arg.OfCheck, arg.UpTo, arg.Batch)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const dueChecks = `-- name: DueChecks :many
 SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at FROM checks
 WHERE deadline IS NOT NULL AND deadline <= ? AND deleted_at IS NULL
@@ -447,6 +603,23 @@ func (q *Queries) InstallationValue(ctx context.Context, key string) (string, er
 	var value string
 	err := row.Scan(&value)
 	return value, err
+}
+
+const loosePingPastRetention = `-- name: LoosePingPastRetention :one
+SELECT id FROM pings WHERE check_id = ? AND run_id IS NULL ORDER BY id DESC LIMIT 1 OFFSET ?
+`
+
+type LoosePingPastRetentionParams struct {
+	CheckID string
+	Offset  int64
+}
+
+// Pings outside any run, such as a log line while nothing runs.
+func (q *Queries) LoosePingPastRetention(ctx context.Context, arg LoosePingPastRetentionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, loosePingPastRetention, arg.CheckID, arg.Offset)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const mergeMeasured = `-- name: MergeMeasured :exec
@@ -596,6 +769,23 @@ type RunOfCheckParams struct {
 
 func (q *Queries) RunOfCheck(ctx context.Context, arg RunOfCheckParams) (string, error) {
 	row := q.db.QueryRowContext(ctx, runOfCheck, arg.CheckID, arg.ID)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
+const runPastRetention = `-- name: RunPastRetention :one
+SELECT id FROM runs WHERE check_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?
+`
+
+type RunPastRetentionParams struct {
+	CheckID string
+	Offset  int64
+}
+
+// The newest run of a check that is past what it keeps.
+func (q *Queries) RunPastRetention(ctx context.Context, arg RunPastRetentionParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, runPastRetention, arg.CheckID, arg.Offset)
 	var id string
 	err := row.Scan(&id)
 	return id, err

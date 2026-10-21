@@ -197,11 +197,19 @@ func (o Options) ping(ctx context.Context, base, suffix, rid string, body []byte
 			err = ue.Err // without the URL, which holds the secret
 		}
 		if err == nil {
-			io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<10))
+			answer, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<10))
 			resp.Body.Close()
 			if resp.StatusCode < 500 {
 				if resp.StatusCode >= 300 {
 					return fmt.Errorf("the server answered %s", resp.Status)
+				}
+				// Answers that are 200 but did not count, from Allstill and
+				// from hc-ping.com.
+				switch strings.TrimSpace(string(answer)) {
+				case "OK (rate limited)":
+					return errors.New("the ping was dropped: this check is pinged too often")
+				case "OK (not found)":
+					return errors.New("no check has this ping URL")
 				}
 				return nil
 			}

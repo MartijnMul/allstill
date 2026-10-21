@@ -174,3 +174,17 @@ func TestABackgroundProcessDoesNotHoldTheEnd(t *testing.T) {
 		t.Fatalf("hits %+v", s.hits)
 	}
 }
+
+func TestAnswersThatDidNotCount(t *testing.T) {
+	for _, answer := range []string{"OK (rate limited)", "OK (not found)"} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, answer)
+		}))
+		o, _, warnings := opts([]string{srv.URL + "/ping/abc"}, "true")
+		Run(t.Context(), o)
+		srv.Close()
+		if len(*warnings) != 2 || strings.Contains((*warnings)[0], "/ping/abc") {
+			t.Errorf("%q: warnings %v", answer, *warnings)
+		}
+	}
+}

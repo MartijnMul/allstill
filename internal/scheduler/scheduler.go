@@ -19,11 +19,21 @@ const Heartbeat = 30 * time.Second
 // retry is how long the scheduler waits after a failed pass.
 const retry = 5 * time.Second
 
+// TidyEvery is how often history beyond what checks keep is removed, the
+// first time a minute after the start. A round goes a few checks at a time,
+// with a pause between, so pings get in.
+const (
+	TidyEvery = 10 * time.Minute
+	tidyFirst = time.Minute
+	tidyPause = 100 * time.Millisecond
+)
+
 // Store is what the scheduler needs of the store.
 type Store interface {
 	ProcessDue(ctx context.Context, now time.Time) (time.Time, error)
 	Alive(ctx context.Context, now time.Time) error
 	Recover(ctx context.Context, now time.Time) error
+	Tidy(ctx context.Context, now time.Time) (more bool, err error)
 }
 
 // Scheduler applies deadlines as they pass.
@@ -66,6 +76,10 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 	next := s.pass(ctx)
 
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	wg.Go(func() { s.tidy(ctx) })
+
 	timer := time.NewTimer(0)
 	timer.Stop()
 	heartbeat := time.NewTicker(Heartbeat)
@@ -106,4 +120,34 @@ func (s *Scheduler) pass(ctx context.Context) time.Time {
 		return time.Now().Add(retry)
 	}
 	return next
+}
+
+// tidy removes old history every TidyEvery, until ctx ends.
+func (s *Scheduler) tidy(ctx context.Context) {
+	timer := time.NewTimer(tidyFirst)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+			timer.Reset(TidyEvery)
+		}
+		for more := true; more; {
+			var err error
+			if more, err = s.store.Tidy(ctx, time.Now()); err != nil {
+				if ctx.Err() == nil {
+					s.log.Error("removing old history", "error", err)
+				}
+				break
+			}
+			if more {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(tidyPause):
+				}
+			}
+		}
+	}
 }

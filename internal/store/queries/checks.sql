@@ -90,3 +90,56 @@ UPDATE runs SET measured = json_patch(measured, ?) WHERE id = ?;
 
 -- name: RunOfCheck :one
 SELECT id FROM runs WHERE check_id = ? AND id = ?;
+
+-- name: CountChecksOfProject :one
+SELECT count(*) FROM checks WHERE project_id = ? AND deleted_at IS NULL;
+
+-- Keeping history in bounds. Deletes go in batches, so pings never wait long
+-- for the write lock.
+
+-- name: ChecksAfter :many
+SELECT id FROM checks WHERE id > ? ORDER BY id LIMIT ?;
+
+-- The newest run of a check that is past what it keeps.
+-- name: RunPastRetention :one
+SELECT id FROM runs WHERE check_id = ? ORDER BY id DESC LIMIT 1 OFFSET ?;
+
+-- A run still waiting for its end is kept: its check counts on it.
+-- name: DeleteRunsUpTo :execrows
+DELETE FROM runs WHERE id IN (
+    SELECT r.id FROM runs r
+    WHERE r.check_id = sqlc.arg(of_check) AND r.id <= sqlc.arg(up_to) AND r.outcome <> 'running'
+    ORDER BY r.id LIMIT sqlc.arg(batch)
+);
+
+-- name: DropOutputUpTo :execrows
+UPDATE pings SET body = NULL
+WHERE id IN (
+    SELECT p.id FROM pings p JOIN runs r ON r.id = p.run_id
+    WHERE r.check_id = sqlc.arg(of_check) AND r.id <= sqlc.arg(up_to) AND p.body IS NOT NULL
+    LIMIT sqlc.arg(batch)
+);
+
+-- Pings outside any run, such as a log line while nothing runs.
+-- name: LoosePingPastRetention :one
+SELECT id FROM pings WHERE check_id = ? AND run_id IS NULL ORDER BY id DESC LIMIT 1 OFFSET ?;
+
+-- name: DeleteLoosePingsUpTo :execrows
+DELETE FROM pings WHERE id IN (
+    SELECT p.id FROM pings p
+    WHERE p.check_id = sqlc.arg(of_check) AND p.run_id IS NULL AND p.id <= sqlc.arg(up_to)
+    ORDER BY p.id LIMIT sqlc.arg(batch)
+);
+
+-- name: DeleteEventsBefore :execrows
+DELETE FROM events WHERE id IN (
+    SELECT e.id FROM events e WHERE e.created_at < sqlc.arg(before) ORDER BY e.id LIMIT sqlc.arg(batch)
+);
+
+-- name: DropLooseOutputUpTo :execrows
+UPDATE pings SET body = NULL
+WHERE id IN (
+    SELECT p.id FROM pings p
+    WHERE p.check_id = sqlc.arg(of_check) AND p.run_id IS NULL AND p.id <= sqlc.arg(up_to) AND p.body IS NOT NULL
+    LIMIT sqlc.arg(batch)
+);

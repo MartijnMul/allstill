@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -92,7 +93,21 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
 	listen := fs.String("listen", envOr("ALLSTILL_LISTEN", "127.0.0.1:8000"), "the address to listen on (ALLSTILL_LISTEN)")
 	baseURL := fs.String("base-url", os.Getenv("ALLSTILL_BASE_URL"), "the address people use to reach Allstill, such as https://allstill.example.com; passkeys belong to its host name (ALLSTILL_BASE_URL; default http://localhost and the port of -listen)")
+	runs, err := envInt("ALLSTILL_KEEP_RUNS", store.DefaultRetention.Runs)
+	if err != nil {
+		return err
+	}
+	output, err := envInt("ALLSTILL_KEEP_OUTPUT", store.DefaultRetention.Output)
+	if err != nil {
+		return err
+	}
+	keepRuns := fs.Int("keep-runs", runs, "how many of its newest runs each check keeps, with their pings (ALLSTILL_KEEP_RUNS)")
+	keepOutput := fs.Int("keep-output", output, "of how many of its newest runs each check keeps the output (ALLSTILL_KEEP_OUTPUT)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	retention := store.Retention{Runs: *keepRuns, Output: *keepOutput}
+	if err := retention.Check(); err != nil {
 		return err
 	}
 	log := slog.New(slog.NewTextHandler(stderr, nil))
@@ -113,6 +128,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		return err
 	}
 	defer st.Close()
+	st.Retention = retention
 	ws, err := st.Workspace(ctx)
 	if err != nil {
 		return err
@@ -221,6 +237,20 @@ func envOr(name, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// envInt reads a whole number from the environment, or gives fallback when
+// the variable is not set.
+func envInt(name string, fallback int) (int, error) {
+	v := os.Getenv(name)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s=%q is not a whole number", name, v)
+	}
+	return n, nil
 }
 
 func version() string {
