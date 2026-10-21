@@ -210,7 +210,6 @@ paths:
         '201': {$ref: '#/components/responses/PingCreated'}
         '400': {$ref: '#/components/responses/PingBadRequest'}
         '404': {$ref: '#/components/responses/PingNotFound'}
-        '409': {$ref: '#/components/responses/PingConflict'}
         '429': {$ref: '#/components/responses/PingRateLimited'}
     post:
       tags: [Ping]
@@ -945,11 +944,6 @@ components:
       content:
         text/plain:
           schema: {type: string, const: 'OK (not found)'}
-    PingConflict:
-      description: More than one check matches the slug.
-      content:
-        text/plain:
-          schema: {type: string, const: 'OK (not unique)'}
     PingRateLimited:
       description: Too many pings for this check or from this address.
       headers:

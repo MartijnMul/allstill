@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# sqlc turns the queries in queries/ into Go in internal/db. `make generate`
+# runs it; `make check` fails when the generated code is out of date.
+version: "2"
+sql:
+  - engine: sqlite
+    schema: migrations
+    queries: queries
+    gen:
+      go:
+        package: db
+        out: internal/db
+        emit_empty_slices: true

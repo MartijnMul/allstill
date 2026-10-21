@@ -6,11 +6,12 @@ Orientation and rules for AI coding assistants in this repository, and for anyon
 
 **Allstill**: a self-hosted dead man's switch and check service that replaces Healthchecks.io and does more, with a native macOS menu bar app. Goal: `README.md`. Stack and architecture: [ADR 0001](docs/adr/0001-stack-and-architecture.md); licences: [ADR 0002](docs/adr/0002-licence-and-contributor-agreement.md); the API: [`api/`](api/README.md). Don't add a dependency or an external service ADR 0001 doesn't allow without a new ADR.
 
-**Current status: design.** No code yet; phase 0 starts with the Go module.
+**Current status: phase 0**, the foundation. Go code lives in `internal/` (ids, cron schedules, the store and its migrations so far); `cmd/allstill` will only wire it together.
 
 ## Commands
 
-- `make check`: everything CI runs. Healthy: the API lint reports `Your API description is valid`, and the hook tests print only `ok` lines.
+- `make check`: everything CI runs. Healthy: the API lint reports `Your API description is valid`, the hook tests print only `ok` lines, the Go tests print only `ok` (and `no test files`) lines, `generated code is current`, and govulncheck reports `Your code is affected by 0 vulnerabilities`.
+- `make generate` after changing a query in `internal/store/queries/` or a migration; commit the generated code with it. Migrations in `internal/store/migrations/` are never edited once committed: add the next number.
 - `make hooks`: once per clone; installs the git hooks (secrets, names from other work, commit identity and trailers). The terms live in `.git/info/denylist`, outside the repository; CI checks the whole history against the same list, kept as the `DENYLIST` secret.
 - Claude Code hooks (`.claude/hooks/hooks.py`) keep Claude from skipping those checks, ask before outward-facing commands, and protect licence texts, committed migrations and the guards themselves from Edit and Write. They are a convenience, not the boundary: the git hooks and CI are. Every case they judge is in `test_hooks.py`; a hook change adds its case there.
 - `make help` lists the rest.

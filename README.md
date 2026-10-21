@@ -2,7 +2,7 @@
 
 Is it all still running? Allstill watches your cron jobs, backups, scripts and websites, tells you whether they ran and whether they actually worked, and keeps it calm: live status in your macOS menu bar, a digest in the morning, and your phone only when you need to act now.
 
-> **Status: design.** Nothing to install yet. The architecture is in [ADR 0001](docs/adr/0001-stack-and-architecture.md), the API in [`api/`](api/README.md).
+> **Status: early development.** Nothing to install yet. The architecture is in [ADR 0001](docs/adr/0001-stack-and-architecture.md), the API in [`api/`](api/README.md).
 
 ## What it does
 

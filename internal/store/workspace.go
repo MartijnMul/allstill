@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package store
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"errors"
+	"time"
+
+	"github.com/MartijnMul/allstill/internal/id"
+	"github.com/MartijnMul/allstill/internal/store/internal/db"
+)
+
+// Role is what a person may do in a project.
+type Role string
+
+const (
+	Viewer Role = "viewer"
+	Editor Role = "editor"
+	Owner  Role = "owner"
+)
+
+// ErrNotFound means the row does not exist, or the caller may not see it.
+var ErrNotFound = errors.New("not found")
+
+// Workspace returns the installation's workspace id, creating the workspace on
+// first use.
+func (s *Store) Workspace(ctx context.Context) (string, error) {
+	// The writer's transactions take the write lock when they begin, so two
+	// first calls cannot both create one.
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	ws, err := q.Workspace(ctx)
+	if err == nil {
+		return ws.ID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+	wsID := id.New(id.Workspace)
+	if err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: wsID, Name: "Allstill", CreatedAt: now()}); err != nil {
+		return "", err
+	}
+	return wsID, tx.Commit()
+}
+
+// NewPerson is a person to create.
+type NewPerson struct {
+	Name           string
+	Email          string
+	TimeZone       string
+	WorkspaceAdmin bool
+}
+
+// CreatePerson adds a person to the workspace and returns their id.
+func (s *Store) CreatePerson(ctx context.Context, workspaceID string, p NewPerson) (string, error) {
+	personID := id.New(id.Person)
+	if p.TimeZone == "" {
+		p.TimeZone = "UTC"
+	}
+	err := db.New(s.w).CreatePerson(ctx, db.CreatePersonParams{
+		ID:             personID,
+		WorkspaceID:    workspaceID,
+		Name:           p.Name,
+		Email:          sql.NullString{String: p.Email, Valid: p.Email != ""},
+		WorkspaceAdmin: boolInt(p.WorkspaceAdmin),
+		TimeZone:       p.TimeZone,
+		CreatedAt:      now(),
+	})
+	return personID, err
+}
+
+// CreateProject adds a project and returns its id and its ping key. The key is
+// shown once; only its hash is kept.
+func (s *Store) CreateProject(ctx context.Context, workspaceID, name string) (projectID, pingKey string, err error) {
+	projectID, pingKey = id.New(id.Project), id.Key()
+	h := sha256.Sum256([]byte(pingKey))
+	err = db.New(s.w).CreateProject(ctx, db.CreateProjectParams{
+		ID: projectID, WorkspaceID: workspaceID, Name: name, PingKeyHash: h[:], CreatedAt: now(),
+	})
+	return projectID, pingKey, err
+}
+
+// SetMember gives a person a role in a project.
+func (s *Store) SetMember(ctx context.Context, workspaceID, projectID, personID string, role Role) error {
+	return db.New(s.w).AddMember(ctx, db.AddMemberParams{
+		WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID, Role: string(role), CreatedAt: now(),
+	})
+}
+
+// ProjectAccess is a project a caller may see, and their role in it.
+type ProjectAccess struct {
+	ID   string
+	Name string
+	Role Role
+}
+
+// Access is what a caller may see: the projects and their role in each. Every
+// read of project data goes through it.
+type Access struct {
+	WorkspaceID string
+	PersonID    string
+	Admin       bool
+	Projects    []ProjectAccess
+}
+
+// Role returns the caller's role in a project, and false when they may not see
+// it at all.
+func (a Access) Role(projectID string) (Role, bool) {
+	for _, p := range a.Projects {
+		if p.ID == projectID {
+			return p.Role, true
+		}
+	}
+	return "", false
+}
+
+// AccessOfPerson returns what a person may see. A disabled or unknown person
+// gets ErrNotFound. A workspace administrator sees every project, as owner.
+func (s *Store) AccessOfPerson(ctx context.Context, workspaceID, personID string) (Access, error) {
+	q := db.New(s.r)
+	p, err := q.Person(ctx, db.PersonParams{WorkspaceID: workspaceID, ID: personID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Access{}, ErrNotFound
+	}
+	if err != nil {
+		return Access{}, err
+	}
+	rows, err := q.ProjectsOfPerson(ctx, db.ProjectsOfPersonParams{WorkspaceID: workspaceID, PersonID: personID})
+	if err != nil {
+		return Access{}, err
+	}
+	a := Access{WorkspaceID: workspaceID, PersonID: personID, Admin: p.WorkspaceAdmin == 1}
+	for _, r := range rows {
+		a.Projects = append(a.Projects, ProjectAccess{ID: r.ID, Name: r.Name, Role: Role(r.Role)})
+	}
+	return a, nil
+}
+
+func now() int64 { return time.Now().UnixMilli() }
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
