@@ -118,3 +118,33 @@ func TestNewPeopleGetQuietNights(t *testing.T) {
 		t.Fatalf("quiet hours %s", quiet)
 	}
 }
+
+func TestIncidentsOfACheck(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, _ := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	f.s.Ping(ctx, ping(c.PingUUID, check.Fail, "", at(0)))
+	f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", at(5)))
+	// Allstill looks late, as after it was down: the incident still resolves
+	// when its settle period ended.
+	f.s.SettleIncidents(ctx, at(25), 10*time.Minute)
+	f.s.Ping(ctx, ping(c.PingUUID, check.Fail, "", at(30)))
+	f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", at(40)))
+
+	got, err := f.s.IncidentsOfCheck(ctx, c.ID, t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CheckIncident{
+		{Down: at(0), Resolved: at(15), Reason: "recovered"},
+		{Down: at(30), RecoveringSince: at(40)},
+	}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("incidents %+v", got)
+	}
+	// One resolved before the time asked about is left out.
+	if got, _ := f.s.IncidentsOfCheck(ctx, c.ID, at(20)); len(got) != 1 || got[0] != want[1] {
+		t.Fatalf("since 20 minutes: %+v", got)
+	}
+}

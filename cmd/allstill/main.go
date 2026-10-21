@@ -36,6 +36,7 @@ Usage:
   allstill serve [flags]                 run the server
   allstill run [flags] -- command [args] run a job and report it
   allstill import healthchecks [flags]   copy checks from Healthchecks
+  allstill compare healthchecks [flags]  where Allstill saw checks differently
   allstill admin create-user [flags]     add a person, with a link to make a passkey
   allstill admin passkey-link [flags]    a new passkey link for someone
   allstill admin create-project NAME     create a project
@@ -79,6 +80,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return runJob(ctx, args[1:], stdout, stderr)
 	case "import":
 		return importCommand(ctx, args[1:], stdout, stderr)
+	case "compare":
+		return compareCommand(ctx, args[1:], stdout, stderr)
 	case "admin":
 		return adminCommand(ctx, args[1:], stdout, stderr)
 	case "backup":

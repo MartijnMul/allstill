@@ -3,7 +3,7 @@
 // Package importer brings checks over from Healthchecks.io or a self-hosted
 // Healthchecks through its API. Each check keeps its UUID, so a job that pings
 // it moves over by changing only the host in its ping URL; until then it can
-// ping both. Healthchecks projects map one to one onto Allstill projects.
+// ping both, and their status changes can be compared.
 package importer
 
 import (
@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,17 +50,60 @@ type HCCheck struct {
 }
 
 // Fetch lists the checks of the Healthchecks project the API key belongs to.
-// The key must be a read-write key: only that shows the checks' UUIDs. Fetch
-// only reads. The key travels only over HTTPS (plain HTTP to this machine
-// aside), and never follows a redirect to another host.
+// The key must be a read-write key: only that shows the checks' UUIDs.
 func Fetch(ctx context.Context, client *http.Client, baseURL, apiKey string) ([]HCCheck, error) {
-	u, err := url.Parse(strings.TrimRight(baseURL, "/") + "/api/v3/checks/")
+	var body struct {
+		Checks []HCCheck `json:"checks"`
+	}
+	if err := get(ctx, client, baseURL, apiKey, "/api/v3/checks/", nil, &body); err != nil {
+		return nil, fmt.Errorf("reading the checks: %w", err)
+	}
+	for _, c := range body.Checks {
+		if c.UUID == "" {
+			return nil, errors.New("the checks have no UUIDs: use the project's read-write API key, not the read-only one")
+		}
+	}
+	return body.Checks, nil
+}
+
+// Flip is a change of a Healthchecks check's status: to up, or away from it.
+type Flip struct {
+	At time.Time
+	Up bool
+}
+
+// FetchFlips lists a check's status changes since a time, oldest first.
+// Healthchecks keeps them for the current month and the two before it.
+func FetchFlips(ctx context.Context, client *http.Client, baseURL, apiKey, uuid string, since time.Time) ([]Flip, error) {
+	var body []struct {
+		Timestamp time.Time `json:"timestamp"`
+		Up        int       `json:"up"`
+	}
+	path := "/api/v3/checks/" + url.PathEscape(uuid) + "/flips/"
+	query := url.Values{"start": {strconv.FormatInt(since.Unix(), 10)}}
+	if err := get(ctx, client, baseURL, apiKey, path, query, &body); err != nil {
+		return nil, fmt.Errorf("reading its status changes: %w", err)
+	}
+	flips := make([]Flip, len(body))
+	for i, f := range body {
+		flips[i] = Flip{At: f.Timestamp.UTC(), Up: f.Up == 1}
+	}
+	slices.SortStableFunc(flips, func(a, b Flip) int { return a.At.Compare(b.At) })
+	return flips, nil
+}
+
+// get reads one answer of Healthchecks' API into out. It only reads. The key
+// travels only over HTTPS (plain HTTP to this machine aside), and never
+// follows a redirect to another host.
+func get(ctx context.Context, client *http.Client, baseURL, apiKey, path string, query url.Values, out any) error {
+	u, err := url.Parse(strings.TrimRight(baseURL, "/") + path)
 	if err != nil || u.Host == "" {
-		return nil, fmt.Errorf("%q is not a URL", baseURL)
+		return fmt.Errorf("%q is not a URL", baseURL)
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && isLoopback(u.Hostname())) {
-		return nil, errors.New("the Healthchecks URL must use https, so the API key is not sent in the clear")
+		return errors.New("the Healthchecks URL must use https, so the API key is not sent in the clear")
 	}
+	u.RawQuery = query.Encode()
 	c := *client
 	c.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if req.URL.Host != u.Host || req.URL.Scheme != u.Scheme || len(via) > 5 {
@@ -71,29 +115,23 @@ func Fetch(ctx context.Context, client *http.Client, baseURL, apiKey string) ([]
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("X-Api-Key", apiKey)
 	resp, err := c.Do(req)
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		// Without the URL, which holds a check's UUID: its ping credential.
+		return fmt.Errorf("%s %s: %w", ue.Op, u.Host, ue.Err)
+	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("the Healthchecks API answered %s", resp.Status)
+		return fmt.Errorf("the Healthchecks API answered %s", resp.Status)
 	}
-	var body struct {
-		Checks []HCCheck `json:"checks"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(&body); err != nil {
-		return nil, fmt.Errorf("reading the checks: %w", err)
-	}
-	for _, c := range body.Checks {
-		if c.UUID == "" {
-			return nil, errors.New("the checks have no UUIDs: use the project's read-write API key, not the read-only one")
-		}
-	}
-	return body.Checks, nil
+	return json.NewDecoder(io.LimitReader(resp.Body, 32<<20)).Decode(out)
 }
 
 func isLoopback(host string) bool {

@@ -38,7 +38,8 @@ A package upgrade restarts a running service; removing the package stops it and 
 
 1. Copy a project's checks: `HEALTHCHECKS_API_KEY=… allstill import healthchecks -project "Backups"` (add `-url` for a self-hosted Healthchecks). Each check keeps its UUID, so a job that pings by UUID only changes the host. A job that pings by slug needs the project's new ping key as well, printed once when the import creates the project: Healthchecks does not hand out its own.
 2. Let jobs report to both for a while: `allstill run --url https://hc-ping.com/… --url https://allstill.example.com/ping/… -- ./backup.sh`, or two space-separated URLs in `ALLSTILL_URL`.
-3. Switch a check off at Healthchecks once Allstill has seen it as well for a few weeks.
+3. Compare: `HEALTHCHECKS_API_KEY=… allstill compare healthchecks -since 2026-10-01` lists, per check, where Allstill saw it go down or come back up differently from Healthchecks: missed, extra, or more than five minutes apart (`-within`). Give `-since` the day the jobs began to ping both. Healthchecks keeps about three months of this history, and counts a check it paused as down until its next ping. It matches checks by UUID, so a project split over several in Allstill compares as one, and lists the checks Allstill never heard from, as they cannot alert.
+4. Switch a check off at Healthchecks once the comparison has stayed clean for a few weeks.
 
 One Healthchecks project often holds checks that belong to different parties, told apart by tags. Import it per tag with `-tag`, or split it afterwards: `allstill admin move-checks -from Imported -to Customer -tag customer` moves checks by tag or by name (`-check`), and `allstill admin rename-project` renames a project. A moved check keeps its UUID, runs and pings. A job that pings it by slug needs the new project's ping key: with the old key and `create=1`, it would make a new check in the old project.
 
@@ -46,7 +47,7 @@ The ping URLs and answers are those of Healthchecks, with one difference: hc-pin
 
 ## Alerts
 
-Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere; Web Push to your phone and email follow ([intent/alerts](../intent/alerts/spec.md)).
+Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`; Web Push to your phone and email follow ([intent/alerts](../intent/alerts/spec.md)).
 
 - Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project.
 - New people have quiet hours from 22:00 to 07:00 in their time zone. An alert waits for the morning unless its check is critical.

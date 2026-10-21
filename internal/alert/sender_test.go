@@ -39,6 +39,11 @@ func newWorld(t *testing.T) *world {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The last digest was at noon on the 21st, whatever the real clock says:
+	// the next one is due at 08:00 on the 22nd.
+	if err := st.RecordDigest(ctx, admin, time.Date(2026, 10, 21, 12, 0, 0, 0, ams), nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	a, _ := st.AdminAccess(ctx, ws)
 	w := &world{t: t, st: st, ws: ws, admin: admin, access: a}
 	w.sender = &Sender{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return w.now }}
@@ -248,4 +253,17 @@ func TestTheDigestKeepsItsDistance(t *testing.T) {
 	w.want("alert shadow: down backup is down")
 	w.at("22 08:02", "", "")
 	w.want("alert shadow: down backup is down", "digest shadow: still_open backup is down")
+}
+
+// Allstill was down when the incident settled. It resolves when its settle
+// period ended, before the digest time, and the digest still lists it; the
+// down that waited for the morning is never sent.
+func TestASettleWhileAllstillWasDownReachesTheDigest(t *testing.T) {
+	w := newWorld(t)
+	backup := w.check("Shop", "backup")
+	w.at("22 06:00", backup, check.Fail) // quiet hours: waits until 07:00
+	w.at("22 06:50", backup, check.Success)
+	// Down from 06:55 until 09:00.
+	w.at("22 09:00", "", "")
+	w.want("digest shadow: resolved_unseen backup is down")
 }

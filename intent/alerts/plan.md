@@ -11,6 +11,8 @@ Spec: [spec.md](spec.md), accepted 2026-10-21. Each step is a release candidate 
    - The incident on its check page, "Messages" in the dashboard, and `allstill admin set-alerting`.
    - In the API description: the incident's urgency `none`, `recovering_since` and `resolve_reason`.
 2. **The comparison.** `allstill compare healthchecks`, so the shadow weeks give evidence (C7).
+   - It compares when checks went down and came back up, which is when each would alert, not when a person would have been told: that is on Messages.
+   - `-project` filters; checks are matched by UUID, across the projects one Healthchecks project was split over.
 3. **Web Push.**
    - The ADR for keeping the VAPID key and subscriptions in the database (C6).
    - RFC 8030, 8291 and 8292 against their test vectors; the service worker; channels with a test message.

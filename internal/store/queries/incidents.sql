@@ -40,7 +40,7 @@ WHERE p.workspace_id = sqlc.arg(workspace_id) AND p.disabled_at IS NULL
 UPDATE recipients SET due_at = ? WHERE incident_id = ? AND told = 'down';
 
 -- name: SettledIncidents :many
-SELECT id FROM incidents WHERE recovering_since IS NOT NULL AND recovering_since <= ? ORDER BY recovering_since LIMIT ?;
+SELECT id, recovering_since FROM incidents WHERE recovering_since IS NOT NULL AND recovering_since <= ? ORDER BY recovering_since LIMIT ?;
 
 -- What the sender needs to decide for each recipient that is due: the
 -- incident, the person's settings and what they were told. Who follows is
@@ -153,3 +153,11 @@ ORDER BY pr.name;
 UPDATE recipients SET due_at = (SELECT opened_at FROM incidents WHERE id = recipients.incident_id)
 WHERE told = 'nothing'
   AND incident_id IN (SELECT incident_id FROM incident_checks WHERE check_id = sqlc.arg(check_id) AND open = 1);
+
+-- The incidents a check was in that were open at some time since then, for
+-- comparing with another service.
+-- name: IncidentsOfCheck :many
+SELECT ic.joined_at, i.recovering_since, i.resolved_at, i.resolve_reason
+FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
+WHERE ic.check_id = ? AND (i.resolved_at IS NULL OR i.resolved_at >= ?)
+ORDER BY ic.joined_at;

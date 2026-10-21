@@ -82,7 +82,10 @@ func resolve(ctx context.Context, q *db.Queries, incidentID, reason string, at i
 }
 
 // SettleIncidents resolves the incidents whose checks have been up for the
-// settle period, a batch at a time, and returns how many it resolved.
+// settle period, a batch at a time, and returns how many it resolved. An
+// incident resolves when its settle period ended, also when Allstill looks
+// later, after it was down: so the time it came back up is kept, and the
+// incident still falls after the last pass that saw it open.
 func (s *Store) SettleIncidents(ctx context.Context, now time.Time, settle time.Duration) (int, error) {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -90,18 +93,18 @@ func (s *Store) SettleIncidents(ctx context.Context, now time.Time, settle time.
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	ids, err := q.SettledIncidents(ctx, db.SettledIncidentsParams{
+	rows, err := q.SettledIncidents(ctx, db.SettledIncidentsParams{
 		RecoveringSince: sql.NullInt64{Int64: now.Add(-settle).UnixMilli(), Valid: true}, Limit: 100,
 	})
 	if err != nil {
 		return 0, err
 	}
-	for _, incidentID := range ids {
-		if err := resolve(ctx, q, incidentID, "recovered", now.UnixMilli()); err != nil {
+	for _, r := range rows {
+		if err := resolve(ctx, q, r.ID, "recovered", r.RecoveringSince.Int64+settle.Milliseconds()); err != nil {
 			return 0, err
 		}
 	}
-	return len(ids), tx.Commit()
+	return len(rows), tx.Commit()
 }
 
 // Due is one recipient the sender must look at: the incident and the
@@ -394,6 +397,35 @@ func (s *Store) OpenIncident(ctx context.Context, c CheckView) (*IncidentView, e
 		return nil, err
 	}
 	return &IncidentView{ID: i.ID, Title: i.Title, OpenedAt: time.UnixMilli(i.OpenedAt).UTC(), RecoveringSince: msTime(i.RecoveringSince)}, nil
+}
+
+// CheckIncident is one incident a check was in: when the check went down,
+// since when it has been up while the incident settles, and when and why the
+// incident resolved. The times are zero when they have not happened.
+type CheckIncident struct {
+	Down            time.Time
+	RecoveringSince time.Time
+	Resolved        time.Time
+	Reason          string
+}
+
+// IncidentsOfCheck lists the incidents a check was in that were open at some
+// time since then, oldest first.
+func (s *Store) IncidentsOfCheck(ctx context.Context, checkID string, since time.Time) ([]CheckIncident, error) {
+	rows, err := db.New(s.r).IncidentsOfCheck(ctx, db.IncidentsOfCheckParams{
+		CheckID: checkID, ResolvedAt: sql.NullInt64{Int64: since.UnixMilli(), Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CheckIncident, len(rows))
+	for i, r := range rows {
+		out[i] = CheckIncident{
+			Down: time.UnixMilli(r.JoinedAt).UTC(), RecoveringSince: msTime(r.RecoveringSince),
+			Resolved: msTime(r.ResolvedAt), Reason: r.ResolveReason.String,
+		}
+	}
+	return out, nil
 }
 
 // SetAlerting sets how fast a problem with a check reaches people: its

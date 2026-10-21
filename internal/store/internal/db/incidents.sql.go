@@ -414,6 +414,55 @@ func (q *Queries) DueRecipients(ctx context.Context, arg DueRecipientsParams) ([
 	return items, nil
 }
 
+const incidentsOfCheck = `-- name: IncidentsOfCheck :many
+SELECT ic.joined_at, i.recovering_since, i.resolved_at, i.resolve_reason
+FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
+WHERE ic.check_id = ? AND (i.resolved_at IS NULL OR i.resolved_at >= ?)
+ORDER BY ic.joined_at
+`
+
+type IncidentsOfCheckParams struct {
+	CheckID    string
+	ResolvedAt sql.NullInt64
+}
+
+type IncidentsOfCheckRow struct {
+	JoinedAt        int64
+	RecoveringSince sql.NullInt64
+	ResolvedAt      sql.NullInt64
+	ResolveReason   sql.NullString
+}
+
+// The incidents a check was in that were open at some time since then, for
+// comparing with another service.
+func (q *Queries) IncidentsOfCheck(ctx context.Context, arg IncidentsOfCheckParams) ([]IncidentsOfCheckRow, error) {
+	rows, err := q.db.QueryContext(ctx, incidentsOfCheck, arg.CheckID, arg.ResolvedAt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IncidentsOfCheckRow{}
+	for rows.Next() {
+		var i IncidentsOfCheckRow
+		if err := rows.Scan(
+			&i.JoinedAt,
+			&i.RecoveringSince,
+			&i.ResolvedAt,
+			&i.ResolveReason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lastMessageAt = `-- name: LastMessageAt :one
 SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM deliveries WHERE person_id = ? AND kind IN ('alert', 'digest')
 `
@@ -623,7 +672,7 @@ func (q *Queries) SetTold(ctx context.Context, arg SetToldParams) error {
 }
 
 const settledIncidents = `-- name: SettledIncidents :many
-SELECT id FROM incidents WHERE recovering_since IS NOT NULL AND recovering_since <= ? ORDER BY recovering_since LIMIT ?
+SELECT id, recovering_since FROM incidents WHERE recovering_since IS NOT NULL AND recovering_since <= ? ORDER BY recovering_since LIMIT ?
 `
 
 type SettledIncidentsParams struct {
@@ -631,19 +680,24 @@ type SettledIncidentsParams struct {
 	Limit           int64
 }
 
-func (q *Queries) SettledIncidents(ctx context.Context, arg SettledIncidentsParams) ([]string, error) {
+type SettledIncidentsRow struct {
+	ID              string
+	RecoveringSince sql.NullInt64
+}
+
+func (q *Queries) SettledIncidents(ctx context.Context, arg SettledIncidentsParams) ([]SettledIncidentsRow, error) {
 	rows, err := q.db.QueryContext(ctx, settledIncidents, arg.RecoveringSince, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []SettledIncidentsRow{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var i SettledIncidentsRow
+		if err := rows.Scan(&i.ID, &i.RecoveringSince); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

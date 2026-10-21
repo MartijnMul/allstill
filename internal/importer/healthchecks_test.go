@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MartijnMul/allstill/internal/store"
 )
@@ -146,5 +148,37 @@ func TestTagsAndPausedChecks(t *testing.T) {
 	n, _ = convert(HCCheck{Name: "x", UUID: "31365bce-8da9-4729-8ff3-aaa71d56b712", Grace: 60, Timeout: 60, Tags: long})
 	if len(n.Tags[0]) != 50 {
 		t.Fatalf("%q", n.Tags[0])
+	}
+}
+
+// Invented UUIDs: one Healthchecks knows, one it does not.
+const (
+	known   = "31365bce-8da9-4729-8ff3-aaa71d56b712"
+	unknown = "61365bce-8da9-4729-8ff3-aaa71d56b712"
+)
+
+func TestFetchFlips(t *testing.T) {
+	var gotQuery string
+	hc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/checks/"+known+"/flips/" || r.Header.Get("X-Api-Key") != "rw-key" {
+			http.NotFound(w, r)
+			return
+		}
+		gotQuery = r.URL.RawQuery
+		// Newest first, as Healthchecks lists them.
+		w.Write([]byte(`[{"timestamp": "2026-10-02T03:40:00+00:00", "up": 1}, {"timestamp": "2026-10-02T03:12:00+02:00", "up": 0}]`))
+	}))
+	defer hc.Close()
+	since := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	flips, err := FetchFlips(t.Context(), http.DefaultClient, hc.URL, "rw-key", known, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Flip{{At: time.Date(2026, 10, 2, 1, 12, 0, 0, time.UTC)}, {At: time.Date(2026, 10, 2, 3, 40, 0, 0, time.UTC), Up: true}}
+	if gotQuery != "start=1790812800" || !slices.Equal(flips, want) {
+		t.Fatalf("query %q, flips %+v", gotQuery, flips)
+	}
+	if _, err := FetchFlips(t.Context(), http.DefaultClient, hc.URL, "rw-key", unknown, since); err == nil || !strings.Contains(err.Error(), "404") {
+		t.Fatalf("an unknown check: %v", err)
 	}
 }
