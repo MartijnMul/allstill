@@ -113,6 +113,11 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 		d.Headline = "1 check needs you"
 	case len(d.Attention) > 1:
 		d.Headline = fmt.Sprintf("%d checks need you", len(d.Attention))
+	// A check that never pinged cannot go down, so it is not known to be well.
+	case counts[check.New] == 1:
+		d.Headline = "1 check has not pinged yet"
+	case counts[check.New] > 1:
+		d.Headline = fmt.Sprintf("%d checks have not pinged yet", counts[check.New])
 	default:
 		d.Headline = "All is well"
 	}

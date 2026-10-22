@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.3.0
+  version: 0.3.1
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -821,7 +821,9 @@ components:
       in: query
       description: |
         A UUID the job chooses per run, to pair a start with its end when runs
-        overlap. `allstill run` sets it.
+        overlap, or when the end arrives first: a start within the grace period
+        after the end with the same `rid` joins that run instead of starting
+        one. `allstill run` sets it.
       schema: {type: string, format: uuid}
     Values:
       name: v

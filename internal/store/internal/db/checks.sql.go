@@ -583,6 +583,25 @@ func (q *Queries) EarliestDeadline(ctx context.Context) (int64, error) {
 	return column_1, err
 }
 
+const endedRunByRid = `-- name: EndedRunByRid :one
+SELECT id FROM runs
+WHERE check_id = ? AND rid = ? AND started_at IS NULL AND ended_at >= ?
+ORDER BY id DESC LIMIT 1
+`
+
+type EndedRunByRidParams struct {
+	CheckID string
+	Rid     sql.NullString
+	EndedAt sql.NullInt64
+}
+
+func (q *Queries) EndedRunByRid(ctx context.Context, arg EndedRunByRidParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, endedRunByRid, arg.CheckID, arg.Rid, arg.EndedAt)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const finishRun = `-- name: FinishRun :exec
 UPDATE runs SET outcome = ?, ended_at = ?, exit_status = ? WHERE id = ?
 `

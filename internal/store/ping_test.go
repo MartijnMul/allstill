@@ -3,6 +3,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -168,6 +169,41 @@ func TestPingsWrittenOutOfOrderKeepTheirOrder(t *testing.T) {
 	}
 	if got := f.get(t, c.ID); msTime(got.Deadline) != t0 {
 		t.Fatalf("deadline after the clock went back %v", msTime(got.Deadline))
+	}
+}
+
+func TestAStartOvertakenByItsEndJoinsThatRun(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A wrapper sent its start in the background, and the end got there first.
+	if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Success, "r1", t0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Start, "r1", t0.Add(time.Second))); err != nil {
+		t.Fatal(err)
+	}
+	runs, _ := db.New(f.s.r).RunsOfCheck(ctx, db.RunsOfCheckParams{CheckID: c.ID, ID: "run_~", Limit: 10})
+	if len(runs) != 1 || runs[0].Outcome != "success" {
+		t.Fatalf("runs %+v", runs)
+	}
+	pings, _ := db.New(f.s.r).PingsOfRun(ctx, sql.NullString{String: runs[0].ID, Valid: true})
+	if len(pings) != 2 {
+		t.Fatalf("the run has %d pings", len(pings))
+	}
+	// No run is left open to time out.
+	if got := f.get(t, c.ID); got.State != "up" || msTime(got.Deadline) != t0.Add(time.Hour) {
+		t.Fatalf("%s, deadline %v", got.State, msTime(got.Deadline))
+	}
+	// A start with that rid past the grace period is another run.
+	if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Start, "r1", t0.Add(2*time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	if open, _ := db.New(f.s.r).OpenRuns(ctx, c.ID); len(open) != 1 {
+		t.Fatalf("open runs %+v", open)
 	}
 }
 

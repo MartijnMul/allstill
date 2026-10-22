@@ -29,25 +29,26 @@ import (
 // HCCheck is a check as Healthchecks' API (v3) describes it. Fields Allstill
 // does not use are kept in the check's settings, so nothing is lost.
 type HCCheck struct {
-	Name          string `json:"name"`
-	Status        string `json:"status"`
-	Slug          string `json:"slug"`
-	Tags          string `json:"tags"`
-	Desc          string `json:"desc"`
-	Grace         int64  `json:"grace"`
-	Timeout       int64  `json:"timeout"`
-	Schedule      string `json:"schedule"`
-	TZ            string `json:"tz"`
-	UUID          string `json:"uuid"`
-	ManualResume  bool   `json:"manual_resume"`
-	Methods       string `json:"methods"`
-	Subject       string `json:"subject"`
-	SubjectFail   string `json:"subject_fail"`
-	StartKw       string `json:"start_kw"`
-	SuccessKw     string `json:"success_kw"`
-	FailureKw     string `json:"failure_kw"`
-	FilterSubject bool   `json:"filter_subject"`
-	FilterBody    bool   `json:"filter_body"`
+	Name          string     `json:"name"`
+	Status        string     `json:"status"`
+	Slug          string     `json:"slug"`
+	Tags          string     `json:"tags"`
+	Desc          string     `json:"desc"`
+	Grace         int64      `json:"grace"`
+	Timeout       int64      `json:"timeout"`
+	Schedule      string     `json:"schedule"`
+	TZ            string     `json:"tz"`
+	UUID          string     `json:"uuid"`
+	LastPing      *time.Time `json:"last_ping"`
+	ManualResume  bool       `json:"manual_resume"`
+	Methods       string     `json:"methods"`
+	Subject       string     `json:"subject"`
+	SubjectFail   string     `json:"subject_fail"`
+	StartKw       string     `json:"start_kw"`
+	SuccessKw     string     `json:"success_kw"`
+	FailureKw     string     `json:"failure_kw"`
+	FilterSubject bool       `json:"filter_subject"`
+	FilterBody    bool       `json:"filter_body"`
 }
 
 // Fetch lists the checks of the Healthchecks project the API key belongs to.

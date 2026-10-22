@@ -69,6 +69,16 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 	if err != nil {
 		return PingOut{}, err
 	}
+	// A start can join a run whose end overtook it, within the grace period
+	// a run has to end in: an older run with that rid is another run.
+	var ended string
+	if in.Kind == check.Start && in.RID != "" {
+		since := in.At.Add(-time.Duration(c.GraceSeconds) * time.Second).UnixMilli()
+		ended, err = q.EndedRunByRid(ctx, db.EndedRunByRidParams{CheckID: c.ID, Rid: nullString(in.RID), EndedAt: sql.NullInt64{Int64: since, Valid: true}})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return PingOut{}, err
+		}
+	}
 	before := statusOf(c)
 	var after check.Status
 	var act check.RunAction
@@ -76,7 +86,7 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 		// The ping is kept, but without a schedule nothing can be judged.
 		after = unreadable(before, err, in.At)
 	} else {
-		after, act, err = check.OnPing(cfg, before, open, check.Ping{Kind: in.Kind, ExitStatus: in.ExitStatus, RID: in.RID, At: in.At})
+		after, act, err = check.OnPing(cfg, before, open, check.Ping{Kind: in.Kind, ExitStatus: in.ExitStatus, RID: in.RID, At: in.At, Ended: ended})
 		if err != nil {
 			return PingOut{}, err
 		}

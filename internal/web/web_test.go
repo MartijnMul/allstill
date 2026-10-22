@@ -173,7 +173,7 @@ func TestFromLinkToDashboard(t *testing.T) {
 	}
 
 	page := string(b.ok("GET", "/", nil))
-	for _, want := range []string{"nightly-backup", "customer-sync", "Backups", "size 18.4 G", "Ada", "0 3 * * * · Europe/Amsterdam"} {
+	for _, want := range []string{"nightly-backup", "customer-sync", "Backups", "size 18.4 G", "Ada", "0 3 * * * · Europe/Amsterdam", "1 check has not pinged yet"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the overview lacks %q", want)
 		}
@@ -212,6 +212,9 @@ func TestAMemberSeesTheirProjectsOnly(t *testing.T) {
 	page := string(b.ok("GET", "/", nil))
 	if !strings.Contains(page, "nightly-backup") || strings.Contains(page, "customer-sync") || strings.Contains(page, "Customer") {
 		t.Fatal("Bob's overview shows another project's checks")
+	}
+	if !strings.Contains(page, "All is well") {
+		t.Error("Bob's one check is up, but the overview does not say all is well")
 	}
 	if w := b.do("GET", "/checks/"+f.hidden, nil); w.Code != http.StatusNotFound || strings.Contains(w.Body.String(), "customer-sync") {
 		t.Fatalf("Bob opens another project's check: %d", w.Code)

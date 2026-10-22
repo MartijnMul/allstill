@@ -33,6 +33,7 @@ func TestCompareHealthchecks(t *testing.T) {
 		"backup":    "31365bce-8da9-4729-8ff3-aaa71d56b712",
 		"heartbeat": "41365bce-8da9-4729-8ff3-aaa71d56b712",
 		"laptop":    "51365bce-8da9-4729-8ff3-aaa71d56b712",
+		"spare":     "71365bce-8da9-4729-8ff3-aaa71d56b712",
 	}
 	for name, u := range uuids {
 		if _, err := st.CreateCheck(ctx, admin, home, store.NewCheck{Name: name, PingUUID: u, Interval: time.Hour, Grace: time.Hour}); err != nil {
@@ -73,8 +74,8 @@ func TestCompareHealthchecks(t *testing.T) {
 	}
 	hc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v3/checks/" {
-			fmt.Fprintf(w, `{"checks": [{"name": "backup", "uuid": %q}, {"name": "heartbeat", "uuid": %q}, {"name": "laptop", "uuid": %q},
-				{"name": "elsewhere", "uuid": "61365bce-8da9-4729-8ff3-aaa71d56b712"}]}`, uuids["backup"], uuids["heartbeat"], uuids["laptop"])
+			fmt.Fprintf(w, `{"checks": [{"name": "backup", "uuid": %q}, {"name": "heartbeat", "uuid": %q}, {"name": "laptop", "uuid": %q, "last_ping": %q}, {"name": "spare", "uuid": %q, "last_ping": null},
+				{"name": "elsewhere", "uuid": "61365bce-8da9-4729-8ff3-aaa71d56b712"}]}`, uuids["backup"], uuids["heartbeat"], uuids["laptop"], ago(15).Format(time.RFC3339), uuids["spare"])
 			return
 		}
 		u := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/v3/checks/"), "/flips/")
@@ -94,8 +95,9 @@ func TestCompareHealthchecks(t *testing.T) {
 	for _, want := range []string{
 		"Home / backup: the same, down once at both\n",
 		"Home / heartbeat:\n  " + ago(30).Format("Mon 2 Jan 15:04") + "  missed: down at Healthchecks for 10m, never at Allstill\n",
-		"Home / laptop: never pinged Allstill, so it cannot alert\n",
-		"1 the same, 1 different, 1 never pinged Allstill.\nNot in Allstill: elsewhere.\n",
+		"Home / laptop: never pinged Allstill, so it cannot alert; Healthchecks last heard from it " + ago(15).Format("Mon 2 Jan 15:04") + "\n",
+		"Home / spare: never pinged Allstill, so it cannot alert; Healthchecks never heard from it either\n",
+		"1 the same, 1 different, 2 never pinged Allstill.\nNot in Allstill: elsewhere.\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("missing %q in:\n%s", want, out.String())

@@ -172,6 +172,24 @@ func TestRunsPairByRid(t *testing.T) {
 	}
 }
 
+func TestAStartOvertakenByItsEndJoinsThatRun(t *testing.T) {
+	w := newWorld(t, hourly)
+	if act := w.ping(Success, "r1", 0); act.Op != EndOnly {
+		t.Fatalf("the end that arrived first: %+v", act)
+	}
+	s, act, err := OnPing(w.c, w.s, w.open, Ping{Kind: Start, ExitStatus: -1, RID: "r1", At: at(time.Second), Ended: "z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !is(act, LateStart, "z") || s != w.s {
+		t.Fatalf("the late start: %+v, status %+v", act, s)
+	}
+	// Without a rid nothing says which run a start belongs to.
+	if _, act, _ := OnPing(w.c, w.s, w.open, Ping{Kind: Start, ExitStatus: -1, At: at(time.Second), Ended: "z"}); act.Op != OpenNew {
+		t.Fatalf("a start without rid: %+v", act)
+	}
+}
+
 func TestARepeatedStartRestartsTheRun(t *testing.T) {
 	w := newWorld(t, hourly)
 	w.ping(Success, "", 0)

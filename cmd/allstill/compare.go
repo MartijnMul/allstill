@@ -134,7 +134,13 @@ Flags:
 			name += " (paused at Healthchecks)"
 		}
 		if p.ours.Status.State == check.New {
-			fmt.Fprintf(stdout, "%s: never pinged Allstill, so it cannot alert\n", name)
+			// Whether it pinged Healthchecks since tells a job that does not
+			// ping Allstill yet from one that was not due.
+			heard := "Healthchecks never heard from it either"
+			if p.hc.LastPing != nil {
+				heard = "Healthchecks last heard from it " + p.hc.LastPing.In(loc).Format("Mon 2 Jan 15:04")
+			}
+			fmt.Fprintf(stdout, "%s: never pinged Allstill, so it cannot alert; %s\n", name, heard)
 			silent++
 			continue
 		}

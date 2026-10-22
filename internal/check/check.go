@@ -20,7 +20,9 @@
 //
 // Allstill adds one state: when the server itself was not running at a
 // deadline, the check becomes unknown instead of down, and gets one grace
-// period from the restart to report.
+// period from the restart to report. And a start that arrives after the end
+// with the same rid joins that run, where Healthchecks would open a new run
+// that times out.
 package check
 
 import (
@@ -91,11 +93,14 @@ const (
 )
 
 // Ping is one received ping. ExitStatus is -1 when the ping carried none.
+// Ended is, for a start with a rid, the id of a run with that rid that has an
+// end and no start and ended within the grace period, if there is one.
 type Ping struct {
 	Kind       Kind
 	ExitStatus int
 	RID        string
 	At         time.Time
+	Ended      string
 }
 
 // RunOp is what a ping does to the runs.
@@ -108,6 +113,7 @@ const (
 	Finish          // an end of an open run
 	EndOnly         // an end without a start: a run of its end alone
 	AttachLog       // a log ping that belongs to an open run
+	LateStart       // a start whose run has ended: the end overtook it
 )
 
 // RunAction is what the store must do to the runs, and with which run.
@@ -138,6 +144,8 @@ func OnPing(c Config, s Status, open []OpenRun, p Ping) (Status, RunAction, erro
 		if r, ok := match(open, p.RID); ok {
 			act = RunAction{Op: Restart, RunID: r.ID}
 			open = without(open, r.ID)
+		} else if p.RID != "" && p.Ended != "" {
+			return s, RunAction{Op: LateStart, RunID: p.Ended}, nil
 		}
 		open = append(open, OpenRun{RID: p.RID, Started: p.At})
 		s.Deadline = deadline(c, s, open)

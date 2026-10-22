@@ -38,6 +38,11 @@ SELECT id, rid, started_at, timed_out_at FROM runs
 WHERE check_id = ? AND ended_at IS NULL AND started_at IS NOT NULL
 ORDER BY id;
 
+-- name: EndedRunByRid :one
+SELECT id FROM runs
+WHERE check_id = ? AND rid = ? AND started_at IS NULL AND ended_at >= ?
+ORDER BY id DESC LIMIT 1;
+
 -- name: CreateRun :exec
 INSERT INTO runs (id, workspace_id, check_id, rid, outcome, started_at, ended_at, exit_status)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
