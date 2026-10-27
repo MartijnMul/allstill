@@ -204,7 +204,7 @@ func TestACheckMovedDuringAnIncident(t *testing.T) {
 	w.at("12:00", printer, check.Fail)
 
 	views, _ := w.st.Checks(ctx, w.access)
-	if err := w.st.MoveCheck(ctx, w.ws, views[0].ID, customer); err != nil {
+	if err := w.st.MoveCheck(ctx, w.ws, views[0].ID, customer, w.now); err != nil {
 		t.Fatal(err)
 	}
 	w.at("12:01", "", "")
@@ -220,7 +220,7 @@ func TestASettingChangedWhileWaitingIsFollowed(t *testing.T) {
 	backup := w.check("Shop", "backup")
 	w.at("22 03:00", backup, check.Fail)
 	views, _ := w.st.Checks(t.Context(), w.access)
-	if err := w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "digest", false); err != nil {
+	if err := w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "digest", false, w.now); err != nil {
 		t.Fatal(err)
 	}
 	w.at("22 07:00", "", "")
@@ -234,10 +234,10 @@ func TestFromNoneToNowDuringAnIncident(t *testing.T) {
 	w := newWorld(t)
 	laptop := w.check("Lab", "laptop")
 	views, _ := w.st.Checks(t.Context(), w.access)
-	w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "none", false)
+	w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "none", false, w.now)
 	w.at("12:00", laptop, check.Fail)
 	w.want()
-	w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "now", false)
+	w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "now", false, w.now)
 	w.at("12:01", "", "")
 	w.want("alert shadow: down laptop is down")
 }

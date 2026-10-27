@@ -53,6 +53,7 @@ Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device*
 
 - Push needs Allstill reached over https (`-base-url`): Apple refuses pushes from anything else.
 - Each time the dashboard is opened on a device, it renews that device's subscription. A device that shows *Must subscribe again* is put right by opening Allstill on it.
+- The overview says when alerts may not reach you: a message to you failed in the last day, a device needs you, Allstill is behind with sending, or nobody gets alerts for a project you see.
 - Serving a copy of the database? Start it with `-shadow` (`ALLSTILL_SHADOW=1`): it then sends no alerts, whatever the copy says.
 
 - Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project.
@@ -66,7 +67,7 @@ Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device*
 - **The database and every copy are secrets.** They hold every check's ping URL, and with Web Push the key Allstill signs phone alerts with and where each phone is reached ([ADR 0003](adr/0003-web-push-secrets.md)): whoever has a copy can ping any check, and can send every subscribed phone a notification that looks like Allstill's. `allstill backup` writes a copy only its owner can read; keep copies that way. Never serve a copy with alerts on, or it alerts everyone a second time.
 - **Upgrades.** Before a new version changes the database, it copies it next to itself, as `allstill.db.before-0003` for example. Delete the copy once the new version works.
 - **History.** Each check keeps its newest 1000 runs, and the output of its newest 100; `-keep-runs` and `-keep-output` change that.
-- **Watch Allstill itself** from somewhere else, such as one check at another service that Allstill's host pings.
+- **Watch Allstill itself** from somewhere else, such as one check at another service that Allstill's host pings. `GET /health` answers 200 while Allstill keeps up with sending and 503 when it has fallen more than two minutes behind or cannot read its database, so an outside monitor can watch the sending too; it needs no sign-in and says nothing about checks.
 
 ## Check a release
 

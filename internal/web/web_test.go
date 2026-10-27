@@ -424,7 +424,7 @@ func TestMessagesShowWhatWouldHaveBeenSent(t *testing.T) {
 	}
 
 	// A critical check, so quiet hours do not hold the alert back whenever the test runs.
-	if err := f.st.SetAlerting(ctx, f.ws, f.checkID, "now", true); err != nil {
+	if err := f.st.SetAlerting(ctx, f.ws, f.checkID, "now", true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.st.Ping(ctx, store.PingIn{CheckUUID: strings.TrimPrefix(f.pingURL, site+"/ping/"), Kind: check.Fail, ExitStatus: 3, Method: "POST", At: time.Now()}); err != nil {

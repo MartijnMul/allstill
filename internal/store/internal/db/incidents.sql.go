@@ -490,15 +490,22 @@ func (q *Queries) LookAgainAtTold(ctx context.Context, arg LookAgainAtToldParams
 }
 
 const lookAgainAtUntold = `-- name: LookAgainAtUntold :exec
-UPDATE recipients SET due_at = (SELECT opened_at FROM incidents WHERE id = recipients.incident_id)
+UPDATE recipients SET due_at = ?1
 WHERE told = 'nothing'
-  AND incident_id IN (SELECT incident_id FROM incident_checks WHERE check_id = ?1 AND open = 1)
+  AND incident_id IN (SELECT incident_id FROM incident_checks WHERE check_id = ?2 AND open = 1)
 `
+
+type LookAgainAtUntoldParams struct {
+	DueAt   sql.NullInt64
+	CheckID string
+}
 
 // A check's alerting changed: who has not been told about its open incident
 // is looked at again at once, under the new setting.
-func (q *Queries) LookAgainAtUntold(ctx context.Context, checkID string) error {
-	_, err := q.db.ExecContext(ctx, lookAgainAtUntold, checkID)
+// Due when the setting changed, not since the incident opened, which would
+// read as a sender behind.
+func (q *Queries) LookAgainAtUntold(ctx context.Context, arg LookAgainAtUntoldParams) error {
+	_, err := q.db.ExecContext(ctx, lookAgainAtUntold, arg.DueAt, arg.CheckID)
 	return err
 }
 

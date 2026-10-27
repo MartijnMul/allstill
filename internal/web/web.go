@@ -7,6 +7,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -40,6 +41,8 @@ type Server struct {
 	PushKey string
 	// Wake makes the sender look at once, for a test message.
 	Wake func()
+	// Behind says how far the sender lags (R11).
+	Behind func(context.Context) (time.Duration, error)
 
 	base       *url.URL
 	workspace  string
@@ -120,6 +123,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /channels/{id}/test", s.signedIn(s.testChannel))
 	handle("GET /channels/{id}/confirm", s.signedIn(s.confirmChannel))
 	handle("POST /channels/{id}/delete", s.signedIn(s.deleteChannel))
+	handle("GET /health", s.health)
 	handle("GET /login", s.loginPage)
 	handle("POST /login/begin", s.loginBegin)
 	handle("POST /login/finish", s.loginFinish)

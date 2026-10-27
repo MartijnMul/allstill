@@ -149,8 +149,10 @@ ORDER BY pr.name;
 
 -- A check's alerting changed: who has not been told about its open incident
 -- is looked at again at once, under the new setting.
+-- Due when the setting changed, not since the incident opened, which would
+-- read as a sender behind.
 -- name: LookAgainAtUntold :exec
-UPDATE recipients SET due_at = (SELECT opened_at FROM incidents WHERE id = recipients.incident_id)
+UPDATE recipients SET due_at = sqlc.arg(due_at)
 WHERE told = 'nothing'
   AND incident_id IN (SELECT incident_id FROM incident_checks WHERE check_id = sqlc.arg(check_id) AND open = 1);
 

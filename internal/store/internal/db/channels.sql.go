@@ -254,6 +254,25 @@ func (q *Queries) FailOrphanDeliveries(ctx context.Context) error {
 	return err
 }
 
+const failedSince = `-- name: FailedSince :one
+SELECT COUNT(*) FROM deliveries
+WHERE person_id = ? AND state = 'failed' AND created_at >= ? AND COALESCE(last_error, '') <> ?3
+`
+
+type FailedSinceParams struct {
+	PersonID  string
+	CreatedAt int64
+	NotFailed sql.NullString
+}
+
+// A message left out because nothing in it was still true did not fail.
+func (q *Queries) FailedSince(ctx context.Context, arg FailedSinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, failedSince, arg.PersonID, arg.CreatedAt, arg.NotFailed)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const finishDelivery = `-- name: FinishDelivery :exec
 UPDATE deliveries SET state = ?, attempts = attempts + 1, last_error = ?, sent_at = ?, next_at = NULL WHERE id = ?
 `
@@ -306,6 +325,23 @@ func (q *Queries) HeardInShadow(ctx context.Context, arg HeardInShadowParams) er
 	}
 	_, err := q.db.ExecContext(ctx, query, queryParams...)
 	return err
+}
+
+const oldestDue = `-- name: OldestDue :one
+SELECT CAST(COALESCE(MIN(t), 0) AS INTEGER) FROM (
+    SELECT MIN(due_at) AS t FROM recipients WHERE due_at IS NOT NULL
+    UNION ALL
+    SELECT MIN(next_at) FROM deliveries WHERE state = 'pending'
+)
+`
+
+// The earliest moment the sender should already have acted on: a recipient
+// to look at, or a delivery to send. 0 when nothing waits.
+func (q *Queries) OldestDue(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, oldestDue)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const pendingDeliveries = `-- name: PendingDeliveries :many

@@ -431,7 +431,7 @@ func (s *Store) IncidentsOfCheck(ctx context.Context, checkID string, since time
 // SetAlerting sets how fast a problem with a check reaches people: its
 // urgency (now, digest or none), and whether it breaks through quiet hours.
 // It is for the administrator's command line: it checks no caller's access.
-func (s *Store) SetAlerting(ctx context.Context, workspaceID, checkID, urgency string, critical bool) error {
+func (s *Store) SetAlerting(ctx context.Context, workspaceID, checkID, urgency string, critical bool, at time.Time) error {
 	if urgency != "now" && urgency != "digest" && urgency != "none" {
 		return &InvalidError{"urgency", "is now, digest or none"}
 	}
@@ -441,9 +441,9 @@ func (s *Store) SetAlerting(ctx context.Context, workspaceID, checkID, urgency s
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	at := now()
+	ms := at.UnixMilli()
 	n, err := q.SetAlerting(ctx, db.SetAlertingParams{
-		Urgency: urgency, Critical: boolInt(critical), UpdatedAt: at, WorkspaceID: workspaceID, ID: checkID,
+		Urgency: urgency, Critical: boolInt(critical), UpdatedAt: ms, WorkspaceID: workspaceID, ID: checkID,
 	})
 	if err != nil {
 		return err
@@ -451,7 +451,7 @@ func (s *Store) SetAlerting(ctx context.Context, workspaceID, checkID, urgency s
 	if n == 0 {
 		return ErrNotFound
 	}
-	if err := q.LookAgainAtUntold(ctx, checkID); err != nil {
+	if err := q.LookAgainAtUntold(ctx, db.LookAgainAtUntoldParams{DueAt: sql.NullInt64{Int64: at.UnixMilli(), Valid: true}, CheckID: checkID}); err != nil {
 		return err
 	}
 	return tx.Commit()

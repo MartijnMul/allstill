@@ -100,3 +100,17 @@ UPDATE deliveries SET state = ?, attempts = attempts + 1, last_error = ?, sent_a
 
 -- name: RetryDelivery :exec
 UPDATE deliveries SET attempts = attempts + 1, last_error = ?, next_at = ? WHERE id = ?;
+
+-- The earliest moment the sender should already have acted on: a recipient
+-- to look at, or a delivery to send. 0 when nothing waits.
+-- name: OldestDue :one
+SELECT CAST(COALESCE(MIN(t), 0) AS INTEGER) FROM (
+    SELECT MIN(due_at) AS t FROM recipients WHERE due_at IS NOT NULL
+    UNION ALL
+    SELECT MIN(next_at) FROM deliveries WHERE state = 'pending'
+);
+
+-- A message left out because nothing in it was still true did not fail.
+-- name: FailedSince :one
+SELECT COUNT(*) FROM deliveries
+WHERE person_id = ? AND state = 'failed' AND created_at >= ? AND COALESCE(last_error, '') <> sqlc.arg(not_failed);

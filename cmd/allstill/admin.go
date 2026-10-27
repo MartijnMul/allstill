@@ -195,7 +195,7 @@ Flags:
 	}
 	moved := 0
 	for _, c := range moving {
-		if err := st.MoveCheck(ctx, ws, c.ID, toID); err != nil {
+		if err := st.MoveCheck(ctx, ws, c.ID, toID, time.Now()); err != nil {
 			fmt.Fprintf(stdout, "not moved  %s: %v\n", c.Name, err)
 			continue
 		}
@@ -271,7 +271,7 @@ Flags:
 	default:
 		return fmt.Errorf("%s has %d checks named %q", *project, len(ids), *name)
 	}
-	if err := st.SetAlerting(ctx, ws, ids[0], *urgency, *critical); err != nil {
+	if err := st.SetAlerting(ctx, ws, ids[0], *urgency, *critical, time.Now()); err != nil {
 		return err
 	}
 	what := *urgency

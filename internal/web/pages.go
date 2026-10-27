@@ -74,6 +74,15 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	}
 	// Down before late.
 	slices.SortStableFunc(d.Attention, func(a, b card) int { return rank[b.Class] - rank[a.Class] })
+	// What may keep alerts from reaching the person comes first: it silences
+	// everything else.
+	alerts, err := s.alertCards(r.Context(), v, now)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	checkCards := len(d.Attention)
+	d.Attention = append(alerts, d.Attention...)
 
 	link := func(show, project string) string {
 		q := []string{}
@@ -109,10 +118,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	switch {
 	case len(checks) == 0:
 		d.Headline = "No checks yet"
-	case len(d.Attention) == 1:
+	case checkCards == 1:
 		d.Headline = "1 check needs you"
-	case len(d.Attention) > 1:
-		d.Headline = fmt.Sprintf("%d checks need you", len(d.Attention))
+	case checkCards > 1:
+		d.Headline = fmt.Sprintf("%d checks need you", checkCards)
+	case len(alerts) > 0:
+		d.Headline = "Alerts may not reach you"
 	// A check that never pinged cannot go down, so it is not known to be well.
 	case counts[check.New] == 1:
 		d.Headline = "1 check has not pinged yet"

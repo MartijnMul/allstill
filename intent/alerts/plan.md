@@ -13,7 +13,7 @@ Spec: [spec.md](spec.md), accepted 2026-10-21. Each step is a release candidate 
 2. **The comparison.** `allstill compare healthchecks`, so the shadow weeks give evidence (C7).
    - It compares when checks went down and came back up, which is when each would alert, not when a person would have been told: that is on Messages.
    - `-project` filters; checks are matched by UUID, across the projects one Healthchecks project was split over.
-3. **Web Push.** Built: the ADR, the encryption and signing, the outbound client, devices with a test message, and the sender pushing and retrying once. Still to do: the health endpoint and `attention` (R11), and the API description.
+3. **Web Push.** Built: the ADR, the encryption and signing, the outbound client, devices with a test message, the sender pushing and retrying once, the health endpoint and `attention` on the overview (R11), and the API description. The JSON API itself, like the rest of `/api/v1`, is not served yet.
    - [ADR 0003](../../docs/adr/0003-web-push-secrets.md): the VAPID key and subscriptions in the database (C6).
    - RFC 8030, 8291 and 8292 against their test vectors; the service worker; channels with a test message.
    - From the ADR's review: one channel per endpoint in a workspace: the same person sending the same subscription again keeps the channel and its confirmation, while a new key, or the device moving to another person, replaces it; errors scrubbed of endpoints before they reach a delivery or the log (Go's URL errors include the URL); and a flag on `allstill serve` that forces shadow mode, for serving a copy.

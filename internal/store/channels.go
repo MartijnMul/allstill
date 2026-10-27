@@ -408,3 +408,24 @@ func (s *Store) Failed(ctx context.Context, p Pending, reason string, gone, chan
 func (s *Store) Retry(ctx context.Context, deliveryID, reason string, next time.Time) error {
 	return db.New(s.w).RetryDelivery(ctx, db.RetryDeliveryParams{LastError: nullString(reason), NextAt: nullMs(next), ID: deliveryID})
 }
+
+// OldestDue is the earliest moment the sender should already have acted on:
+// a recipient to look at, or a delivery to send. It is zero when nothing
+// waits.
+func (s *Store) OldestDue(ctx context.Context) (time.Time, error) {
+	ms, err := db.New(s.r).OldestDue(ctx)
+	if err != nil || ms == 0 {
+		return time.Time{}, err
+	}
+	return time.UnixMilli(ms).UTC(), nil
+}
+
+// NoLongerTrue is why a message was left out: by the time it could go,
+// nothing in it was still true (R13). It is not a failure to reach anyone.
+const NoLongerTrue = "nothing in it was still true when it could go"
+
+// FailedSince counts the person's messages that failed since then.
+func (s *Store) FailedSince(ctx context.Context, personID string, since time.Time) (int, error) {
+	n, err := db.New(s.r).FailedSince(ctx, db.FailedSinceParams{PersonID: personID, CreatedAt: since.UnixMilli(), NotFailed: nullString(NoLongerTrue)})
+	return int(n), err
+}

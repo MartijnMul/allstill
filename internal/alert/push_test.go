@@ -439,3 +439,60 @@ func TestAShadowedDigestKeepsWhatWasHeard(t *testing.T) {
 	}
 	w.want("test sent: ", "alert sent: down backup is down", "digest shadow: still_open backup is down", "alert sent: recovered backup is down")
 }
+
+// A sender that has not acted on what waits is behind by as much, less the
+// time between passes (R11).
+func TestBehind(t *testing.T) {
+	w := newWorld(t)
+	backup := w.check("Shop", "backup")
+	w.at("12:00", "", "")
+	if b, err := w.sender.Behind(t.Context()); err != nil || b != 0 {
+		t.Fatalf("with nothing waiting: %v, %v", b, err)
+	}
+	// The check goes down, and the sender does not look for ten minutes.
+	w.set("12:00")
+	if _, err := w.st.Ping(t.Context(), store.PingIn{CheckUUID: backup, Kind: check.Fail, ExitStatus: 1, Method: "POST", At: w.now}); err != nil {
+		t.Fatal(err)
+	}
+	w.set("12:10")
+	if b, _ := w.sender.Behind(t.Context()); b != 10*time.Minute-Every {
+		t.Fatalf("behind %v, want %v", b, 10*time.Minute-Every)
+	}
+	w.at("12:10", "", "")
+	if b, _ := w.sender.Behind(t.Context()); b != 0 {
+		t.Fatalf("after a pass: behind %v", b)
+	}
+	// A sender whose last good pass was long ago is behind by as much.
+	w.sender.lastPass.Store(w.now.Add(-5 * time.Minute).UnixMilli())
+	if b, _ := w.sender.Behind(t.Context()); b != 5*time.Minute-Every {
+		t.Fatalf("with no good pass for 5 min: behind %v", b)
+	}
+}
+
+// Changing a check's alerting, or moving it, makes the sender look again at
+// once; that is not lagging since the incident opened.
+func TestAChangeDuringAnOldIncidentIsNotBehind(t *testing.T) {
+	w := newWorld(t)
+	backup := w.check("Shop", "backup")
+	w.at("22 03:00", backup, check.Fail) // waits for the end of quiet hours
+	w.set("22 05:00")
+	views, _ := w.st.Checks(t.Context(), w.access)
+	if err := w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "digest", false, w.now); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := w.sender.Behind(t.Context()); b != 0 {
+		t.Fatalf("after a change of alerting: behind %v", b)
+	}
+	w.at("22 05:00", "", "")
+	// Moved to a project with a new person, who becomes a recipient.
+	lab, _, _ := w.st.CreateProject(t.Context(), w.ws, "Lab")
+	bo, _ := w.st.CreatePerson(t.Context(), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
+	w.st.SetMember(t.Context(), w.ws, lab, bo, store.Editor)
+	w.set("22 06:00")
+	if err := w.st.MoveCheck(t.Context(), w.ws, views[0].ID, lab, w.now); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := w.sender.Behind(t.Context()); b != 0 {
+		t.Fatalf("after a move: behind %v", b)
+	}
+}

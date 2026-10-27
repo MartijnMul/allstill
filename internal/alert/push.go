@@ -202,7 +202,7 @@ func (s *Sender) deliver(ctx context.Context, shadow bool, now time.Time) error 
 				return err
 			}
 			if d.Items = keep; len(d.Items) == 0 {
-				if err := s.Store.Failed(ctx, d, "nothing in it was still true when it could go", false, false, now); err != nil {
+				if err := s.Store.Failed(ctx, d, store.NoLongerTrue, false, false, now); err != nil {
 					return err
 				}
 				continue

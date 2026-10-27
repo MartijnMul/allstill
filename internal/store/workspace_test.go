@@ -115,7 +115,7 @@ func TestMoveCheckKeepsItsHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	other, key, _ := f.s.CreateProject(ctx, f.ws, "Customer")
-	if err := f.s.MoveCheck(ctx, f.ws, c.ID, other); err != nil {
+	if err := f.s.MoveCheck(ctx, f.ws, c.ID, other, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.get(t, c.ID); got.ProjectID != other || got.Version != 2 || got.State != "up" {
@@ -143,10 +143,10 @@ func TestMoveCheckKeepsItsHistory(t *testing.T) {
 	// A slug the other project uses is refused, and so is a project that does not exist.
 	back, _ := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Printer", Slug: "printer", Interval: time.Hour, Grace: time.Hour})
 	var invalid *InvalidError
-	if err := f.s.MoveCheck(ctx, f.ws, back.ID, other); !errors.As(err, &invalid) {
+	if err := f.s.MoveCheck(ctx, f.ws, back.ID, other, time.Now()); !errors.As(err, &invalid) {
 		t.Fatalf("a taken slug: %v", err)
 	}
-	if err := f.s.MoveCheck(ctx, f.ws, back.ID, "prj_none"); !errors.Is(err, ErrNotFound) {
+	if err := f.s.MoveCheck(ctx, f.ws, back.ID, "prj_none", time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("no such project: %v", err)
 	}
 }

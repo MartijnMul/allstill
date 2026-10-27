@@ -149,8 +149,8 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 // MoveCheck moves a check to another project. Its ping UUID, runs and pings go
 // with it; a ping by slug needs the new project's ping key. A slug the new
 // project already uses is refused. It is for the administrator's command line:
-// it checks no caller's access.
-func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID string) error {
+// it checks no caller's access. at is when it moves.
+func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID string, at time.Time) error {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -169,8 +169,8 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 	} else if err != nil {
 		return err
 	}
-	at := now()
-	if err := q.MoveCheck(ctx, db.MoveCheckParams{ProjectID: toProjectID, UpdatedAt: at, WorkspaceID: workspaceID, ID: checkID}); err != nil {
+	ms := at.UnixMilli()
+	if err := q.MoveCheck(ctx, db.MoveCheckParams{ProjectID: toProjectID, UpdatedAt: ms, WorkspaceID: workspaceID, ID: checkID}); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: checks.project_id, checks.slug") {
 			return &InvalidError{"slug", "the other project has a check with this slug"}
 		}
@@ -181,8 +181,9 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 		if err := q.MoveIncidentCheck(ctx, db.MoveIncidentCheckParams{ProjectID: toProjectID, CheckID: checkID}); err != nil {
 			return err
 		}
-		// They should have known since it opened, so the sender looks at once.
-		err := q.AddFollowers(ctx, db.AddFollowersParams{IncidentID: open.ID, DueAt: sql.NullInt64{Int64: open.OpenedAt, Valid: true}, ProjectID: toProjectID, WorkspaceID: workspaceID})
+		// They should have known since it opened, so the sender looks at once:
+		// due now, not since it opened, which would read as a sender behind.
+		err := q.AddFollowers(ctx, db.AddFollowersParams{IncidentID: open.ID, DueAt: sql.NullInt64{Int64: ms, Valid: true}, ProjectID: toProjectID, WorkspaceID: workspaceID})
 		if err != nil {
 			return err
 		}
@@ -194,7 +195,7 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 	for _, e := range []struct{ project, kind string }{{from, "check.removed"}, {toProjectID, "check.updated"}} {
 		if err := q.CreateEvent(ctx, db.CreateEventParams{
 			WorkspaceID: workspaceID, ProjectID: sql.NullString{String: e.project, Valid: true},
-			Type: e.kind, SubjectID: checkID, CreatedAt: at,
+			Type: e.kind, SubjectID: checkID, CreatedAt: ms,
 		}); err != nil {
 			return err
 		}

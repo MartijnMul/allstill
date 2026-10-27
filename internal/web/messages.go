@@ -2,7 +2,11 @@
 
 package web
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/MartijnMul/allstill/internal/store"
+)
 
 // listedMessages is how many of a person's newest messages the page shows.
 const listedMessages = 100
@@ -66,6 +70,11 @@ func (s *Server) messagesPage(w http.ResponseWriter, r *http.Request, v viewer) 
 			row.State, row.Class = "Sent", "up"
 		case "pending":
 			row.State, row.Class = "Sending", "late"
+		case "failed":
+			row.State, row.Class = "Failed: "+m.Error, "down"
+			if m.Error == store.NoLongerTrue {
+				row.State, row.Class = "Left out: no longer true when it could go", "quiet"
+			}
 		default:
 			row.State, row.Class = "Failed: "+m.Error, "down"
 		}

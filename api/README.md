@@ -40,7 +40,7 @@ Beyond Healthchecks, a ping can carry values for a check's rules: `v=name:number
 
 ## Generating code
 
-The Go server generates the JSON API only (the ping endpoints are written by hand, for speed and Healthchecks compatibility), with `oapi-codegen` 2.8 or later and these options:
+The Go server generates the JSON API only (the ping endpoints are written by hand, for speed and Healthchecks compatibility, and so is `/health`, which is served at the root like them), with `oapi-codegen` 2.8 or later and these options:
 
 ```yaml
 generate:
@@ -48,7 +48,7 @@ generate:
   strict-server: true
   models: true
 output-options:
-  exclude-tags: [Ping]
+  exclude-tags: [Ping, Health]
   skip-prune: true # keeps StreamEvent, which no path refers to
 ```
 
@@ -57,7 +57,7 @@ The Swift client uses Apple's `swift-openapi-generator`:
 ```yaml
 generate: [types, client]
 filter:
-  tags: [Account, Status, Projects, Checks, Runs, Incidents, Calendars, Events]
+  tags: [Account, Status, Projects, Checks, Runs, Incidents, Calendars, Events, Alerts, Health]
   schemas: [StreamEvent]
 namingStrategy: idiomatic
 accessModifier: public
@@ -65,6 +65,6 @@ accessModifier: public
 
 ## Not in v1 yet
 
-- Managing projects, members, calendars, maintenance windows, channels and keys through the API; the dashboard does that.
+- Managing projects, members, calendars, maintenance windows and keys through the API; the dashboard does that. A person's own devices and messages are in it (tag `Alerts`).
 - Status pages and probes.
 - The Healthchecks management API (`/api/v3`). Moving over uses `allstill import healthchecks`, which reads it.

@@ -3,13 +3,16 @@
 package web
 
 import (
+	"context"
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MartijnMul/allstill/internal/store"
 	"github.com/MartijnMul/allstill/internal/webpush"
@@ -160,5 +163,69 @@ func TestASubscriptionForAnOldKey(t *testing.T) {
 	b.ok("POST", "/channels/push", sub)
 	if page := string(b.ok("GET", "/channels", nil)); !strings.Contains(page, "Must subscribe again") {
 		t.Fatalf("devices page:\n%s", page)
+	}
+}
+
+func TestHealth(t *testing.T) {
+	f := setup(t)
+	answer := func() (int, string) {
+		w := f.browser(t).do("GET", "/health", nil)
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	f.srv.Behind = func(context.Context) (time.Duration, error) { return 30 * time.Second, nil }
+	if code, body := answer(); code != http.StatusOK || body != `{"status":"ok","sender_behind":30}` {
+		t.Errorf("keeping up: %d %s", code, body)
+	}
+	f.srv.Behind = func(context.Context) (time.Duration, error) { return 5 * time.Minute, nil }
+	if code, body := answer(); code != http.StatusServiceUnavailable || body != `{"status":"behind","sender_behind":300}` {
+		t.Errorf("behind: %d %s", code, body)
+	}
+	f.srv.Behind = func(context.Context) (time.Duration, error) { return 0, errors.New("disk I/O error") }
+	if code, body := answer(); code != http.StatusServiceUnavailable || body != `{"status":"error","sender_behind":0}` {
+		t.Errorf("an error: %d %s", code, body)
+	}
+}
+
+// What may keep alerts from someone shows first on the overview (R11).
+func TestAlertProblemsNeedAttention(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	key, _ := f.st.VAPIDKey(ctx, f.ws)
+	f.srv.PushKey = key.PublicKey()
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	// A message left out because it was no longer true did not fail.
+	if err := f.st.Record(ctx, &store.Delivery{WorkspaceID: f.ws, PersonID: f.ada, Kind: "alert", State: "failed",
+		Error: store.NoLongerTrue, At: time.Now()}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if page := string(b.ok("GET", "/", nil)); strings.Contains(page, "Alerts may not reach you") {
+		t.Fatal("alert problems before there are any")
+	}
+
+	f.srv.Behind = func(context.Context) (time.Duration, error) { return 5 * time.Minute, nil }
+	if err := f.st.Record(ctx, &store.Delivery{WorkspaceID: f.ws, PersonID: f.ada, Kind: "alert", State: "failed",
+		Error: "no confirmed device to reach this person", At: time.Now()}, nil); err != nil {
+		t.Fatal(err)
+	}
+	sub := subscriptionJSON("https://push.example.net/push/old")
+	sub["key"] = strings.Repeat("A", len(key.PublicKey()))
+	b.ok("POST", "/channels/push", sub)
+	// A project where nobody gets alerts: Bob and Ada only view it, and as a
+	// member Ada follows it through that membership, not as an administrator.
+	lab, _, _ := f.st.CreateProject(ctx, f.ws, "Lab")
+	f.st.SetMember(ctx, f.ws, lab, f.bob, store.Viewer)
+	f.st.SetMember(ctx, f.ws, lab, f.ada, store.Viewer)
+	bob := f.browser(t)
+	f.register(t, bob, f.bob)
+
+	page := string(b.ok("GET", "/", nil))
+	for _, want := range []string{"Alerts may not reach you", "Alerts are 5 min behind", "1 message to you failed", "iPhone, Safari must subscribe again"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("overview without %q:\n%s", want, page)
+		}
+	}
+	if page := string(bob.ok("GET", "/", nil)); !strings.Contains(page, "Nobody would be told about Lab") {
+		t.Errorf("Bob's overview:\n%s", page)
 	}
 }

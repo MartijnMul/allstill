@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.3.1
+  version: 0.4.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -53,6 +53,10 @@ tags:
     description: When checks count, and when they stay quiet.
   - name: Events
     description: A live stream of changes.
+  - name: Alerts
+    description: Where a person is alerted, what they were sent, and whether alerts are sent at all.
+  - name: Health
+    description: Whether Allstill can alert, for a monitor outside it. Served at the root, like the pings.
 
 security:
   - bearer: [read]
@@ -311,6 +315,38 @@ paths:
         $ref: '#/components/requestBodies/PingBody'
       responses: *ping-responses-slug
 
+  # Whether Allstill can alert, outside /api/v1 like the pings.
+
+  /health:
+    servers:
+      - url: https://{host}
+        description: The installation itself, outside `/api/v1`
+        variables:
+          host:
+            default: allstill.example.com
+            description: The host name of your installation.
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Whether Allstill can alert, for a monitor outside it
+      description: |
+        Watch this from somewhere other than Allstill's own host. It answers 503
+        when the sender has fallen more than two minutes behind or the database
+        cannot be read, and says nothing about checks, so it needs no token.
+      security: []
+      responses:
+        # There is no 4xx: it takes nothing from the caller (lint-ignored).
+        '200':
+          description: Allstill keeps up.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+        '503':
+          description: Allstill is behind, or cannot read its database.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Health'}
+
   # The JSON API
 
   /me:
@@ -342,6 +378,139 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Status'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /me/channels:
+    get:
+      tags: [Alerts]
+      operationId: listMyChannels
+      summary: Where the signed-in person is alerted
+      description: Needs a person's token; an API key gets 403. A channel never shows a subscription's endpoint or keys (ADR 0003).
+      responses:
+        '200':
+          description: The person's channels.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: '#/components/schemas/Channel'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /me/channels/webpush:
+    post:
+      tags: [Alerts]
+      operationId: savePushSubscription
+      summary: Add this device, or send its subscription again
+      description: |
+        Needs a person's token with the `manage` scope. The same subscription sent
+        again keeps its channel and its confirmation; other keys for the same
+        endpoint, or another person, replace it, and it must be confirmed again.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PushSubscription'}
+      responses:
+        '200':
+          description: The device's channel.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Channel'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /me/channels/{channel_id}:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    delete:
+      tags: [Alerts]
+      operationId: deleteMyChannel
+      summary: Stop alerting a device
+      security:
+        - bearer: [manage]
+      responses:
+        '204': {description: The channel is gone.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /me/channels/{channel_id}/test:
+    parameters:
+      - $ref: '#/components/parameters/ChannelId'
+    post:
+      tags: [Alerts]
+      operationId: testMyChannel
+      summary: Send a test message, even in shadow mode
+      description: Opening the test message on the device confirms the channel; alerts go only to confirmed channels.
+      security:
+        - bearer: [manage]
+      responses:
+        '202': {description: The test message is on its way.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+
+  /me/messages:
+    get:
+      tags: [Alerts]
+      operationId: listMyMessages
+      summary: What the signed-in person was sent, or in shadow mode would have been, newest first
+      description: Needs a person's token; an API key gets 403.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of messages.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessagePage'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+
+  /settings/alerts:
+    get:
+      tags: [Alerts]
+      operationId: getAlertSettings
+      summary: Whether alerts are sent or only recorded
+      responses:
+        '200':
+          description: The installation's alert settings.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AlertSettings'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+    patch:
+      tags: [Alerts]
+      operationId: setAlertSettings
+      summary: Switch shadow mode on or off
+      description: |
+        Needs a workspace administrator's token with the `manage` scope. Incidents
+        opened in shadow mode are not alerted when it is switched off; the next
+        digest lists them. An installation started with `-shadow` stays in shadow
+        mode whatever this says.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: {$ref: '#/components/schemas/AlertSettings'}
+      responses:
+        '200':
+          description: The settings now.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AlertSettings'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
 
   /projects:
     get:
@@ -871,6 +1040,11 @@ components:
       in: path
       required: true
       schema: {$ref: '#/components/schemas/Id'}
+    ChannelId:
+      name: channel_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
     Cursor:
       name: cursor
       in: query
@@ -1068,6 +1242,9 @@ components:
             workspace_admin: {type: boolean}
             quiet_hours:
               $ref: '#/components/schemas/QuietHours'
+            digest_time:
+              $ref: '#/components/schemas/TimeOfDay'
+              description: When the person's daily digest goes out, in the time zone of their quiet hours.
         scopes:
           type: array
           items: {$ref: '#/components/schemas/Scope'}
@@ -1080,6 +1257,11 @@ components:
               id: {$ref: '#/components/schemas/Id'}
               name: {type: string}
               role: {$ref: '#/components/schemas/Role'}
+              alerts:
+                type: boolean
+                description: |
+                  Whether the person gets alerts for the project. On for owners and
+                  editors; a workspace administrator who is no member gets them too.
 
     QuietHours:
       type: object
@@ -1615,8 +1797,11 @@ components:
           type: string
           description: |
             `all_still` when nothing needs attention, `attention` for warnings and
-            late checks, `incident` when an incident is open, `unknown` when Allstill
-            cannot tell.
+            late checks, and when alerts may not reach the caller: the sender is
+            behind; for a person, a message to them failed in the last day or one of
+            their devices failed or must subscribe again; or nobody would be told
+            about a project they see. `incident` when an incident is open, `unknown`
+            when Allstill cannot tell.
           enum: [all_still, attention, incident, unknown]
         counts: {$ref: '#/components/schemas/StateCounts'}
         projects:
@@ -1635,6 +1820,106 @@ components:
               check_id: {$ref: '#/components/schemas/Id'}
               name: {type: string}
               expected_at: {type: string, format: date-time}
+
+    Health:
+      type: object
+      required: [status, sender_behind]
+      properties:
+        status:
+          type: string
+          description: '`ok`, `behind` when the sender lags more than two minutes, `error` when the database cannot be read. The HTTP status says whether all is well: a monitor need not know the values.'
+          enum: [ok, behind, error]
+        sender_behind:
+          type: integer
+          format: int64
+          description: How many seconds the sender lags behind what it should have done; 0 when it keeps up or, with `error`, cannot tell.
+
+    Channel:
+      type: object
+      description: Where a person is alerted. A push channel never shows its endpoint or keys.
+      required: [id, kind, name, state, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        kind:
+          type: string
+          description: '`webpush` for a browser or Home Screen app, `email` once it comes. Clients show kinds they do not know by name.'
+          enum: [webpush, email]
+        name: {type: string, description: 'The device, such as "iPhone, Safari".'}
+        state:
+          type: string
+          description: |
+            `confirmed` once a test message was opened on it; `unconfirmed` until then;
+            `failing` when alerts to it failed since; `renew` when it subscribed for an
+            older key and must be opened on the device to subscribe again. Clients treat
+            states they do not know as `unconfirmed`.
+          enum: [confirmed, unconfirmed, failing, renew]
+        created_at: {type: string, format: date-time}
+        confirmed_at: {type: string, format: date-time}
+        failed_at: {type: string, format: date-time}
+
+    PushSubscription:
+      type: object
+      description: A browser's PushSubscription as `toJSON()` gives it, with a name for the device.
+      required: [endpoint, keys]
+      properties:
+        name: {type: string, maxLength: 100}
+        key:
+          type: string
+          description: The VAPID public key the browser subscribed for, base64url; the installation's current one when left out.
+        endpoint: {type: string, format: uri, maxLength: 1024, description: An https address at the browser's push service.}
+        keys:
+          type: object
+          required: [p256dh, auth]
+          properties:
+            p256dh: {type: string, description: 'The browser''s P-256 public key, base64url.'}
+            auth: {type: string, description: 'The 16-octet authentication secret, base64url.'}
+
+    Message:
+      type: object
+      description: One message to one person, on one channel when it was sent.
+      required: [id, kind, state, items, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        kind:
+          type: string
+          description: Clients show kinds they do not know by name.
+          enum: [alert, digest, test]
+        state:
+          type: string
+          description: '`shadow` when it was only recorded; `pending` while it is being sent; then `sent` or `failed`. Clients show states they do not know by name.'
+          enum: [shadow, pending, sent, failed]
+        channel_id: {$ref: '#/components/schemas/Id'}
+        items:
+          type: array
+          items:
+            type: object
+            required: [what, title]
+            properties:
+              incident_id: {$ref: '#/components/schemas/Id'}
+              what:
+                type: string
+                description: Clients show values they do not know as plain text.
+                enum: [down, recovered, still_open, resolved_unseen, silent_check]
+              title: {type: string}
+        error: {type: string, description: 'Why it failed, when it did.'}
+        created_at: {type: string, format: date-time}
+        sent_at: {type: string, format: date-time}
+
+    MessagePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Message'}
+        next_cursor: {type: string}
+
+    AlertSettings:
+      type: object
+      properties:
+        shadow:
+          type: boolean
+          description: When on, every step runs and is recorded, but only test messages are sent. On by default.
 
     StreamEvent:
       description: The data of one event in `/events`.

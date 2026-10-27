@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Each entry is a lint finding that is right as it stands, with the reason.
+openapi.yaml:
+  operation-4xx-response:
+    # /health takes nothing from the caller, so it has no 4xx to describe.
+    - '#/paths/~1health/get/responses'

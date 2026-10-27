@@ -197,6 +197,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		Store: st, Log: log, Now: time.Now, Shadow: *shadow, Wake: wake,
 		Push: &alert.Push{Key: key, Base: base.String(), Client: outbound.Client(30 * time.Second)},
 	}
+	dashboard.Behind = sender.Behind
 	errs := make(chan error, 3)
 	go func() { errs <- sched.Run(ctx) }()
 	go func() { errs <- sender.Run(ctx) }()

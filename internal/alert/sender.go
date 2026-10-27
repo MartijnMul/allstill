@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/store"
@@ -45,6 +46,7 @@ type Store interface {
 	Retry(ctx context.Context, deliveryID, reason string, next time.Time) error
 	StillFollowed(ctx context.Context, personID string, incidentIDs []string) (map[string]bool, error)
 	Shadowed(ctx context.Context, p store.Pending) error
+	OldestDue(ctx context.Context) (time.Time, error)
 	Unheard(ctx context.Context, personID string, incidentIDs []string) error
 }
 
@@ -64,15 +66,20 @@ type Sender struct {
 	// Wake, when set, makes the sender look at once, such as for a test
 	// message.
 	Wake chan struct{}
+
+	lastPass atomic.Int64 // when Run last finished a pass, in Unix milliseconds
 }
 
 // Run works every Every until ctx ends.
 func (s *Sender) Run(ctx context.Context) error {
 	ticker := time.NewTicker(Every)
 	defer ticker.Stop()
+	s.lastPass.Store(s.Now().UnixMilli())
 	for {
 		if err := s.Pass(ctx); err != nil && ctx.Err() == nil {
 			s.Log.Error("sending alerts", "error", err)
+		} else {
+			s.lastPass.Store(s.Now().UnixMilli())
 		}
 		select {
 		case <-ctx.Done():
@@ -81,6 +88,25 @@ func (s *Sender) Run(ctx context.Context) error {
 		case <-s.Wake:
 		}
 	}
+}
+
+// Behind is how far the sender lags: how long ago it should have acted on
+// what waits longest, or since a pass of Run last went well, less the time
+// between passes (R11). Zero means it keeps up.
+func (s *Sender) Behind(ctx context.Context) (time.Duration, error) {
+	now := s.Now()
+	var behind time.Duration
+	if ms := s.lastPass.Load(); ms != 0 {
+		behind = now.Sub(time.UnixMilli(ms))
+	}
+	oldest, err := s.Store.OldestDue(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if !oldest.IsZero() {
+		behind = max(behind, now.Sub(oldest))
+	}
+	return max(behind-Every, 0), nil
 }
 
 // Pass does what is due now: settle, alert, and digest.
