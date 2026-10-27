@@ -217,3 +217,5 @@ pre.log { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--c
   .side { max-width: none; }
   .page { padding: 20px 16px 40px; }
 }
+td.actions { display: flex; gap: 6px; justify-content: flex-end; }
+#push button { align-self: flex-start; }

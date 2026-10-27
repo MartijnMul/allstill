@@ -4,6 +4,7 @@ package alert
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -34,15 +35,35 @@ type Store interface {
 	DigestPeople(ctx context.Context) ([]store.DigestPerson, error)
 	DigestOf(ctx context.Context, personID string, since time.Time) ([]store.DigestEntry, []store.SilentCheck, error)
 	RecordDigest(ctx context.Context, personID string, at time.Time, d *store.Delivery, told []store.Told) error
+	PushTargets(ctx context.Context, personID, key string) ([]store.PushTarget, error)
+	Queue(ctx context.Context, d store.Delivery, channels []string, told []store.Told) error
+	QueueDigest(ctx context.Context, d store.Delivery, channels []string, told []store.Told) error
+	PendingDeliveries(ctx context.Context, now time.Time, limit int) ([]store.Pending, error)
+	SetConfirm(ctx context.Context, p store.Pending, token string) error
+	Sent(ctx context.Context, deliveryID string, at time.Time) error
+	Failed(ctx context.Context, p store.Pending, reason string, gone, channelFailed bool, at time.Time) error
+	Retry(ctx context.Context, deliveryID, reason string, next time.Time) error
+	StillFollowed(ctx context.Context, personID string, incidentIDs []string) (map[string]bool, error)
+	Shadowed(ctx context.Context, p store.Pending) error
+	Unheard(ctx context.Context, personID string, incidentIDs []string) error
 }
 
 // Sender settles incidents, tells people what they must hear, and sends the
-// digests. There are no channels yet: in shadow mode, the default, it records
-// what it would have sent; otherwise a message fails for want of a channel.
+// digests. In shadow mode, the default, it records what it would have sent
+// and sends only test messages; otherwise it pushes to each person's
+// confirmed devices, and a message for someone without one fails.
 type Sender struct {
 	Store Store
 	Log   *slog.Logger
 	Now   func() time.Time
+	// Push sends to browsers; without it, only shadow mode works.
+	Push *Push
+	// Shadow keeps the sender in shadow mode whatever the database says, to
+	// serve a copy of it.
+	Shadow bool
+	// Wake, when set, makes the sender look at once, such as for a test
+	// message.
+	Wake chan struct{}
 }
 
 // Run works every Every until ctx ends.
@@ -57,6 +78,7 @@ func (s *Sender) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+		case <-s.Wake:
 		}
 	}
 }
@@ -77,6 +99,15 @@ func (s *Sender) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	shadow = shadow || s.Shadow
+	// What waits goes first, or is found no longer true, before anything new
+	// is decided from what each person has heard. A down waiting for its
+	// second try (RetryAfter) is so settled before its recovery can be
+	// decided, which Gather holds back longer. A failure here is logged, and
+	// must not keep new alerts from being decided.
+	if err := s.deliver(ctx, shadow, now); err != nil && ctx.Err() == nil {
+		s.Log.Error("sending waiting messages", "error", err)
+	}
 	due, err := s.Store.DueRecipients(ctx, now, batch)
 	if err != nil {
 		return err
@@ -91,7 +122,21 @@ func (s *Sender) Pass(ctx context.Context) error {
 		}
 		due = due[n:]
 	}
-	return s.digests(ctx, shadow, now)
+	// Waiting messages go out even when the digests could not be worked out.
+	return errors.Join(s.digests(ctx, shadow, now), s.deliver(ctx, shadow, now))
+}
+
+// targets is where a person's messages go: their confirmed devices.
+func (s *Sender) targets(ctx context.Context, personID string) ([]string, error) {
+	if s.Push == nil {
+		return nil, nil
+	}
+	ts, err := s.Store.PushTargets(ctx, personID, s.Push.Key.PublicKey())
+	ids := make([]string, len(ts))
+	for i, t := range ts {
+		ids[i] = t.ChannelID
+	}
+	return ids, err
 }
 
 // alert decides for one person's due recipients, and sends them one message.
@@ -130,16 +175,23 @@ func (s *Sender) alert(ctx context.Context, due []store.Due, shadow bool, now ti
 		return s.Store.Record(ctx, nil, later)
 	}
 	d := &store.Delivery{WorkspaceID: due[0].WorkspaceID, PersonID: due[0].PersonID, Kind: "alert", Items: items, State: "shadow", At: now}
-	if !shadow {
-		// No channel exists yet (Web Push and email follow): the message
-		// fails, and is tried again later.
-		d.State, d.Error = "failed", "no channel to reach this person yet"
+	if shadow {
+		return s.Store.Record(ctx, d, append(told, later...))
+	}
+	channels, err := s.targets(ctx, d.PersonID)
+	if err != nil {
+		return err
+	}
+	if len(channels) == 0 {
+		// Nowhere to reach this person (email follows): the message fails,
+		// and is tried again later.
+		d.State, d.Error = "failed", "no confirmed device to reach this person"
 		for _, t := range told {
 			later = append(later, store.Told{IncidentID: t.IncidentID, PersonID: t.PersonID, Again: now.Add(retryNoChannel)})
 		}
 		return s.Store.Record(ctx, d, later)
 	}
-	return s.Store.Record(ctx, d, append(told, later...))
+	return s.Store.Queue(ctx, *d, channels, append(told, later...))
 }
 
 // digests sends each person whose digest time has passed since the sender
@@ -186,10 +238,18 @@ func (s *Sender) digest(ctx context.Context, p store.DigestPerson, shadow bool, 
 		return s.Store.RecordDigest(ctx, p.ID, now, nil, nil)
 	}
 	d := &store.Delivery{WorkspaceID: p.WorkspaceID, PersonID: p.ID, Kind: "digest", Items: items, State: "shadow", At: now}
-	if !shadow {
-		d.State, d.Error, told = "failed", "no channel to reach this person yet", nil
+	if shadow {
+		return s.Store.RecordDigest(ctx, p.ID, now, d, told)
 	}
-	return s.Store.RecordDigest(ctx, p.ID, now, d, told)
+	channels, err := s.targets(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	if len(channels) == 0 {
+		d.State, d.Error = "failed", "no confirmed device to reach this person"
+		return s.Store.RecordDigest(ctx, p.ID, now, d, nil)
+	}
+	return s.Store.QueueDigest(ctx, *d, channels, told)
 }
 
 // DigestItems is what a digest says, and what it tells:

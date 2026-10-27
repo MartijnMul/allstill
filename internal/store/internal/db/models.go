@@ -64,6 +64,7 @@ type Delivery struct {
 	LastError   sql.NullString
 	CreatedAt   int64
 	SentAt      sql.NullInt64
+	NextAt      sql.NullInt64
 }
 
 type Event struct {
@@ -213,6 +214,13 @@ type Session struct {
 	CreatedAt   int64
 	SeenAt      int64
 	ExpiresAt   int64
+}
+
+type VapidKey struct {
+	WorkspaceID string
+	PrivateKey  []byte
+	PublicKey   string
+	CreatedAt   int64
 }
 
 type Workspace struct {

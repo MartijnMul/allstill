@@ -36,6 +36,10 @@ type Server struct {
 	Store *store.Store
 	Log   *slog.Logger
 	Now   func() time.Time
+	// PushKey is the public VAPID key browsers subscribe for (ADR 0003).
+	PushKey string
+	// Wake makes the sender look at once, for a test message.
+	Wake func()
 
 	base       *url.URL
 	workspace  string
@@ -94,7 +98,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{},
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html"))
-	for _, name := range []string{"login", "setup", "overview", "check", "messages", "error"} {
+	for _, name := range []string{"login", "setup", "overview", "check", "messages", "channels", "error"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}
@@ -111,6 +115,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("GET /{$}", s.signedIn(s.overview))
 	handle("GET /checks/{id}", s.signedIn(s.checkPage))
 	handle("GET /messages", s.signedIn(s.messagesPage))
+	handle("GET /channels", s.signedIn(s.channelsPage))
+	handle("POST /channels/push", s.signedIn(s.savePush))
+	handle("POST /channels/{id}/test", s.signedIn(s.testChannel))
+	handle("GET /channels/{id}/confirm", s.signedIn(s.confirmChannel))
+	handle("POST /channels/{id}/delete", s.signedIn(s.deleteChannel))
 	handle("GET /login", s.loginPage)
 	handle("POST /login/begin", s.loginBegin)
 	handle("POST /login/finish", s.loginFinish)
@@ -120,6 +129,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /setup/begin", s.setupBegin)
 	handle("POST /setup/finish", s.setupFinish)
 	static, _ := fs.Sub(staticFS, "static")
+	// The service worker lives at the root, so it covers every page.
+	mux.Handle("GET /sw.js", s.headers(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, static, "sw.js")
+	})))
 	mux.Handle("GET /static/", s.headers(http.StripPrefix("/static/", noListing(http.FileServerFS(static)))))
 }
 
@@ -131,7 +144,7 @@ func (s *Server) headers(next http.Handler) http.Handler {
 		static := strings.HasPrefix(r.URL.Path, "/static/")
 		if !static {
 			h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; "+
-				"connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+				"connect-src 'self'; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 		}
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "no-referrer")
@@ -228,16 +241,20 @@ func (s *Server) viewer(r *http.Request) (viewer, error) {
 
 // page is what every page's layout needs.
 type page struct {
-	Title  string
-	Person string // the signed-in person's name, or "" on the sign-in pages
-	Crumbs []crumb
-	Search string
-	Data   any
+	Title   string
+	Person  string // the signed-in person's name, or "" on the sign-in pages
+	PushKey string // set on signed-in pages, so the page can renew this device's subscription
+	Crumbs  []crumb
+	Search  string
+	Data    any
 }
 
 type crumb struct{ Name, Href string }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name string, p page) {
+	if p.Person != "" {
+		p.PushKey = s.PushKey
+	}
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, "layout", p); err != nil {
 		s.Log.Error("rendering a page", "page", name, "error", err)

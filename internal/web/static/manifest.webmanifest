@@ -1,0 +1,8 @@
+{
+  "name": "Allstill",
+  "short_name": "Allstill",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "icons": [{ "src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

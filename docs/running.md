@@ -47,7 +47,13 @@ The ping URLs and answers are those of Healthchecks, with one difference: hc-pin
 
 ## Alerts
 
-Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`; Web Push to your phone and email follow ([intent/alerts](../intent/alerts/spec.md)).
+Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`; email follows, and then alerts are switched on ([intent/alerts](../intent/alerts/spec.md)).
+
+Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device* subscribes the browser you are in for push notifications; send it a test and open the notification to confirm it, and alerts can reach it. On an iPhone or iPad, add Allstill to the Home Screen first and open it from there. Test messages are sent even in shadow mode.
+
+- Push needs Allstill reached over https (`-base-url`): Apple refuses pushes from anything else.
+- Each time the dashboard is opened on a device, it renews that device's subscription. A device that shows *Must subscribe again* is put right by opening Allstill on it.
+- Serving a copy of the database? Start it with `-shadow` (`ALLSTILL_SHADOW=1`): it then sends no alerts, whatever the copy says.
 
 - Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project.
 - New people have quiet hours from 22:00 to 07:00 in their time zone. An alert waits for the morning unless its check is critical.

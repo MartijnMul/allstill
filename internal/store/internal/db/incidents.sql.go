@@ -146,7 +146,7 @@ func (q *Queries) CreateIncident(ctx context.Context, arg CreateIncidentParams) 
 }
 
 const deliveriesOfPerson = `-- name: DeliveriesOfPerson :many
-SELECT id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at FROM deliveries WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
+SELECT id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at, next_at FROM deliveries WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
 `
 
 type DeliveriesOfPersonParams struct {
@@ -175,6 +175,7 @@ func (q *Queries) DeliveriesOfPerson(ctx context.Context, arg DeliveriesOfPerson
 			&i.LastError,
 			&i.CreatedAt,
 			&i.SentAt,
+			&i.NextAt,
 		); err != nil {
 			return nil, err
 		}

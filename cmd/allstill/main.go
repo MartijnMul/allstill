@@ -24,6 +24,7 @@ import (
 
 	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/ingest"
+	"github.com/MartijnMul/allstill/internal/outbound"
 	"github.com/MartijnMul/allstill/internal/runner"
 	"github.com/MartijnMul/allstill/internal/scheduler"
 	"github.com/MartijnMul/allstill/internal/store"
@@ -113,6 +114,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	keepRuns := fs.Int("keep-runs", runs, "how many of its newest runs each check keeps, with their pings (ALLSTILL_KEEP_RUNS)")
 	keepOutput := fs.Int("keep-output", output, "of how many of its newest runs each check keeps the output (ALLSTILL_KEEP_OUTPUT)")
+	shadow := fs.Bool("shadow", os.Getenv("ALLSTILL_SHADOW") == "1", "record alerts without sending them, whatever the setting in the database, such as to serve a copy of it (ALLSTILL_SHADOW=1)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -154,12 +156,28 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 			"passkeys", n, "host", base.Hostname())
 	}
 
+	key, err := st.VAPIDKey(ctx, ws)
+	if err != nil {
+		return err
+	}
+	if base.Scheme != "https" {
+		log.Warn("phones only get alerts when Allstill is reached over https: Apple's push service refuses the rest", "base_url", base.String())
+	}
+
 	sched := scheduler.New(st, log)
 	mux := http.NewServeMux()
 	(&ingest.Handler{Store: st, Nudge: sched.Nudge, Log: log, Now: time.Now}).Register(mux)
+	wake := make(chan struct{}, 1)
 	dashboard, err := web.New(st, ws, base, log)
 	if err != nil {
 		return err
+	}
+	dashboard.PushKey = key.PublicKey()
+	dashboard.Wake = func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
 	}
 	dashboard.Register(mux)
 
@@ -174,8 +192,11 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 	// It records what it would send until an administrator switches alerts
-	// on; there are no channels yet (intent/alerts/spec.md).
-	sender := &alert.Sender{Store: st, Log: log, Now: time.Now}
+	// on (intent/alerts/spec.md); test messages always go.
+	sender := &alert.Sender{
+		Store: st, Log: log, Now: time.Now, Shadow: *shadow, Wake: wake,
+		Push: &alert.Push{Key: key, Base: base.String(), Client: outbound.Client(30 * time.Second)},
+	}
 	errs := make(chan error, 3)
 	go func() { errs <- sched.Run(ctx) }()
 	go func() { errs <- sender.Run(ctx) }()

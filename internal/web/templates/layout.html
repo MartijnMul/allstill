@@ -8,6 +8,8 @@
 <title>{{.Title}} · Allstill</title>
 <link rel="stylesheet" href="/static/app.css">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="manifest" href="/static/manifest.webmanifest">
+{{if .PushKey}}<meta name="allstill-push-key" content="{{.PushKey}}">{{end}}
 <script type="module" src="/static/app.js"></script>
 </head>
 <body>
@@ -27,6 +29,7 @@
   <div class="spacer"></div>
   <form class="who" action="/logout" method="post">
     <a href="/messages">Messages</a>
+    <a href="/channels">Devices</a>
     <span>{{.Person}}</span>
     <button type="submit" class="small">Sign out</button>
   </form>

@@ -1,0 +1,51 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="page">
+  <div class="title">
+    <div><h1>Your devices</h1></div>
+    {{if .Shadow}}
+    <p class="reason">Shadow mode: alerts are recorded under Messages, not sent. Test messages are sent, so you can get your devices ready.</p>
+    {{end}}
+  </div>
+
+  {{if .Confirmed}}
+  <section class="panel" role="status"><p>Confirmed: alerts can reach that device.</p></section>
+  {{end}}
+
+  <section class="panel" id="push">
+    <h2>This device</h2>
+    <p class="muted" data-push-state>Alerts can come to this browser as notifications, also when Allstill is not open.</p>
+    <p class="muted" data-push-ios hidden>On an iPhone or iPad, first add Allstill to your Home Screen (Share, then Add to Home Screen) and open it from there.</p>
+    <p class="alert" role="alert"></p>
+    <button type="button" class="primary" data-push-add hidden>Get alerts on this device</button>
+  </section>
+
+  <section class="panel">
+    <h2>Where alerts go</h2>
+    {{if .Channels}}
+    <div class="runs">
+      <table>
+        <caption class="sr">Your devices</caption>
+        <thead><tr><th scope="col">Device</th><th scope="col">State</th><th scope="col">Added</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          {{range .Channels}}
+          <tr data-channel="{{.ID}}">
+            <td>{{.Name}} <span class="muted" data-this-device hidden>(this device)</span></td>
+            <td><span class="result"><i class="dot {{.Class}}" aria-hidden="true"></i>{{.State}}</span></td>
+            <td class="mono">{{.Since}}</td>
+            <td class="actions">
+              <form action="/channels/{{.ID}}/test" method="post"><button type="submit" class="small">Send a test</button></form>
+              <form action="/channels/{{.ID}}/delete" method="post" data-remove="{{.ID}}"><button type="submit" class="small">Remove</button></form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <p class="muted">A device gets alerts once you have opened a test message on it.</p>
+    {{else}}
+    <p class="muted">No devices yet. Open Allstill on your phone and add it here.</p>
+    {{end}}
+  </section>
+</main>
+{{end}}{{end}}

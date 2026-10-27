@@ -39,7 +39,8 @@ generate: ## Generate the query code with sqlc
 	for f in $(GENERATED)/*.go; do printf '// SPDX-License-Identifier: AGPL-3.0-only\n\n' | cat - "$$f" > "$$f.tmp" && mv "$$f.tmp" "$$f"; done
 
 generated-check: ## Fail when generated code is out of date
-	@tmp=$$(mktemp -d) && cp -R $(GENERATED)/. "$$tmp" && $(MAKE) -s generate && \
+	@tmp=$$(mktemp -d) && cp -R $(GENERATED)/. "$$tmp" && \
+	if ! $(MAKE) -s generate; then rm -rf "$$tmp"; echo "Generating the query code failed."; exit 1; fi; \
 	if ! diff -r "$$tmp" $(GENERATED) >/dev/null; then \
 		echo "Generated code was out of date; run 'make generate' and commit the result."; rm -rf "$$tmp"; exit 1; \
 	fi; rm -rf "$$tmp"; echo "generated code is current"

@@ -189,3 +189,120 @@ if (live && stale) {
     }
   }, 30_000);
 }
+
+// Web Push (ADR 0003). The page that adds a device subscribes this browser
+// for the server's key; every signed-in page sends the subscription again, so
+// a changed one is picked up, and one made for another key is made anew.
+const pushKey = document.querySelector("meta[name=allstill-push-key]")?.content;
+const pushable = pushKey && "serviceWorker" in navigator && "PushManager" in window;
+
+function deviceName() {
+  const ua = navigator.userAgent;
+  const device = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android"
+    : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "Device";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome"
+    : /Safari\//.test(ua) ? "Safari" : "";
+  return browser ? `${device}, ${browser}` : device;
+}
+
+// The key a subscription was made for; a browser that does not tell is
+// taken at its word that it is the current one.
+function keyOf(subscription) {
+  const key = subscription.options?.applicationServerKey;
+  return key ? b64.encode(key) : pushKey;
+}
+
+async function subscribe(registration) {
+  return registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64.decode(pushKey) });
+}
+
+async function sendSubscription(subscription) {
+  return post("/channels/push", { name: deviceName(), key: keyOf(subscription), ...subscription.toJSON() });
+}
+
+// The channel of this browser, once the server has seen its subscription.
+async function renew() {
+  if (!pushable || Notification.permission !== "granted") return null;
+  const registration = await navigator.serviceWorker.getRegistration("/");
+  let subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return null;
+  if (keyOf(subscription) !== pushKey) {
+    await subscription.unsubscribe();
+    subscription = await subscribe(registration);
+  }
+  return sendSubscription(subscription);
+}
+
+let thisDeviceID = null;
+let renewing = true;
+const thisDevice = renew()
+  .then((channel) => {
+    thisDeviceID = channel?.id ?? null;
+    return channel;
+  })
+  .catch(() => null)
+  .finally(() => (renewing = false));
+
+const push = document.getElementById("push");
+if (push) {
+  const add = push.querySelector("[data-push-add]");
+  const state = push.querySelector("[data-push-state]");
+  const alert = push.querySelector("[role=alert]");
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (!pushable) {
+    if (/iPhone|iPad/.test(navigator.userAgent) && !standalone) push.querySelector("[data-push-ios]").hidden = false;
+    else state.textContent = "This browser cannot get push notifications.";
+  } else {
+    thisDevice.then((channel) => {
+      if (channel) {
+        const row = document.querySelector(`[data-channel="${CSS.escape(channel.id)}"]`);
+        row?.querySelector("[data-this-device]")?.removeAttribute("hidden");
+        state.textContent = channel.confirmed
+          ? "This device gets alerts."
+          : "This device is added. Send it a test and open the notification to confirm it.";
+        if (!row && channel.id) location.reload();
+      } else if (Notification.permission === "denied") {
+        state.textContent = "Notifications are blocked for Allstill in this browser's settings.";
+      } else {
+        add.hidden = false;
+      }
+    });
+    add.addEventListener("click", async () => {
+      alert.textContent = "";
+      add.disabled = true;
+      try {
+        if ((await Notification.requestPermission()) !== "granted") {
+          throw new Error("Notifications were not allowed. Allow them for Allstill and try again.");
+        }
+        const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+        await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
+        if (subscription && keyOf(subscription) !== pushKey) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+        subscription ??= await subscribe(registration);
+        await sendSubscription(subscription);
+        location.reload();
+      } catch (err) {
+        alert.textContent = err.message;
+        add.disabled = false;
+      }
+    });
+  }
+
+  // Removing this device also unsubscribes this browser, or the next page
+  // would add it again. Until the page knows which device it is on, it waits.
+  document.addEventListener("submit", async (event) => {
+    const form = event.target.closest("[data-remove]");
+    if (!form || (!renewing && thisDeviceID !== form.dataset.remove)) return;
+    event.preventDefault();
+    if ((await thisDevice)?.id !== form.dataset.remove) {
+      form.submit();
+      return;
+    }
+    const registration = await navigator.serviceWorker.getRegistration("/");
+    await (await registration?.pushManager.getSubscription())?.unsubscribe().catch(() => {});
+    form.submit();
+  });
+}
