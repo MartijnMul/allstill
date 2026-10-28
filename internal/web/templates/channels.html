@@ -55,8 +55,8 @@
     {{if .CanAdd}}
     <form class="inline" action="/channels/email" method="post">
       <label for="address" class="sr">Email address</label>
-      <input id="address" name="address" type="email" value="{{.Email}}" placeholder="you@example.com" required>
-      <button type="submit" class="small">Add, and send a test</button>
+      <input id="address" name="address" type="email" value="{{.Email}}" placeholder="{{if .Another}}another@example.com{{else}}you@example.com{{end}}" required>
+      <button type="submit" class="small">{{if .Another}}Add another, and send a test{{else}}Add, and send a test{{end}}</button>
     </form>
     {{end}}
     {{else}}

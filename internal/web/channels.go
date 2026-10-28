@@ -19,6 +19,7 @@ type channelsData struct {
 	MailOn    bool   // the server can send email
 	Email     string // the person's own address, to fill in
 	CanAdd    bool   // fewer than store.MaxEmails addresses
+	Another   bool   // the person has an address already
 }
 
 type channelRow struct {
@@ -51,6 +52,9 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		row := channelRow{ID: c.ID, Name: c.Name, Kind: "Push to this browser", Since: clock(now, c.CreatedAt, v.Loc)}
 		if c.Kind == "email" {
 			emails++
+			if strings.EqualFold(c.Address, d.Email) {
+				d.Email = "" // added already: the form offers another
+			}
 			row.Name, row.Kind = "Email to "+c.Address, "Email"
 		}
 		switch {
@@ -67,7 +71,7 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		}
 		d.Channels = append(d.Channels, row)
 	}
-	d.CanAdd = emails < store.MaxEmails
+	d.CanAdd, d.Another = emails < store.MaxEmails, emails > 0
 	crumbs := []crumb{{"Devices", ""}}
 	s.render(w, r, http.StatusOK, "channels", page{Title: "Devices", Person: v.Name, Crumbs: crumbs, Data: d})
 }

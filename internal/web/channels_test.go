@@ -270,8 +270,13 @@ func TestAnEmailAddressIsAddedAndTested(t *testing.T) {
 	if len(cs) != 1 || cs[0].Kind != "email" || cs[0].Address != "ada@example.com" {
 		t.Fatalf("channels %+v", cs)
 	}
-	if page := string(b.ok("GET", "/channels", nil)); !strings.Contains(page, "Email to ada@example.com") || !strings.Contains(page, "Not confirmed") {
+	page = string(b.ok("GET", "/channels", nil))
+	if !strings.Contains(page, "Email to ada@example.com") || !strings.Contains(page, "Not confirmed") {
 		t.Fatalf("devices page:\n%s", page)
+	}
+	// Added: the form no longer offers the same address, but another.
+	if strings.Contains(page, `value="ada@example.com"`) || !strings.Contains(page, "Add another, and send a test") {
+		t.Errorf("the form after adding:\n%s", page)
 	}
 	// Adding it sent a test; another within a minute is refused, kindly.
 	if w := b.do("POST", "/channels/"+cs[0].ID+"/test", nil); w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), "less than a minute ago") {

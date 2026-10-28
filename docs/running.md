@@ -78,7 +78,7 @@ Allstill sends email through an SMTP server you already have: your mail provider
 | `ALLSTILL_SMTP_FROM` | `Allstill <allstill@example.com>` | On a domain the server may send for. |
 | `ALLSTILL_SMTP_CA_FILE` | | Certificates to trust for a relay with its own, such as Proton Bridge. |
 
-Then check it, in the container: `docker exec allstill allstill admin test-email -to you@example.com`, or with the Linux package, whose settings only root may read: `sudo allstill admin test-email -env-file /etc/allstill/allstill.env -to you@example.com`. It says how far it got (connected, TLS, signed in, sender and recipient accepted), or what the server answered, and whether to change the settings or try again later. At start, `allstill serve` signs in once without sending and logs whether that worked. When email fails because of the settings, administrators see it on the overview; an address the server refuses shows on its owner's.
+Then check it, in the container: `docker exec allstill allstill admin test-email -to you@example.com`, or with the Linux package, whose settings only root may read: `sudo allstill admin test-email -env-file /etc/allstill/allstill.env -to you@example.com`. It says how far it got (connected, TLS, signed in, sender and recipient accepted), or what the server answered, and whether to change the settings or try again later. When a server refuses the message only after taking the recipient, read its answer: it tells whether the address or the settings are wrong. At start, `allstill serve` signs in once without sending and logs whether that worked. When email fails because of the settings, administrators see it on the overview; an address the server refuses shows on its owner's.
 
 What to know:
 

@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"errors"
 	"io"
 	"math/big"
 	"mime/quotedprintable"
@@ -35,6 +36,8 @@ type server struct {
 	starttls   bool   // offers STARTTLS
 	auth       string // the AUTH mechanisms it offers, "" for none
 	rcpt       string // the answer to RCPT
+	queued     string // the answer at the end of DATA
+	dataReply  string // the answer to DATA, when it refuses
 	mu         sync.Mutex
 	user       string
 	pass       string
@@ -68,6 +71,9 @@ func newServer(t *testing.T, s *server) *server {
 	s.cert, s.pool = certificate(t)
 	if s.rcpt == "" {
 		s.rcpt = "250 ok"
+	}
+	if s.queued == "" {
+		s.queued = "250 queued"
 	}
 	var err error
 	if s.implicit {
@@ -187,6 +193,10 @@ func (s *server) serve(conn net.Conn, secure, greet bool) {
 			s.mu.Unlock()
 			say(s.rcpt)
 		case "DATA":
+			if s.dataReply != "" {
+				say(s.dataReply)
+				continue
+			}
 			say("354 go on")
 			var b strings.Builder
 			for {
@@ -199,7 +209,7 @@ func (s *server) serve(conn net.Conn, secure, greet bool) {
 			s.mu.Lock()
 			s.data, s.tls = b.String(), secure
 			s.mu.Unlock()
-			say("250 queued")
+			say(s.queued)
 		case "QUIT":
 			say("221 bye")
 			return
@@ -314,6 +324,38 @@ func TestWhatFailuresMean(t *testing.T) {
 			if out, _ := c.Send(t.Context(), msg, time.Now()); out != Failed {
 				t.Errorf("%q: %v", answer, out)
 			}
+		}
+	})
+	t.Run("the message refused after the recipient was taken", func(t *testing.T) {
+		// As a sending service that checks the recipient only then.
+		s := newServer(t, &server{starttls: true, queued: "550 Invalid `to` field. Please use our testing email address instead of domains like `example.com`."})
+		c := s.config()
+		c.Check()
+		out, err := c.Send(t.Context(), msg, time.Now())
+		if out != Failed || !errors.Is(err, ErrMessageRefused) {
+			t.Errorf("%v %v", out, err)
+		}
+		// One that says the mailbox does not exist is about the address.
+		s = newServer(t, &server{starttls: true, queued: "550 5.1.1 no such user"})
+		c = s.config()
+		c.Check()
+		if out, _ := c.Send(t.Context(), msg, time.Now()); out != Rejected {
+			t.Errorf("a mailbox refused at the end: %v", out)
+		}
+		// Microsoft 365, when the login may not send as the From address:
+		// the settings, though it is 5.2.x.
+		s = newServer(t, &server{starttls: true, queued: "554 5.2.0 STOREDRV.Submission.Exception:SendAsDeniedException.MapiExceptionSendAsDenied; Failed to process message"})
+		c = s.config()
+		c.Check()
+		if out, err := c.Send(t.Context(), msg, time.Now()); out != Failed || !errors.Is(err, ErrMessageRefused) {
+			t.Errorf("SendAsDenied: %v %v", out, err)
+		}
+		// Refused at the DATA command itself.
+		s = newServer(t, &server{starttls: true, dataReply: "554 5.7.1 not now, not ever"})
+		c = s.config()
+		c.Check()
+		if out, err := c.Send(t.Context(), msg, time.Now()); out != Failed || !errors.Is(err, ErrMessageRefused) {
+			t.Errorf("refused at DATA: %v %v", out, err)
 		}
 	})
 	t.Run("a recipient refused for now", func(t *testing.T) {

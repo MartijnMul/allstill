@@ -196,13 +196,13 @@ func (c *Config) Send(ctx context.Context, m Message, now time.Time) (Outcome, e
 	c.step("recipient " + m.To + " accepted")
 	w, err := client.Data()
 	if err != nil {
-		return classify(err, false)
+		return classifyMessage(err)
 	}
 	if _, err := w.Write(data); err != nil {
 		return classify(err, false)
 	}
 	if err := w.Close(); err != nil {
-		return classify(err, false)
+		return classifyMessage(err)
 	}
 	c.step("message accepted for delivery")
 	client.Quit()
@@ -394,6 +394,30 @@ func classify(err error, recipient bool) (Outcome, error) {
 		return Failed, err
 	}
 	return Retry, err
+}
+
+// ErrMessageRefused marks a refusal of the message itself, after the server
+// took the recipient. Some servers check the recipient only then, so it may
+// be about the recipient as much as about the settings: what the server
+// says tells which.
+var ErrMessageRefused = errors.New("the server refused the message after it took the recipient")
+
+// classifyMessage reads a refusal of the message itself. Only one that says
+// the mailbox does not exist (5.1.x, not the sender's 5.1.7 and 5.1.8) is
+// about the recipient: 5.2.x there is often the settings, such as Microsoft
+// 365's "SendAsDenied" for a login that may not send as the From address.
+// A full mailbox (5.2.2) then shows administrators a problem instead of
+// marking the address; it clears with the next email that goes out.
+func classifyMessage(err error) (Outcome, error) {
+	var te *textproto.Error
+	if !errors.As(err, &te) || te.Code < 500 {
+		return classify(err, false)
+	}
+	err = fmt.Errorf("%w: %w", ErrMessageRefused, err)
+	if strings.HasPrefix(te.Msg, "5.1.") && mailbox(te.Msg) {
+		return Rejected, err
+	}
+	return Failed, err
 }
 
 // mailbox says whether a refusal is about the recipient's mailbox. Other

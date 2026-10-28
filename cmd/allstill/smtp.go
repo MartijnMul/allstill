@@ -121,6 +121,9 @@ func testEmail(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	case email.Rejected:
 		return fmt.Errorf("the server refused %s: %w", address, err)
 	}
+	if errors.Is(err, email.ErrMessageRefused) {
+		return fmt.Errorf("not sent; what the server says tells whether the recipient or the settings need a change: %w", err)
+	}
 	return fmt.Errorf("not sent; the settings need a change: %w", err)
 }
 
