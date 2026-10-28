@@ -40,7 +40,9 @@ Drawing the line live means setting it in JetBrains Mono in the app and the dash
 
 ## App icon
 
-[`app-icon.svg`](app-icon.svg), on Apple's 1024 grid: an 824 square with rounded corners and a 100 margin, near-black (`#0f1210`) in light and dark mode alike, like a terminal, with the mark centred at about three fifths of its width, the brackets in `#7e847f` and `OK` in `#7fd197`. The square and the mark are separate parts (`#shape` and `#mark`), so they can become the layers of the app's icon when the macOS app is built. The mark reads down to 64 px; at 32 px and below it is a texture, not text. The dashboard's favicon, web app icon and notification icon, [`icon.svg`](../../internal/web/static/icon.svg), is the same drawing cropped to its square.
+[`app-icon.svg`](app-icon.svg), on Apple's 1024 grid: an 824 square with rounded corners and a 100 margin, near-black (`#0f1210`) in light and dark mode alike, like a terminal, with the mark centred at about three fifths of its width, the brackets in `#7e847f` and `OK` in `#7fd197`. The square and the mark are separate parts (`#shape` and `#mark`), so they can become the layers of the app's icon when the macOS app is built. The mark reads down to 64 px; at 32 px and below it is a texture, not text. The dashboard's web app icon and notification icon, [`icon.svg`](../../internal/web/static/icon.svg), is the same drawing cropped to its square.
+
+The favicon, [`favicon.svg`](../../internal/web/static/favicon.svg), is the one place the mark is set differently, because a browser tab draws it at 16 px. The dark square fills the icon with no margin, the brackets run almost its full height as a frame, in the stroke of the letter, and `OK`, its letters set a little closer, fills the space between them. This keeps the brackets readable at that size. Nowhere else is the mark changed.
 
 ## Colour
 

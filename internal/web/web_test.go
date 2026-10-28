@@ -390,6 +390,12 @@ func TestHeaders(t *testing.T) {
 	if w := f.browser(t).do("GET", "/static/app.js", nil); w.Code != http.StatusOK || !strings.Contains(w.Header().Get("Content-Type"), "javascript") {
 		t.Fatalf("app.js: %d %v", w.Code, w.Header())
 	}
+	if !strings.Contains(f.browser(t).do("GET", "/login", nil).Body.String(), `<link rel="icon" href="/static/favicon.svg"`) {
+		t.Fatal("the page does not link the favicon")
+	}
+	if w := f.browser(t).do("GET", "/static/favicon.svg", nil); w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "image/svg+xml") {
+		t.Fatalf("favicon.svg: %d %v", w.Code, w.Header())
+	}
 	if w := f.browser(t).do("GET", "/static/", nil); w.Code != http.StatusNotFound {
 		t.Fatalf("a listing of /static/: %d", w.Code)
 	}
