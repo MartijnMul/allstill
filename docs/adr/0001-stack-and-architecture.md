@@ -1,6 +1,6 @@
 # 0001. Stack and architecture
 
-- Status: Accepted; licence decided by [0002](0002-licence-and-contributor-agreement.md); Web Push secrets added to the exceptions to hashing by [0003](0003-web-push-secrets.md)
+- Status: Accepted; licence decided by [0002](0002-licence-and-contributor-agreement.md); Web Push secrets added to the exceptions to hashing by [0003](0003-web-push-secrets.md), and check URLs by [0004](0004-what-a-check-fetches.md)
 - Date: 2026-10-20
 
 ## Context

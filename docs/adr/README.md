@@ -34,3 +34,4 @@ What becomes easier, what becomes harder, and what we now have to look after.
 - [0001. Stack and architecture](0001-stack-and-architecture.md): Accepted, 2026-10-20
 - [0002. AGPL for Allstill, Apache-2.0 for its API, with a contributor licence agreement](0002-licence-and-contributor-agreement.md): Accepted, 2026-10-21; decides the licence left open in 0001
 - [0003. Web Push keys and subscriptions live in the database](0003-web-push-secrets.md): Accepted, 2026-10-27; adds to 0001's exceptions to hashing
+- [0004. What a check fetches: its URL as a secret, and redirects](0004-what-a-check-fetches.md): Accepted, 2026-10-28; amends 0003, and adds check URLs to 0001's exceptions to hashing

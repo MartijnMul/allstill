@@ -1,6 +1,6 @@
 # 0003. Web Push keys and subscriptions live in the database
 
-- Status: Accepted; adds to the exceptions to hashing in [0001](0001-stack-and-architecture.md)
+- Status: Accepted; adds to the exceptions to hashing in [0001](0001-stack-and-architecture.md); amended by [0004](0004-what-a-check-fetches.md) on third-party secrets in URLs and on redirects for checks
 - Date: 2026-10-27
 
 ## Context
