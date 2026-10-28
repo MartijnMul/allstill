@@ -74,3 +74,26 @@ func TestRecentRunsAreTheLatest(t *testing.T) {
 		t.Fatalf("%d runs, newest %v: %v", len(v.Recent), v.Recent[0].Ended, err)
 	}
 }
+
+func TestDownsGoBackAsFarAsTheRuns(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, _ := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Heartbeat", Interval: time.Hour, Grace: time.Hour})
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	f.s.Ping(ctx, ping(c.PingUUID, check.Fail, "", at(0)))
+	f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", at(5)))
+	f.s.SettleIncidents(ctx, at(25), 10*time.Minute)
+	f.s.Ping(ctx, ping(c.PingUUID, check.Fail, "", at(30)))
+	v, err := f.s.Check(ctx, f.viewer, c.ID)
+	if err != nil || len(v.Downs) != 2 || !v.Downs[0].Equal(at(30)) || !v.Downs[1].Equal(at(0)) {
+		t.Fatalf("downs %v: %v", v.Downs, err)
+	}
+	// Once the runs shown no longer reach back to a down, it is left out too.
+	for i := range RecentRuns {
+		f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", at(31+i)))
+	}
+	v, err = f.s.Check(ctx, f.viewer, c.ID)
+	if err != nil || len(v.Downs) != 0 {
+		t.Fatalf("downs %v: %v", v.Downs, err)
+	}
+}

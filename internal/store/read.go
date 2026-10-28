@@ -31,6 +31,11 @@ type CheckView struct {
 	Created     time.Time
 	// Recent holds the latest runs, newest first: up to RecentRuns of them.
 	Recent []RunView
+	// Downs holds when the check went down, newest first: when it joined an
+	// incident, back to the oldest run in Recent when that holds RecentRuns.
+	// A check that goes down again while its incident is still open joins no
+	// new one, so that time is not here.
+	Downs []time.Time
 }
 
 // RecentRuns is how many of a check's latest runs a CheckView holds.
@@ -45,6 +50,15 @@ type RunView struct {
 	TimedOut   time.Time
 	ExitStatus int // -1 when not reported
 	Values     map[string]float64
+}
+
+// At is when the run started, or when it ended for a run whose start is not
+// known.
+func (r RunView) At() time.Time {
+	if r.Started.IsZero() {
+		return r.Ended
+	}
+	return r.Started
 }
 
 // Duration is how long the run took, or zero when its start or end is not
@@ -159,6 +173,17 @@ func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) 
 			}
 		}
 		v.Recent = append(v.Recent, rv)
+	}
+	from := int64(0)
+	if len(v.Recent) == RecentRuns {
+		from = v.Recent[len(v.Recent)-1].At().UnixMilli()
+	}
+	downs, err := q.DownsOfCheck(ctx, db.DownsOfCheckParams{CheckID: c.ID, JoinedAt: from, Limit: RecentRuns})
+	if err != nil {
+		return v, err
+	}
+	for _, d := range downs {
+		v.Downs = append(v.Downs, time.UnixMilli(d).UTC())
 	}
 	return v, nil
 }

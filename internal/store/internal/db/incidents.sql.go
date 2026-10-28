@@ -322,6 +322,41 @@ func (q *Queries) DigestPeople(ctx context.Context) ([]DigestPeopleRow, error) {
 	return items, nil
 }
 
+const downsOfCheck = `-- name: DownsOfCheck :many
+SELECT joined_at FROM incident_checks WHERE check_id = ? AND joined_at >= ? ORDER BY joined_at DESC LIMIT ?
+`
+
+type DownsOfCheckParams struct {
+	CheckID  string
+	JoinedAt int64
+	Limit    int64
+}
+
+// When a check went down: when it joined each of its incidents, newest
+// first, from a time on.
+func (q *Queries) DownsOfCheck(ctx context.Context, arg DownsOfCheckParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, downsOfCheck, arg.CheckID, arg.JoinedAt, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []int64{}
+	for rows.Next() {
+		var joined_at int64
+		if err := rows.Scan(&joined_at); err != nil {
+			return nil, err
+		}
+		items = append(items, joined_at)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const dueRecipients = `-- name: DueRecipients :many
 SELECT r.workspace_id, r.incident_id, r.person_id, r.told, r.told_how,
        CAST(r.told_shadow = 1 OR i.shadow = 1 AS INTEGER) AS told_shadow, r.due_at,

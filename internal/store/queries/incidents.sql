@@ -192,3 +192,8 @@ WHERE p.disabled_at IS NULL
            SELECT 1 FROM projects pr WHERE pr.workspace_id = p.workspace_id AND pr.deleted_at IS NULL
              AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.project_id = pr.id AND m.person_id = p.id))))
 ORDER BY p.name;
+
+-- When a check went down: when it joined each of its incidents, newest
+-- first, from a time on.
+-- name: DownsOfCheck :many
+SELECT joined_at FROM incident_checks WHERE check_id = ? AND joined_at >= ? ORDER BY joined_at DESC LIMIT ?;
