@@ -31,6 +31,7 @@ const adminUsage = `Usage:
   allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
   allstill admin set-alerting -project PROJECT -check NAME -urgency now|digest|none [-critical] [-db file]
   allstill admin test-email -to ADDRESS [smtp flags]
+  allstill admin set-alerts [-db file] on|shadow
 `
 
 func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -53,6 +54,8 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return setAlerting(ctx, args[1:], stdout, stderr)
 	case "test-email":
 		return testEmail(ctx, args[1:], stdout, stderr)
+	case "set-alerts":
+		return setAlerts(ctx, args[1:], stdout, stderr)
 	}
 	fmt.Fprint(stderr, adminUsage)
 	return fmt.Errorf("unknown admin command %q", args[0])
@@ -212,6 +215,69 @@ Flags:
 	fmt.Fprintf(stdout, "\n%d of %d checks moved from %s to %s.\n", moved, len(moving), *from, *to)
 	if moved < len(moving) {
 		return errors.New("some checks were not moved")
+	}
+	return nil
+}
+
+func setAlerts(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("admin set-alerts", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill admin set-alerts [-db file] on|shadow
+
+Switches alerts on, so people are really told, or back to shadow mode, where
+Allstill records what it would have told them under Messages and sends only
+test messages. Incidents open when alerts go on stay quiet: the digest lists
+them. The running server follows within seconds.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 || (fs.Arg(0) != "on" && fs.Arg(0) != "shadow") {
+		fs.Usage()
+		return errors.New("give on or shadow")
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	on := fs.Arg(0) == "on"
+	quiet, err := st.SetAlerts(ctx, on)
+	if err != nil {
+		return err
+	}
+	if !on {
+		fmt.Fprintln(stdout, "Shadow mode: alerts are recorded under Messages and not sent; test messages still go.")
+		return nil
+	}
+	fmt.Fprintln(stdout, "Alerts are on: people are told when a check goes down (unless the server runs with -shadow).")
+	if quiet > 0 {
+		fmt.Fprintf(stdout, "Open incidents that began in shadow mode stay quiet: %d. The digest lists them.\n", quiet)
+	}
+	key, err := st.VAPIDKey(ctx, ws)
+	if err != nil {
+		return err
+	}
+	// Confirmed addresses always count as reachable: this command may not
+	// see the server's SMTP settings (with the Linux package only root reads
+	// them), and the overview shows when email does not work. It says so
+	// when it cannot see them.
+	mail := os.Getenv("ALLSTILL_SMTP_HOST") != ""
+	names, err := st.Unreachable(ctx, key.PublicKey(), true) // the server checks email itself, on the overview
+	if err != nil {
+		return err
+	}
+	if !mail {
+		fmt.Fprintln(stdout, "This command does not see the SMTP settings, so email addresses count as reachable; check email with 'allstill admin test-email'.")
+	}
+	if len(names) > 0 {
+		fmt.Fprintf(stdout, "No confirmed device or address, so alerts cannot reach them: %s. They add one under Devices.\n", strings.Join(names, ", "))
 	}
 	return nil
 }

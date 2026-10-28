@@ -40,6 +40,7 @@ type Store interface {
 	Queue(ctx context.Context, d store.Delivery, kind string, channels []string, told []store.Told) error
 	QueueDigest(ctx context.Context, d store.Delivery, kind string, channels []string, told []store.Told) error
 	PendingDowns(ctx context.Context, personID string) (map[string]bool, error)
+	FailedLately(ctx context.Context, personID, reason string, since time.Time) (bool, error)
 	PendingDeliveries(ctx context.Context, now time.Time, limit int) ([]store.Pending, error)
 	SetConfirm(ctx context.Context, p store.Pending, token string) error
 	Sent(ctx context.Context, deliveryID string, at time.Time) error
@@ -97,6 +98,13 @@ func (s *Sender) Run(ctx context.Context) error {
 	}
 }
 
+// shadowNow reads whether the installation is in shadow mode, or the sender
+// is kept in it.
+func (s *Sender) shadowNow(ctx context.Context) (bool, error) {
+	shadow, err := s.Store.ShadowMode(ctx)
+	return shadow || s.Shadow, err
+}
+
 // Behind is how far the sender lags: how long ago it should have acted on
 // what waits longest, or since a pass of Run last went well, less the time
 // between passes (R11). Zero means it keeps up.
@@ -141,6 +149,12 @@ func (s *Sender) Pass(ctx context.Context) error {
 	if err := s.deliver(ctx, shadow, now, &mailDown); err != nil && ctx.Err() == nil {
 		s.Log.Error("sending waiting messages", "error", err)
 	}
+	// Alerts may have been switched on while that went on: what is decided
+	// now follows the setting as it is now, or a new incident could be
+	// told in shadow mode only and never sent (R10).
+	if shadow, err = s.shadowNow(ctx); err != nil {
+		return err
+	}
 	due, err := s.Store.DueRecipients(ctx, now, batch)
 	if err != nil {
 		return err
@@ -154,6 +168,9 @@ func (s *Sender) Pass(ctx context.Context) error {
 			s.Log.Error("alerting a person", "person", due[0].PersonID, "error", err)
 		}
 		due = due[n:]
+	}
+	if shadow, err = s.shadowNow(ctx); err != nil {
+		return err
 	}
 	// Waiting messages go out even when the digests could not be worked out.
 	return errors.Join(s.digests(ctx, shadow, now), s.deliver(ctx, shadow, now, &mailDown))
@@ -238,12 +255,21 @@ func (s *Sender) alert(ctx context.Context, due []store.Due, shadow bool, now ti
 		return err
 	}
 	if len(channels) == 0 {
-		// Nowhere to reach this person (email follows): the message fails,
-		// and is tried again later.
-		d.State, d.Error = "failed", "no confirmed device or email address to reach this person"
+		// Nowhere to reach this person: it is tried again in a while, and
+		// recorded as failed once a day, not at every try.
 		for _, t := range told {
 			later = append(later, store.Told{IncidentID: t.IncidentID, PersonID: t.PersonID, Again: now.Add(retryNoChannel)})
 		}
+		// Within a day, less a try, so the overview's day of failures has
+		// no gap (R11).
+		failed, err := s.Store.FailedLately(ctx, d.PersonID, store.NoChannel, now.Add(-24*time.Hour+retryNoChannel))
+		if err != nil {
+			return err
+		}
+		if failed {
+			return s.Store.Record(ctx, nil, later)
+		}
+		d.State, d.Error = "failed", store.NoChannel
 		return s.Store.Record(ctx, d, later)
 	}
 	return s.Store.Queue(ctx, *d, kind, channels, append(told, later...))
@@ -301,7 +327,7 @@ func (s *Sender) digest(ctx context.Context, p store.DigestPerson, shadow bool, 
 		return err
 	}
 	if len(channels) == 0 {
-		d.State, d.Error = "failed", "no confirmed device or email address to reach this person"
+		d.State, d.Error = "failed", store.NoChannel
 		return s.Store.RecordDigest(ctx, p.ID, now, d, nil)
 	}
 	return s.Store.QueueDigest(ctx, *d, kind, channels, told)
@@ -313,15 +339,26 @@ func (s *Sender) digest(ctx context.Context, p store.DigestPerson, shadow bool, 
 //   - still_open, for one open the person knows of or will hear of at once;
 //   - resolved_unseen, for one resolved before they heard of it;
 //   - silent_check, for a check that can never alert.
+//
+// An incident from shadow mode, once alerts are on, tells nothing: it is
+// listed as still open, or as resolved before they heard of it (R10).
 func DigestItems(entries []store.DigestEntry, silent []store.SilentCheck, shadow bool) ([]store.Item, []store.Told) {
 	var items []store.Item
 	var told []store.Told
 	for _, e := range entries {
-		if !e.Follows || (e.ToldInShadow && !shadow) {
+		if !e.Follows {
 			continue
 		}
 		item := store.Item{IncidentID: e.IncidentID, Title: e.Title}
 		switch {
+		case e.ToldInShadow && !shadow && e.Open:
+			item.What = "still_open"
+		case e.ToldInShadow && !shadow && e.Told == string(Recovered):
+			// Its recovery was told in shadow mode only; whether its down was
+			// heard cannot be told, so it says nothing.
+			continue
+		case e.ToldInShadow && !shadow:
+			item.What = "resolved_unseen"
 		case e.Open && e.Told == string(Nothing) && e.Urgency == Digest:
 			item.What = string(Down)
 			told = append(told, store.Told{IncidentID: e.IncidentID, Told: string(Down), How: Digest, Shadow: shadow})

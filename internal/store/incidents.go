@@ -333,6 +333,75 @@ func (s *Store) LastMessageAt(ctx context.Context, personID string) (time.Time, 
 	return time.UnixMilli(ms).UTC(), nil
 }
 
+// SetAlerts switches alerts on, or back to shadow mode. Switching them on
+// marks every open incident as from shadow mode, in the same transaction:
+// nobody is alerted for it, and the digest lists it (R10). It returns how
+// many open incidents now stay quiet.
+func (s *Store) SetAlerts(ctx context.Context, on bool) (quiet int, err error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	was, err := q.InstallationValue(ctx, "alerts")
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return 0, err
+	}
+	value := "shadow"
+	if on && was != "on" {
+		value = "on"
+		if _, err := q.MarkOpenIncidentsShadow(ctx); err != nil {
+			return 0, err
+		}
+	} else if on {
+		value = "on" // on already: nothing began in shadow mode since
+	}
+	if err := q.SetInstallationValue(ctx, db.SetInstallationValueParams{Key: "alerts", Value: value}); err != nil {
+		return 0, err
+	}
+	if on {
+		n, err := q.QuietIncidents(ctx)
+		if err != nil {
+			return 0, err
+		}
+		quiet = int(n)
+	}
+	return quiet, tx.Commit()
+}
+
+// Unreachable returns the names of people who get alerts but have no
+// confirmed device made for key, nor a confirmed address the server can
+// mail (mail): alerts cannot reach them.
+func (s *Store) Unreachable(ctx context.Context, key string, mail bool) ([]string, error) {
+	people, err := db.New(s.r).PeopleWhoGetAlerts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, p := range people {
+		push, email, err := s.Targets(ctx, p.ID, key)
+		if err != nil {
+			return nil, err
+		}
+		if len(push) == 0 && (len(email) == 0 || !mail) {
+			names = append(names, p.Name)
+		}
+	}
+	return names, nil
+}
+
+// NoChannel is why a message failed when the person has no confirmed device
+// or address.
+const NoChannel = "no confirmed device or email address to reach this person"
+
+// FailedLately says whether a message to the person failed for reason since
+// then, so the same failure is recorded once, not at every retry.
+func (s *Store) FailedLately(ctx context.Context, personID, reason string, since time.Time) (bool, error) {
+	n, err := db.New(s.r).RecentFailures(ctx, db.RecentFailuresParams{PersonID: personID, LastError: nullString(reason), CreatedAt: since.UnixMilli()})
+	return n > 0, err
+}
+
 // ShadowMode says whether messages are only recorded, not sent. It is the
 // default until an administrator switches alerts on.
 func (s *Store) ShadowMode(ctx context.Context) (bool, error) {

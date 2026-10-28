@@ -47,7 +47,9 @@ The ping URLs and answers are those of Healthchecks, with one difference: hc-pin
 
 ## Alerts
 
-Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`. Switching them on follows ([intent/alerts](../intent/alerts/spec.md)).
+A new installation starts in shadow mode: when a check goes down, Allstill decides what it would tell whom, and when, and lists that under **Messages** in the dashboard, but sends only test messages. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks` ([intent/alerts](../intent/alerts/spec.md)).
+
+When the comparison is clean and everyone's devices or addresses are confirmed, switch alerts on: `docker exec allstill allstill admin set-alerts on` (with the Linux package: `sudo -u allstill allstill admin set-alerts -db /var/lib/allstill/allstill.db on`). It says who would be told but has no confirmed device or address; a confirmed address counts as reachable, and when the command cannot see the email settings, as with the Linux package, it says so. Incidents open at that moment began in shadow mode and stay quiet; the digest lists them. `set-alerts shadow` goes back. Then switch the first checks off at Healthchecks, the nightly backups for example.
 
 Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device* subscribes the browser you are in for push notifications; send it a test and open the notification to confirm it, and alerts can reach it. On an iPhone or iPad, add Allstill to the Home Screen first and open it from there. Add an email address there too, once [email](#email) is set up, and open the link in its test message. Test messages are sent even in shadow mode.
 

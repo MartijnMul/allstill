@@ -195,7 +195,8 @@ func (q *Queries) DeliveriesOfPerson(ctx context.Context, arg DeliveriesOfPerson
 }
 
 const digestIncidents = `-- name: DigestIncidents :many
-SELECT r.incident_id, r.told, r.told_how, r.told_shadow,
+SELECT r.incident_id, r.told, r.told_how,
+       CAST(r.told_shadow = 1 OR i.shadow = 1 AS INTEGER) AS told_shadow,
        i.state, i.title, i.resolve_reason, i.opened_at, i.resolved_at,
        CAST(COALESCE((SELECT c.urgency FROM checks c WHERE c.id = i.cause_check_id), i.urgency) AS TEXT) AS urgency,
        CAST(EXISTS (
@@ -322,7 +323,8 @@ func (q *Queries) DigestPeople(ctx context.Context) ([]DigestPeopleRow, error) {
 }
 
 const dueRecipients = `-- name: DueRecipients :many
-SELECT r.workspace_id, r.incident_id, r.person_id, r.told, r.told_how, r.told_shadow, r.due_at,
+SELECT r.workspace_id, r.incident_id, r.person_id, r.told, r.told_how,
+       CAST(r.told_shadow = 1 OR i.shadow = 1 AS INTEGER) AS told_shadow, r.due_at,
        i.state, i.title, i.resolve_reason,
        CAST(COALESCE((SELECT c.urgency FROM checks c WHERE c.id = i.cause_check_id), i.urgency) AS TEXT) AS urgency,
        CAST(COALESCE((SELECT c.critical FROM checks c WHERE c.id = i.cause_check_id), i.critical) AS INTEGER) AS critical,
@@ -513,6 +515,22 @@ func (q *Queries) LookAgainAtUntold(ctx context.Context, arg LookAgainAtUntoldPa
 	return err
 }
 
+const markOpenIncidentsShadow = `-- name: MarkOpenIncidentsShadow :execrows
+UPDATE incidents SET shadow = 1
+WHERE state <> 'resolved' AND shadow = 0
+  AND NOT EXISTS (SELECT 1 FROM recipients r WHERE r.incident_id = incidents.id AND r.told <> 'nothing' AND r.told_shadow = 0)
+`
+
+// Switching alerts on: every incident open now that nobody was really told
+// about came about in shadow mode.
+func (q *Queries) MarkOpenIncidentsShadow(ctx context.Context) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markOpenIncidentsShadow)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const moveIncidentCheck = `-- name: MoveIncidentCheck :exec
 UPDATE incident_checks SET project_id = ? WHERE check_id = ? AND open = 1
 `
@@ -529,7 +547,7 @@ func (q *Queries) MoveIncidentCheck(ctx context.Context, arg MoveIncidentCheckPa
 
 const openIncidentOfCheck = `-- name: OpenIncidentOfCheck :one
 
-SELECT i.id, i.workspace_id, i.title, i.state, i.urgency, i.critical, i.cause_check_id, i.opened_at, i.recovering_since, i.acknowledged_at, i.acknowledged_by, i.resolved_at, i.resolve_reason, i.merged_into FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
+SELECT i.id, i.workspace_id, i.title, i.state, i.urgency, i.critical, i.cause_check_id, i.opened_at, i.recovering_since, i.acknowledged_at, i.acknowledged_by, i.resolved_at, i.resolve_reason, i.merged_into, i.shadow FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
 WHERE ic.check_id = ? AND ic.open = 1
 `
 
@@ -552,8 +570,49 @@ func (q *Queries) OpenIncidentOfCheck(ctx context.Context, checkID string) (Inci
 		&i.ResolvedAt,
 		&i.ResolveReason,
 		&i.MergedInto,
+		&i.Shadow,
 	)
 	return i, err
+}
+
+const peopleWhoGetAlerts = `-- name: PeopleWhoGetAlerts :many
+SELECT p.id, p.name FROM people p
+WHERE p.disabled_at IS NULL
+  AND (EXISTS (SELECT 1 FROM memberships m WHERE m.person_id = p.id AND m.alerts = 1)
+       OR (p.workspace_admin = 1 AND EXISTS (
+           SELECT 1 FROM projects pr WHERE pr.workspace_id = p.workspace_id AND pr.deleted_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.project_id = pr.id AND m.person_id = p.id))))
+ORDER BY p.name
+`
+
+type PeopleWhoGetAlertsRow struct {
+	ID   string
+	Name string
+}
+
+// People who get alerts for at least one project: members whose alerts are
+// on, and workspace administrators.
+func (q *Queries) PeopleWhoGetAlerts(ctx context.Context) ([]PeopleWhoGetAlertsRow, error) {
+	rows, err := q.db.QueryContext(ctx, peopleWhoGetAlerts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PeopleWhoGetAlertsRow{}
+	for rows.Next() {
+		var i PeopleWhoGetAlertsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const projectsNobodyFollows = `-- name: ProjectsNobodyFollows :many
@@ -594,6 +653,34 @@ func (q *Queries) ProjectsNobodyFollows(ctx context.Context, workspaceID string)
 		return nil, err
 	}
 	return items, nil
+}
+
+const quietIncidents = `-- name: QuietIncidents :one
+SELECT COUNT(*) FROM incidents WHERE state <> 'resolved' AND shadow = 1
+`
+
+func (q *Queries) QuietIncidents(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, quietIncidents)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const recentFailures = `-- name: RecentFailures :one
+SELECT COUNT(*) FROM deliveries WHERE person_id = ? AND state = 'failed' AND last_error = ? AND created_at >= ?
+`
+
+type RecentFailuresParams struct {
+	PersonID  string
+	LastError sql.NullString
+	CreatedAt int64
+}
+
+func (q *Queries) RecentFailures(ctx context.Context, arg RecentFailuresParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, recentFailures, arg.PersonID, arg.LastError, arg.CreatedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const resolveIncident = `-- name: ResolveIncident :exec

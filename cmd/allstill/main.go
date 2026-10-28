@@ -45,6 +45,7 @@ Usage:
   allstill admin move-checks [flags]     move checks to another project
   allstill admin set-alerting [flags]    how fast a check's problems reach people
   allstill admin test-email -to ADDRESS  send a test email with the SMTP settings
+  allstill admin set-alerts on|shadow    switch alerts on, or back to shadow mode
   allstill backup [flags] FILE           copy the database while it runs
   allstill version                       print the version
 

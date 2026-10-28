@@ -93,6 +93,7 @@ type Incident struct {
 	ResolvedAt      sql.NullInt64
 	ResolveReason   sql.NullString
 	MergedInto      sql.NullString
+	Shadow          int64
 }
 
 type IncidentCheck struct {

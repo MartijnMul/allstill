@@ -48,7 +48,8 @@ SELECT id, recovering_since FROM incidents WHERE recovering_since IS NOT NULL AN
 -- by its new project's people; the urgency and critical flag are its cause's
 -- as they are now.
 -- name: DueRecipients :many
-SELECT r.workspace_id, r.incident_id, r.person_id, r.told, r.told_how, r.told_shadow, r.due_at,
+SELECT r.workspace_id, r.incident_id, r.person_id, r.told, r.told_how,
+       CAST(r.told_shadow = 1 OR i.shadow = 1 AS INTEGER) AS told_shadow, r.due_at,
        i.state, i.title, i.resolve_reason,
        CAST(COALESCE((SELECT c.urgency FROM checks c WHERE c.id = i.cause_check_id), i.urgency) AS TEXT) AS urgency,
        CAST(COALESCE((SELECT c.critical FROM checks c WHERE c.id = i.cause_check_id), i.critical) AS INTEGER) AS critical,
@@ -96,7 +97,8 @@ UPDATE people SET digest_at = ? WHERE id = ?;
 -- A person's part of their digest: incidents still open, and those resolved
 -- since the last digest, that they follow and that may alert.
 -- name: DigestIncidents :many
-SELECT r.incident_id, r.told, r.told_how, r.told_shadow,
+SELECT r.incident_id, r.told, r.told_how,
+       CAST(r.told_shadow = 1 OR i.shadow = 1 AS INTEGER) AS told_shadow,
        i.state, i.title, i.resolve_reason, i.opened_at, i.resolved_at,
        CAST(COALESCE((SELECT c.urgency FROM checks c WHERE c.id = i.cause_check_id), i.urgency) AS TEXT) AS urgency,
        CAST(EXISTS (
@@ -163,3 +165,27 @@ SELECT ic.joined_at, i.recovering_since, i.resolved_at, i.resolve_reason
 FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
 WHERE ic.check_id = ? AND (i.resolved_at IS NULL OR i.resolved_at >= ?)
 ORDER BY ic.joined_at;
+
+-- Switching alerts on: every incident open now that nobody was really told
+-- about came about in shadow mode.
+-- name: MarkOpenIncidentsShadow :execrows
+UPDATE incidents SET shadow = 1
+WHERE state <> 'resolved' AND shadow = 0
+  AND NOT EXISTS (SELECT 1 FROM recipients r WHERE r.incident_id = incidents.id AND r.told <> 'nothing' AND r.told_shadow = 0);
+
+-- name: QuietIncidents :one
+SELECT COUNT(*) FROM incidents WHERE state <> 'resolved' AND shadow = 1;
+
+-- name: RecentFailures :one
+SELECT COUNT(*) FROM deliveries WHERE person_id = ? AND state = 'failed' AND last_error = ? AND created_at >= ?;
+
+-- People who get alerts for at least one project: members whose alerts are
+-- on, and workspace administrators.
+-- name: PeopleWhoGetAlerts :many
+SELECT p.id, p.name FROM people p
+WHERE p.disabled_at IS NULL
+  AND (EXISTS (SELECT 1 FROM memberships m WHERE m.person_id = p.id AND m.alerts = 1)
+       OR (p.workspace_admin = 1 AND EXISTS (
+           SELECT 1 FROM projects pr WHERE pr.workspace_id = p.workspace_id AND pr.deleted_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.project_id = pr.id AND m.person_id = p.id))))
+ORDER BY p.name;
