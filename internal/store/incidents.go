@@ -17,7 +17,9 @@ import (
 // incidentStep keeps a check's incident in step with its state, in the
 // transaction that saves the state (intent/alerts/spec.md):
 //   - down opens an incident, or keeps the open one from recovering;
-//   - up starts the settle period of its open incident;
+//   - up, or warning, starts the settle period of its open incident;
+//   - unknown stops it for a check Allstill runs itself, which may still be
+//     down (intent/http-checks/spec.md);
 //   - paused resolves it at once, without a recovery message.
 //
 // Other states change nothing. The sender is told to look at every recipient
@@ -54,9 +56,16 @@ func incidentStep(ctx context.Context, q *db.Queries, c db.Check, after check.St
 		// Followers of a `none` check are recorded too: its urgency may change
 		// while the incident is open.
 		return q.AddFollowers(ctx, db.AddFollowersParams{IncidentID: incidentID, DueAt: sql.NullInt64{Int64: at, Valid: true}, ProjectID: c.ProjectID, WorkspaceID: c.WorkspaceID})
-	case check.Up:
+	case check.Up, check.Warning:
 		if hasOpen && !open.RecoveringSince.Valid {
 			return q.SetRecovering(ctx, db.SetRecoveringParams{RecoveringSince: sql.NullInt64{Int64: at, Valid: true}, ID: open.ID})
+		}
+	case check.Unknown:
+		// An active check that cannot be judged may still be down: its
+		// incident stays open, and settles only after it is seen up again
+		// (intent/http-checks/spec.md).
+		if hasOpen && Active(c.Kind) && open.RecoveringSince.Valid {
+			return q.SetRecovering(ctx, db.SetRecoveringParams{ID: open.ID})
 		}
 	case check.Paused:
 		if hasOpen {

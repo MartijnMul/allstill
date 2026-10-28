@@ -23,9 +23,17 @@
 // period from the restart to report. And a start that arrives after the end
 // with the same rid joins that run, where Healthchecks would open a new run
 // that times out.
+//
+// An active check, one Allstill runs itself (an HTTP or TCP check), is judged
+// by its attempts instead of pings (intent/http-checks/spec.md): down after
+// FailAfter failed attempts in a row, up on the first that passes. It is never
+// late: when no attempt comes in time, or none could judge it, the one who
+// runs it could not, so it is unknown, without a deadline, until an attempt
+// judges it again.
 package check
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -59,6 +67,10 @@ func (i Interval) Next(after time.Time) (time.Time, error) { return after.Add(ti
 type Config struct {
 	Schedule Schedule
 	Grace    time.Duration
+	// Active is set for a check Allstill runs itself; FailAfter is how many
+	// failed attempts in a row make it down (at least 1).
+	Active    bool
+	FailAfter int
 }
 
 // Status is the part of a check that pings and deadlines change. Zero times
@@ -70,6 +82,8 @@ type Status struct {
 	LastPing     time.Time
 	NextExpected time.Time
 	Deadline     time.Time
+	// FailStreak is an active check's failed attempts in a row.
+	FailStreak int
 }
 
 // OpenRun is a run that has started and not ended. A run that timed out stays
@@ -126,10 +140,16 @@ type RunAction struct {
 	LetGo []string
 }
 
+// ErrActive is the error for a ping to a check Allstill runs itself.
+var ErrActive = errors.New("this check is run by Allstill; pings to it are not applied")
+
 // OnPing applies a ping. It returns the new status and what happens to the
 // runs. The status's deadline takes the open runs after the action into
 // account.
 func OnPing(c Config, s Status, open []OpenRun, p Ping) (Status, RunAction, error) {
+	if c.Active {
+		return s, RunAction{}, ErrActive
+	}
 	open = append([]OpenRun(nil), open...)
 	switch p.Kind {
 	case Ignored:
@@ -184,10 +204,73 @@ func OnPing(c Config, s Status, open []OpenRun, p Ping) (Status, RunAction, erro
 	return s, act, nil
 }
 
+// Outcome is how an attempt of an active check went.
+type Outcome string
+
+const (
+	Passed   Outcome = "passed"
+	Warned   Outcome = "warned" // passed, with a warning, such as a certificate running out
+	Failed   Outcome = "failed"
+	Unjudged Outcome = "unjudged" // the one who ran it could not tell, such as when its own network is down
+)
+
+// Attempt is one attempt of an active check, ended at At.
+type Attempt struct {
+	Outcome Outcome
+	Reason  string
+	At      time.Time
+}
+
+// OnAttempt applies an attempt of an active check. A failed attempt counts
+// towards FailAfter; below it, the check stays as it was. An unjudged one
+// makes it unknown at once, and neither adds to the failures nor clears them,
+// so a check that was down is down again on the first failure after.
+func OnAttempt(c Config, s Status, a Attempt) (Status, error) {
+	if !c.Active {
+		return s, fmt.Errorf("an attempt for a check that is not run by Allstill")
+	}
+	if s.State == Paused {
+		return s, nil
+	}
+	if a.Outcome == Unjudged {
+		s = become(s, Unknown, a.Reason, a.At)
+		s.Deadline = time.Time{}
+		return s, nil
+	}
+	next, err := c.Schedule.Next(a.At)
+	if err != nil {
+		return s, err
+	}
+	s.LastPing, s.NextExpected = a.At, next
+	switch a.Outcome {
+	case Passed:
+		s.FailStreak = 0
+		s = become(s, Up, "", a.At)
+	case Warned:
+		s.FailStreak = 0
+		s = become(s, Warning, a.Reason, a.At)
+	case Failed:
+		s.FailStreak++
+		if s.FailStreak >= max(c.FailAfter, 1) {
+			s = become(s, Down, a.Reason, a.At)
+		}
+	default:
+		return s, fmt.Errorf("unknown attempt outcome %q", a.Outcome)
+	}
+	s.Deadline = next.Add(c.Grace)
+	return s, nil
+}
+
 // OnDeadline applies the passing of the status's deadline at now. It returns
 // the new status and the ids of runs that timed out.
 func OnDeadline(c Config, s Status, open []OpenRun, now time.Time) (Status, []string) {
 	if s.Deadline.IsZero() || now.Before(s.Deadline) {
+		return s, nil
+	}
+	if c.Active {
+		// No attempt came in time: whoever runs it could not.
+		s = become(s, Unknown, "No attempt in time: the server or probe that runs it is behind or offline.", now)
+		s.Deadline = time.Time{}
 		return s, nil
 	}
 	open = append([]OpenRun(nil), open...)
@@ -219,8 +302,16 @@ func OnDeadline(c Config, s Status, open []OpenRun, now time.Time) (Status, []st
 // OnRestart is called for a check whose deadline passed while the server was
 // not running: from lastAlive, the last moment the server knew it ran, until
 // now. Such a check becomes unknown and has one grace period to report.
+//
+// An active check has no grace period to report in: it stays unknown, without
+// a deadline, until its next attempt judges it.
 func OnRestart(c Config, s Status, lastAlive, now time.Time) Status {
 	if s.Deadline.IsZero() || !s.Deadline.After(lastAlive) || s.Deadline.After(now) {
+		return s
+	}
+	if c.Active {
+		s = become(s, Unknown, "Allstill was not running when an attempt was due.", now)
+		s.Deadline = time.Time{}
 		return s
 	}
 	s = become(s, Unknown, "Allstill was not running when a ping was due.", now)

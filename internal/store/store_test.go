@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -218,7 +219,12 @@ func TestRebuildingATableKeepsWhatRefersToIt(t *testing.T) {
 	}
 	s.r.QueryRow("SELECT sql FROM sqlite_schema WHERE name = 'checks'").Scan(&create)
 	s.Close()
-	rebuild := strings.Replace(create, "CREATE TABLE checks", "CREATE TABLE checks_next", 1) + `;
+	// A table that was renamed before is stored as CREATE TABLE "checks".
+	create = regexp.MustCompile(`^CREATE TABLE "?checks"?`).ReplaceAllString(create, "CREATE TABLE checks_next")
+	if !strings.HasPrefix(create, "CREATE TABLE checks_next") {
+		t.Fatalf("cannot read the table's definition: %.60s", create)
+	}
+	rebuild := create + `;
 		INSERT INTO checks_next SELECT * FROM checks;
 		DROP TABLE checks;
 		ALTER TABLE checks_next RENAME TO checks;`

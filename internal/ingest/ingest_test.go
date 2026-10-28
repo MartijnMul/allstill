@@ -119,6 +119,10 @@ func TestAnswers(t *testing.T) {
 	if w := serve(t, f, "GET", "/ping/"+uuid, "", nil); w.Code != 404 || w.Body.String() != "not found" {
 		t.Fatalf("not found: %d %q", w.Code, w.Body)
 	}
+	// A check Allstill runs itself is not pinged: `curl -f` notices.
+	if w := serve(t, &fakeStore{err: check.ErrActive}, "GET", "/ping/"+uuid, "", nil); w.Code != 409 || !strings.Contains(w.Body.String(), "run by Allstill") {
+		t.Fatalf("a ping to an active check: %d %q", w.Code, w.Body)
+	}
 	f = &fakeStore{out: store.PingOut{Created: true}}
 	w := serve(t, f, "GET", "/ping/"+key+"/new-job?create=1", "", nil)
 	if w.Code != 201 || w.Body.String() != "Created" || !f.got[0].Create {

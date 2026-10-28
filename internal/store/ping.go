@@ -3,6 +3,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -48,7 +49,8 @@ type PingOut struct {
 var ErrAmbiguous = errors.New("a ping names a check by UUID or by ping key and slug")
 
 // Ping records a ping and applies it to its check, in one transaction. A ping
-// for a check that does not exist returns ErrNotFound.
+// for a check that does not exist returns ErrNotFound, and one for a check
+// Allstill runs itself check.ErrActive.
 func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 	if (in.CheckUUID == "") == (in.PingKey == "" || in.Slug == "") {
 		return PingOut{}, ErrAmbiguous
@@ -64,6 +66,9 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 	c, err := s.findCheck(ctx, q, in, &out)
 	if err != nil {
 		return PingOut{}, err
+	}
+	if Active(c.Kind) {
+		return PingOut{}, check.ErrActive
 	}
 	open, err := openRuns(ctx, q, c.ID)
 	if err != nil {
@@ -329,7 +334,16 @@ func (s *Store) Recover(ctx context.Context, now time.Time) error {
 }
 
 func configOf(c db.Check) (check.Config, error) {
-	cfg := check.Config{Grace: time.Duration(c.GraceSeconds) * time.Second}
+	cfg := check.Config{Grace: time.Duration(c.GraceSeconds) * time.Second, Active: Active(c.Kind)}
+	if cfg.Active {
+		var settings struct {
+			FailAfter int `json:"fail_after"`
+		}
+		if err := json.Unmarshal([]byte(c.Settings), &settings); err != nil {
+			return cfg, fmt.Errorf("check %s: its settings cannot be read: %w", c.ID, err)
+		}
+		cfg.FailAfter = cmp.Or(settings.FailAfter, DefaultFailAfter)
+	}
 	switch c.ScheduleKind {
 	case "interval":
 		cfg.Schedule = check.Interval(time.Duration(c.IntervalSeconds.Int64) * time.Second)
@@ -345,14 +359,14 @@ func configOf(c db.Check) (check.Config, error) {
 	return cfg, nil
 }
 
-// unreadable is the status of a check whose schedule cannot be read, such as
-// a time zone this host does not know: unknown, with the reason, and no
-// deadline, so it never holds up other checks.
+// unreadable is the status of a check whose schedule or settings cannot be
+// read, such as a time zone this host does not know: unknown, with the
+// reason, and no deadline, so it never holds up other checks.
 func unreadable(s check.Status, err error, at time.Time) check.Status {
 	if s.State != check.Unknown {
 		s.Since = at
 	}
-	s.State, s.Reason, s.Deadline = check.Unknown, "Allstill cannot read its schedule: "+err.Error(), time.Time{}
+	s.State, s.Reason, s.Deadline = check.Unknown, "Allstill cannot read its schedule or settings: "+err.Error(), time.Time{}
 	return s
 }
 
@@ -364,7 +378,18 @@ func statusOf(c db.Check) check.Status {
 		LastPing:     msTime(c.LastPingAt),
 		NextExpected: msTime(c.NextExpectedAt),
 		Deadline:     msTime(c.Deadline),
+		FailStreak:   int(c.FailStreak),
 	}
+}
+
+// DefaultFailAfter is how many failed attempts in a row make an active check
+// down when its settings do not say (intent/http-checks/spec.md, C2).
+const DefaultFailAfter = 2
+
+// Active says whether a check of this kind is run by Allstill itself, not
+// pinged.
+func Active(kind string) bool {
+	return kind == "http" || kind == "tcp"
 }
 
 // endOf is when a run ends: when its end arrived, but never before its start.
@@ -401,7 +426,7 @@ func saveStatus(ctx context.Context, q *db.Queries, c db.Check, before, after ch
 	err := q.UpdateCheckStatus(ctx, db.UpdateCheckStatusParams{
 		State: string(after.State), StateSince: after.Since.UnixMilli(), StateReason: after.Reason,
 		LastPingAt: nullMs(after.LastPing), NextExpectedAt: nullMs(after.NextExpected), Deadline: nullMs(after.Deadline),
-		ID: c.ID,
+		FailStreak: int64(after.FailStreak), ID: c.ID,
 	})
 	if err != nil || after.State == before.State {
 		return err

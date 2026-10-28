@@ -335,11 +335,15 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 				", and closes at " + clock(now, inc.RecoveringSince.Add(alert.Settle), v.Loc) + " if it stays so."
 		}
 	}
-	d.PingURL = s.base.String() + "/ping/" + c.PingUUID
-	if c.Slug != "" {
-		d.SlugURL = s.base.String() + "/ping/<ping key>/" + c.Slug
+	// A ping URL is a secret: viewers, often outsiders who only need a
+	// status, do not see it (intent/http-checks/spec.md, R12).
+	if role, _ := v.Access.Role(c.ProjectID); role == store.Editor || role == store.Owner {
+		d.PingURL = s.base.String() + "/ping/" + c.PingUUID
+		if c.Slug != "" {
+			d.SlugURL = s.base.String() + "/ping/<ping key>/" + c.Slug
+		}
+		d.Example = "ALLSTILL_URL=" + d.PingURL + " allstill run -- ./backup.sh"
 	}
-	d.Example = "ALLSTILL_URL=" + d.PingURL + " allstill run -- ./backup.sh"
 
 	var last store.RunView
 	for _, run := range c.Recent {

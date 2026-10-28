@@ -72,6 +72,7 @@
 
     <section class="panel how">
       <h2>How a job reports</h2>
+      {{if .PingURL}}
       <span class="muted">Ping this URL when the job ends; anyone who has it can ping this check.</span>
       <div>
         <code id="ping-url">{{.PingURL}}</code>
@@ -80,6 +81,9 @@
       {{if .SlugURL}}<span class="muted">Or by slug, with the project's ping key:</span><code>{{.SlugURL}}</code>{{end}}
       <span class="muted">Or wrap the job, to report its start, exit status and output:</span>
       <code>{{.Example}}</code>
+      {{else}}
+      <span class="muted">Its ping URL is a secret; the project's editors see it here.</span>
+      {{end}}
     </section>
   </div>
 </main>

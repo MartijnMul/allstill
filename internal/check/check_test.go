@@ -3,6 +3,7 @@
 package check
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -343,4 +344,92 @@ func TestARunStillInItsGraceKeepsCounting(t *testing.T) {
 	w.want(Up, 10*time.Minute) // a times out at the end of its grace
 	w.tick(10 * time.Minute)
 	w.want(Down, none)
+}
+
+// An HTTP or TCP check every minute, down after 2 failures in a row.
+var minutely = Config{Schedule: Interval(time.Minute), Grace: 2 * time.Minute, Active: true, FailAfter: 2}
+
+func TestOnAttempt(t *testing.T) {
+	t0 := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	attempt := func(s Status, o Outcome, m int) Status {
+		t.Helper()
+		s, err := OnAttempt(minutely, s, Attempt{Outcome: o, Reason: "HTTP 503", At: at(m)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	s := attempt(Status{State: New, Since: t0}, Passed, 0)
+	if s.State != Up || s.FailStreak != 0 || !s.Deadline.Equal(at(3)) {
+		t.Fatalf("a pass: %+v", s)
+	}
+	s = attempt(s, Failed, 1)
+	if s.State != Up || s.FailStreak != 1 || !s.Since.Equal(t0) {
+		t.Fatalf("one failure stays up: %+v", s)
+	}
+	s = attempt(s, Failed, 2)
+	if s.State != Down || s.Reason != "HTTP 503" || !s.Since.Equal(at(2)) {
+		t.Fatalf("the second failure: %+v", s)
+	}
+	// Allstill's own network drops: unknown at once, no deadline, the
+	// failures kept, so the first failure after is down again.
+	s = attempt(s, Unjudged, 3)
+	if s.State != Unknown || !s.Deadline.IsZero() || s.FailStreak != 2 {
+		t.Fatalf("unjudged: %+v", s)
+	}
+	if s = attempt(s, Failed, 4); s.State != Down {
+		t.Fatalf("a failure after an unjudged attempt: %+v", s)
+	}
+	s = attempt(s, Warned, 5)
+	if s.State != Warning || s.FailStreak != 0 {
+		t.Fatalf("a warning: %+v", s)
+	}
+	if s = attempt(s, Passed, 6); s.State != Up || s.Reason != "" {
+		t.Fatalf("a pass after a warning: %+v", s)
+	}
+	// A new check that fails once stays new.
+	if s := attempt(Status{State: New, Since: t0}, Failed, 0); s.State != New || s.FailStreak != 1 {
+		t.Fatalf("a new check's first failure: %+v", s)
+	}
+	// A paused check is not judged.
+	if s := attempt(Status{State: Paused, Since: t0}, Failed, 0); s.State != Paused || s.FailStreak != 0 {
+		t.Fatalf("paused: %+v", s)
+	}
+	if _, err := OnAttempt(hourly, Status{State: Up}, Attempt{Outcome: Passed, At: t0}); err == nil {
+		t.Error("an attempt for a ping check was taken")
+	}
+}
+
+// An active check is never late: a missed deadline, or a restart, makes it
+// unknown without a deadline, and a ping to it is refused.
+func TestAnActiveCheckIsNeverLate(t *testing.T) {
+	t0 := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	s, _ := OnAttempt(minutely, Status{State: New, Since: t0}, Attempt{Outcome: Passed, At: t0})
+	for _, now := range []time.Time{t0.Add(time.Minute), t0.Add(2 * time.Minute)} {
+		if got, _ := OnDeadline(minutely, s, nil, now); got.State != Up {
+			t.Errorf("at %v, before its deadline: %s", now, got.State)
+		}
+	}
+	got, _ := OnDeadline(minutely, s, nil, s.Deadline)
+	if got.State != Unknown || !got.Deadline.IsZero() {
+		t.Errorf("past its deadline: %+v", got)
+	}
+	// Down, and Allstill not running when its deadline passed: unknown, not
+	// down, and no grace period that would make it down again.
+	down := Status{State: Down, Since: t0, Deadline: t0.Add(3 * time.Minute), FailStreak: 2}
+	got = OnRestart(minutely, down, t0, t0.Add(time.Hour))
+	if got.State != Unknown || !got.Deadline.IsZero() {
+		t.Errorf("after a restart: %+v", got)
+	}
+	if again, _ := OnDeadline(minutely, got, nil, t0.Add(2*time.Hour)); again.State != Unknown {
+		t.Errorf("an hour after the restart: %+v", again)
+	}
+	// A ping check after a restart still has its grace period.
+	if got := OnRestart(hourly, Status{State: Up, Deadline: t0}, t0.Add(-time.Minute), t0.Add(time.Hour)); got.State != Unknown || got.Deadline.IsZero() {
+		t.Errorf("a ping check after a restart: %+v", got)
+	}
+	if _, _, err := OnPing(minutely, s, nil, Ping{Kind: Success, ExitStatus: -1, At: t0}); !errors.Is(err, ErrActive) {
+		t.Errorf("a ping to an active check: %v", err)
+	}
 }

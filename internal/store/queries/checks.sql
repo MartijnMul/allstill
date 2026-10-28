@@ -30,7 +30,7 @@ INSERT INTO checks (
 
 -- name: UpdateCheckStatus :exec
 UPDATE checks
-SET state = ?, state_since = ?, state_reason = ?, last_ping_at = ?, next_expected_at = ?, deadline = ?
+SET state = ?, state_since = ?, state_reason = ?, last_ping_at = ?, next_expected_at = ?, deadline = ?, fail_streak = ?
 WHERE id = ?;
 
 -- name: OpenRuns :many
@@ -159,3 +159,8 @@ WHERE workspace_id = sqlc.arg(workspace_id) AND id = sqlc.arg(id);
 -- name: SetAlerting :execrows
 UPDATE checks SET urgency = ?, critical = ?, version = version + 1, updated_at = ?
 WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
+
+-- An attempt of an active check, as a run that ended when it did.
+-- name: CreateAttemptRun :exec
+INSERT INTO runs (id, workspace_id, check_id, outcome, started_at, ended_at, measured, reason)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);

@@ -222,6 +222,24 @@ func TestAMemberSeesTheirProjectsOnly(t *testing.T) {
 	if w := b.do("GET", "/checks/"+f.checkID+"?run=run_nope", nil); w.Code != http.StatusNotFound {
 		t.Fatalf("a run that is not the check's: %d", w.Code)
 	}
+	// Bob only views the project: its ping URL is a secret they do not see.
+	uuid := strings.TrimPrefix(f.pingURL, site+"/ping/")
+	if page := string(b.ok("GET", "/checks/"+f.checkID, nil)); strings.Contains(page, uuid) || !strings.Contains(page, "editors see it here") {
+		t.Fatal("a viewer sees the ping URL")
+	}
+	// An editor sees it.
+	carol, _ := f.st.CreatePerson(t.Context(), f.ws, store.NewPerson{Name: "Carol"})
+	f.st.SetMember(t.Context(), f.ws, f.project, carol, store.Editor)
+	ed := f.browser(t)
+	f.register(t, ed, carol)
+	if page := string(ed.ok("GET", "/checks/"+f.checkID, nil)); !strings.Contains(page, uuid) {
+		t.Fatal("an editor does not see the ping URL")
+	}
+	ada := f.browser(t)
+	f.register(t, ada, f.ada)
+	if page := string(ada.ok("GET", "/checks/"+f.checkID, nil)); !strings.Contains(page, uuid) {
+		t.Fatal("an administrator does not see the ping URL")
+	}
 }
 
 func TestAChallengeIsAnsweredOnceAndOnlyWhereItWasAsked(t *testing.T) {

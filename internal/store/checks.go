@@ -3,6 +3,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -45,6 +46,9 @@ type NewCheck struct {
 	PingUUID    string
 	Paused      bool
 	Settings    map[string]any
+	// Kind is ping (the default), or http or tcp for a check Allstill runs
+	// itself, on Interval, with a grace of at least the interval.
+	Kind string
 }
 
 var slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,99}$`)
@@ -63,10 +67,22 @@ func (n NewCheck) validate() error {
 		return &InvalidError{"grace", "must be at least 60 seconds"}
 	case len(n.Tags) > 20:
 		return &InvalidError{"tags", "at most 20"}
+	case n.Kind != "" && n.Kind != "ping" && !Active(n.Kind):
+		return &InvalidError{"kind", "is ping, http or tcp"}
+	case Active(n.Kind) && n.Cron != "":
+		return &InvalidError{"schedule", "a check Allstill runs itself runs on an interval"}
 	}
 	for _, t := range n.Tags {
 		if t == "" || len(t) > 50 {
 			return &InvalidError{"tags", "each must be 1 to 50 characters"}
+		}
+	}
+	if v, ok := n.Settings["fail_after"]; ok && Active(n.Kind) {
+		// Read as configOf reads it, so a check is never made that it cannot read.
+		raw, _ := json.Marshal(v)
+		var after int
+		if json.Unmarshal(raw, &after) != nil || after < 1 || after > 100 {
+			return &InvalidError{"fail_after", "must be a whole number from 1 to 100"}
 		}
 	}
 	if n.PingUUID != "" {
@@ -89,8 +105,9 @@ type CreatedCheck struct {
 	PingUUID string
 }
 
-// CreateCheck adds a ping check to a project; the caller must be an editor or
-// owner there.
+// CreateCheck adds a check to a project; the caller must be an editor or
+// owner there. An active check's grace is at least its interval: its deadline
+// is its next attempt plus the grace (intent/http-checks/spec.md).
 func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n NewCheck) (CreatedCheck, error) {
 	role, ok := a.Role(projectID)
 	if !ok {
@@ -98,6 +115,9 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 	}
 	if role == Viewer {
 		return CreatedCheck{}, ErrForbidden
+	}
+	if Active(n.Kind) {
+		n.Grace = max(n.Grace, n.Interval, 2*time.Minute)
 	}
 	if err := n.validate(); err != nil {
 		return CreatedCheck{}, err
@@ -123,7 +143,7 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 	}
 	p := db.CreateCheckParams{
 		ID: c.ID, WorkspaceID: a.WorkspaceID, ProjectID: projectID, PingUuid: c.PingUUID, Name: n.Name,
-		Slug: nullString(n.Slug), Description: n.Description, Tags: string(tags), Kind: "ping",
+		Slug: nullString(n.Slug), Description: n.Description, Tags: string(tags), Kind: cmp.Or(n.Kind, "ping"),
 		GraceSeconds: int64(n.Grace / time.Second), Settings: string(settings),
 		State: string(state), StateSince: at, CreatedAt: at, UpdatedAt: at,
 	}
@@ -201,4 +221,63 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 		}
 	}
 	return tx.Commit()
+}
+
+// Attempt is one attempt of an active check, as its runner saw it.
+type Attempt struct {
+	check.Attempt
+	Started  time.Time
+	Measured map[string]float64 // such as status, ms and cert_days
+}
+
+// RecordAttempt keeps an attempt of an active check as a run, and applies it
+// to the check's state, in one transaction. An attempt that could not judge
+// the check is no run: it only makes the check unknown.
+func (s *Store) RecordAttempt(ctx context.Context, workspaceID, checkID string, a Attempt) (check.Status, error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return check.Status{}, err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	c, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: workspaceID, ID: checkID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return check.Status{}, ErrNotFound
+	}
+	if err != nil {
+		return check.Status{}, err
+	}
+	cfg, err := configOf(c)
+	if err != nil {
+		return check.Status{}, err
+	}
+	before := statusOf(c)
+	if before.State == check.Paused {
+		// Paused while the attempt ran: it is not judged, nor kept.
+		return before, nil
+	}
+	after, err := check.OnAttempt(cfg, before, a.Attempt)
+	if err != nil {
+		return check.Status{}, err
+	}
+	if a.Outcome != check.Unjudged {
+		outcome := map[check.Outcome]string{check.Passed: "success", check.Warned: "warning", check.Failed: "fail"}[a.Outcome]
+		if a.Measured == nil {
+			a.Measured = map[string]float64{}
+		}
+		measured, err := json.Marshal(a.Measured)
+		if err != nil {
+			return check.Status{}, err
+		}
+		if err := q.CreateAttemptRun(ctx, db.CreateAttemptRunParams{
+			ID: id.New(id.Run), WorkspaceID: c.WorkspaceID, CheckID: c.ID, Outcome: outcome,
+			StartedAt: nullMs(a.Started), EndedAt: nullMs(a.At), Measured: string(measured), Reason: a.Reason,
+		}); err != nil {
+			return check.Status{}, err
+		}
+	}
+	if err := saveStatus(ctx, q, c, before, after); err != nil {
+		return check.Status{}, err
+	}
+	return after, tx.Commit()
 }

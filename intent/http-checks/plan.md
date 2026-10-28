@@ -93,4 +93,5 @@ Step 4, probes:
 
 ## Departures
 
-None yet.
+- Step 1 already has `Store.RecordAttempt` and `NewCheck.Kind`, which the plan put in step 2: the incident rules for active checks could not be tested without a way to record an attempt. Step 1 also lets a check in warning start its incident's settle period, as the alerts spec's R3 always said; until now only up did.
+- Step 1 checks an active check's settings when it is made, so one Allstill cannot read is never made: the digest does not list an active check that is unknown, so it would never alert and never be listed. `set-check` in step 2 runs the same validation.

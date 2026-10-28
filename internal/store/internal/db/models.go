@@ -50,6 +50,7 @@ type Check struct {
 	DeletedAt       sql.NullInt64
 	Urgency         string
 	Critical        int64
+	FailStreak      int64
 }
 
 type Delivery struct {
@@ -205,6 +206,7 @@ type Run struct {
 	TimedOutAt  sql.NullInt64
 	ExitStatus  sql.NullInt64
 	Measured    string
+	Reason      string
 }
 
 type Session struct {

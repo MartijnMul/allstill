@@ -13,7 +13,7 @@ import (
 )
 
 const checkByID = `-- name: CheckByID :one
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical, fail_streak FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
 `
 
 type CheckByIDParams struct {
@@ -52,13 +52,14 @@ func (q *Queries) CheckByID(ctx context.Context, arg CheckByIDParams) (Check, er
 		&i.DeletedAt,
 		&i.Urgency,
 		&i.Critical,
+		&i.FailStreak,
 	)
 	return i, err
 }
 
 const checkByPingUUID = `-- name: CheckByPingUUID :one
 
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks WHERE ping_uuid = ? AND deleted_at IS NULL
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical, fail_streak FROM checks WHERE ping_uuid = ? AND deleted_at IS NULL
 `
 
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -93,12 +94,13 @@ func (q *Queries) CheckByPingUUID(ctx context.Context, pingUuid string) (Check, 
 		&i.DeletedAt,
 		&i.Urgency,
 		&i.Critical,
+		&i.FailStreak,
 	)
 	return i, err
 }
 
 const checkBySlug = `-- name: CheckBySlug :one
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks WHERE project_id = ? AND slug = ? AND deleted_at IS NULL
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical, fail_streak FROM checks WHERE project_id = ? AND slug = ? AND deleted_at IS NULL
 `
 
 type CheckBySlugParams struct {
@@ -137,6 +139,7 @@ func (q *Queries) CheckBySlug(ctx context.Context, arg CheckBySlugParams) (Check
 		&i.DeletedAt,
 		&i.Urgency,
 		&i.Critical,
+		&i.FailStreak,
 	)
 	return i, err
 }
@@ -177,7 +180,7 @@ func (q *Queries) ChecksAfter(ctx context.Context, arg ChecksAfterParams) ([]str
 }
 
 const checksOfProject = `-- name: ChecksOfProject :many
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical, fail_streak FROM checks
 WHERE workspace_id = ? AND project_id = ? AND deleted_at IS NULL
 ORDER BY name, id
 `
@@ -224,6 +227,7 @@ func (q *Queries) ChecksOfProject(ctx context.Context, arg ChecksOfProjectParams
 			&i.DeletedAt,
 			&i.Urgency,
 			&i.Critical,
+			&i.FailStreak,
 		); err != nil {
 			return nil, err
 		}
@@ -247,6 +251,37 @@ func (q *Queries) CountChecksOfProject(ctx context.Context, projectID string) (i
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const createAttemptRun = `-- name: CreateAttemptRun :exec
+INSERT INTO runs (id, workspace_id, check_id, outcome, started_at, ended_at, measured, reason)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type CreateAttemptRunParams struct {
+	ID          string
+	WorkspaceID string
+	CheckID     string
+	Outcome     string
+	StartedAt   sql.NullInt64
+	EndedAt     sql.NullInt64
+	Measured    string
+	Reason      string
+}
+
+// An attempt of an active check, as a run that ended when it did.
+func (q *Queries) CreateAttemptRun(ctx context.Context, arg CreateAttemptRunParams) error {
+	_, err := q.db.ExecContext(ctx, createAttemptRun,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.CheckID,
+		arg.Outcome,
+		arg.StartedAt,
+		arg.EndedAt,
+		arg.Measured,
+		arg.Reason,
+	)
+	return err
 }
 
 const createCheck = `-- name: CreateCheck :exec
@@ -510,7 +545,7 @@ func (q *Queries) DropOutputUpTo(ctx context.Context, arg DropOutputUpToParams) 
 }
 
 const dueChecks = `-- name: DueChecks :many
-SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical FROM checks
+SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical, fail_streak FROM checks
 WHERE deadline IS NOT NULL AND deadline <= ? AND deleted_at IS NULL
 ORDER BY deadline
 LIMIT ?
@@ -558,6 +593,7 @@ func (q *Queries) DueChecks(ctx context.Context, arg DueChecksParams) ([]Check, 
 			&i.DeletedAt,
 			&i.Urgency,
 			&i.Critical,
+			&i.FailStreak,
 		); err != nil {
 			return nil, err
 		}
@@ -859,7 +895,7 @@ func (q *Queries) RunPastRetention(ctx context.Context, arg RunPastRetentionPara
 }
 
 const runsOfCheck = `-- name: RunsOfCheck :many
-SELECT id, workspace_id, check_id, rid, outcome, started_at, ended_at, timed_out_at, exit_status, measured FROM runs WHERE check_id = ? AND id < ? ORDER BY id DESC LIMIT ?
+SELECT id, workspace_id, check_id, rid, outcome, started_at, ended_at, timed_out_at, exit_status, measured, reason FROM runs WHERE check_id = ? AND id < ? ORDER BY id DESC LIMIT ?
 `
 
 type RunsOfCheckParams struct {
@@ -888,6 +924,7 @@ func (q *Queries) RunsOfCheck(ctx context.Context, arg RunsOfCheckParams) ([]Run
 			&i.TimedOutAt,
 			&i.ExitStatus,
 			&i.Measured,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -960,7 +997,7 @@ func (q *Queries) TimeOutRun(ctx context.Context, arg TimeOutRunParams) error {
 
 const updateCheckStatus = `-- name: UpdateCheckStatus :exec
 UPDATE checks
-SET state = ?, state_since = ?, state_reason = ?, last_ping_at = ?, next_expected_at = ?, deadline = ?
+SET state = ?, state_since = ?, state_reason = ?, last_ping_at = ?, next_expected_at = ?, deadline = ?, fail_streak = ?
 WHERE id = ?
 `
 
@@ -971,6 +1008,7 @@ type UpdateCheckStatusParams struct {
 	LastPingAt     sql.NullInt64
 	NextExpectedAt sql.NullInt64
 	Deadline       sql.NullInt64
+	FailStreak     int64
 	ID             string
 }
 
@@ -982,6 +1020,7 @@ func (q *Queries) UpdateCheckStatus(ctx context.Context, arg UpdateCheckStatusPa
 		arg.LastPingAt,
 		arg.NextExpectedAt,
 		arg.Deadline,
+		arg.FailStreak,
 		arg.ID,
 	)
 	return err

@@ -115,6 +115,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		io.WriteString(w, "not found")
 		return
+	case errors.Is(err, check.ErrActive):
+		// A job pinging a check Allstill runs itself: `curl -f` notices.
+		w.WriteHeader(http.StatusConflict)
+		io.WriteString(w, "this check is run by Allstill; pings to it are not applied")
+		return
 	case err != nil:
 		h.fail(w, r, err)
 		return
