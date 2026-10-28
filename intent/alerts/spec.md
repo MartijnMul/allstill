@@ -3,7 +3,7 @@
 
 Intent: [intent.md](intent.md)
 Status: accepted (2026-10-21, with the recommendations of C2 to C9)
-Written: 2026-10-21, by Claude for the maintainer; revised the same day after an independent review
+Written: 2026-10-21, by Claude for the maintainer; revised the same day after an independent review, and on 2026-10-28 for the email settings
 Codebase: MartijnMul/allstill at b888ba6
 Policies in force: no skills yet; ADR 0001 and 0002, AGENTS.md, REVIEW.md, `api/openapi.yaml` 0.2.0 at b888ba6, and needs from real setups (kept privately)
 Prompt: the requirements-and-design prompt of the AI-native SDLC playbook, run on intent.md
@@ -96,7 +96,7 @@ The sender compares that with what was told and sends only the difference. So se
   - Sent with a `TTL` and with `Urgency: high` for `now`.
   - Usable once the device has opened the test message: Web Push gives no delivery receipt, so the link in the test confirms it.
   - The VAPID key pair is made at first start.
-- **Email:** through an SMTP server set with `-smtp-url` and `-smtp-from`, as environment variables, never in the database.
+- **Email:** through an SMTP server set with separate settings, each a flag and an environment variable and never in the database: `ALLSTILL_SMTP_HOST`, `_PORT`, `_SECURITY`, `_USERNAME`, `_PASSWORD` (never a flag) or `_PASSWORD_FILE`, `_FROM` and `_CA_FILE`. Not one URL: a user name that is an email address, or a password with special characters, would have to be escaped in it. Decided by the maintainer on 2026-10-28, replacing `-smtp-url` and `-smtp-from`.
 - **Routing:** `now` goes to every push device, and to email when none accepts it. `digest` goes by email, or by a short push when there is no email. A push still respects quiet hours.
 
 **Delivery.**
