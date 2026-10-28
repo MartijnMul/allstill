@@ -47,7 +47,7 @@ The ping URLs and answers are those of Healthchecks, with one difference: hc-pin
 
 ## Alerts
 
-Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`; email follows, and then alerts are switched on ([intent/alerts](../intent/alerts/spec.md)).
+Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`. Email can be set up and tested ([below](#email)); alerts going by email, and switching them on, follow ([intent/alerts](../intent/alerts/spec.md)).
 
 Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device* subscribes the browser you are in for push notifications; send it a test and open the notification to confirm it, and alerts can reach it. On an iPhone or iPad, add Allstill to the Home Screen first and open it from there. Test messages are sent even in shadow mode.
 
@@ -60,6 +60,33 @@ Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device*
 - New people have quiet hours from 22:00 to 07:00 in their time zone. An alert waits for the morning unless its check is critical.
 - After Allstill was down, or its host slept or its clock jumped forward, checks whose deadline passed meanwhile become unknown, not down, and nobody is alerted for them.
 - `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` (the daily digest at 08:00) or `none`. `-critical` breaks through quiet hours.
+
+## Email
+
+Allstill can send email through an SMTP server you already have: your mail provider's, a sending service, or a relay of your own. Email will be the fallback when no device takes an alert, and how digests arrive; set it up and test it now, and email addresses come under **Devices** next.
+
+| Setting | Example | |
+| --- | --- | --- |
+| `ALLSTILL_SMTP_HOST` | `smtp.example.com` | No email without it. |
+| `ALLSTILL_SMTP_PORT` | `587` | The default; 465 with `tls`. 465 and 2465 use TLS from the start. |
+| `ALLSTILL_SMTP_SECURITY` | `starttls` | Or `tls` (also written `ssl`), or `none` for a relay you trust, such as a container next to Allstill. With `starttls`, Allstill never sends unencrypted. |
+| `ALLSTILL_SMTP_USERNAME` | `allstill@example.com` | |
+| `ALLSTILL_SMTP_PASSWORD` | | Or `ALLSTILL_SMTP_PASSWORD_FILE`, a file holding it, such as a container secret. Never a flag. |
+| `ALLSTILL_SMTP_FROM` | `Allstill <allstill@example.com>` | On a domain the server may send for. |
+| `ALLSTILL_SMTP_CA_FILE` | | Certificates to trust for a relay with its own, such as Proton Bridge. |
+
+Then check it, in the container: `docker exec allstill allstill admin test-email -to you@example.com`, or with the Linux package, whose settings only root may read: `sudo allstill admin test-email -env-file /etc/allstill/allstill.env -to you@example.com`. It says how far it got (connected, TLS, signed in, sender and recipient accepted), or what the server answered, and whether to change the settings or try again later. At start, `allstill serve` signs in once without sending and logs whether that worked.
+
+What to know:
+
+- **The From address** must be on a domain your provider sends for, or the message lands in spam or is refused: a `gmail.com` From through Postmark fails, for example. With a mailbox of your own, bounces come back to it, so use one someone reads; sending services collect them in their own dashboard.
+- **Gmail and Google Workspace:** `smtp.gmail.com`, your address, and an app password, which needs 2-step verification. Where a Workspace administrator turned app passwords off, use `smtp-relay.gmail.com` with the server's address allowed.
+- **iCloud:** `smtp.mail.me.com`, an app-specific password, and a From that is your iCloud address or an alias.
+- **Fastmail:** `smtp.fastmail.com` with an app password.
+- **Proton:** an SMTP token works on paid plans with your own domain; otherwise Proton Bridge, with `ALLSTILL_SMTP_CA_FILE` for its certificate.
+- **Microsoft:** Outlook.com accounts only allow OAuth, which Allstill does not do. Microsoft 365 is retiring password sign-in for SMTP and turns it off by default; use a sending service, or your tenant's relay.
+- **Sending services** (Postmark, Resend, Mailgun, Amazon SES and the like) work well, and most are free or nearly so for a few messages a day. Postmark's token is both user name and password; Resend's user name is `resend`; SES needs its SMTP credentials, not IAM keys, and in its sandbox delivers only to verified addresses.
+- **Blocked ports:** some clouds block port 25, and some (Hetzner Cloud) 465 too. Use 587, or a sending service's 2525 or 2587.
 
 ## Keep it
 

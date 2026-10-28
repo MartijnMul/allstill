@@ -44,6 +44,7 @@ Usage:
   allstill admin rename-project NAME NEW rename a project
   allstill admin move-checks [flags]     move checks to another project
   allstill admin set-alerting [flags]    how fast a check's problems reach people
+  allstill admin test-email -to ADDRESS  send a test email with the SMTP settings
   allstill backup [flags] FILE           copy the database while it runs
   allstill version                       print the version
 
@@ -114,6 +115,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	keepRuns := fs.Int("keep-runs", runs, "how many of its newest runs each check keeps, with their pings (ALLSTILL_KEEP_RUNS)")
 	keepOutput := fs.Int("keep-output", output, "of how many of its newest runs each check keeps the output (ALLSTILL_KEEP_OUTPUT)")
+	mailSettings := smtpFlags(fs)
 	shadow := fs.Bool("shadow", os.Getenv("ALLSTILL_SHADOW") == "1", "record alerts without sending them, whatever the setting in the database, such as to serve a copy of it (ALLSTILL_SHADOW=1)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -154,6 +156,19 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	} else if n > 0 {
 		log.Warn("some passkeys were made for another host name and do not work here; make new ones with 'allstill admin passkey-link'",
 			"passkeys", n, "host", base.Hostname())
+	}
+
+	mail, err := mailSettings(helloName(base.String()))
+	if err != nil {
+		return err
+	}
+	if mail == nil {
+		log.Info("email: no SMTP host is set, so alerts go by push only")
+	} else {
+		if mail.Plain() {
+			log.Warn("email: messages to the SMTP server travel unencrypted", "host", mail.Host)
+		}
+		go probeEmail(ctx, mail, log)
 	}
 
 	key, err := st.VAPIDKey(ctx, ws)

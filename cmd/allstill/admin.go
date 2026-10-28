@@ -30,6 +30,7 @@ const adminUsage = `Usage:
   allstill admin rename-project [-db file] NAME NEW-NAME
   allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
   allstill admin set-alerting -project PROJECT -check NAME -urgency now|digest|none [-critical] [-db file]
+  allstill admin test-email -to ADDRESS [smtp flags]
 `
 
 func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -50,6 +51,8 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return moveChecks(ctx, args[1:], stdout, stderr)
 	case "set-alerting":
 		return setAlerting(ctx, args[1:], stdout, stderr)
+	case "test-email":
+		return testEmail(ctx, args[1:], stdout, stderr)
 	}
 	fmt.Fprint(stderr, adminUsage)
 	return fmt.Errorf("unknown admin command %q", args[0])
