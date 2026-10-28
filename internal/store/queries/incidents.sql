@@ -81,8 +81,8 @@ WHERE incident_id = ? AND person_id = ?;
 UPDATE recipients SET due_at = ? WHERE incident_id = ? AND person_id = ?;
 
 -- name: CreateDelivery :exec
-INSERT INTO deliveries (id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO deliveries (id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at, message_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: LastMessageAt :one
 SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM deliveries WHERE person_id = ? AND kind IN ('alert', 'digest');

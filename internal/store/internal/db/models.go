@@ -65,6 +65,8 @@ type Delivery struct {
 	CreatedAt   int64
 	SentAt      sql.NullInt64
 	NextAt      sql.NullInt64
+	MessageID   sql.NullString
+	ChannelKind sql.NullString
 }
 
 type Event struct {

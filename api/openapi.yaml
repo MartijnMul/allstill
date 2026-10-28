@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.4.0
+  version: 0.5.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -426,6 +426,46 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
 
+  /me/channels/email:
+    post:
+      tags: [Alerts]
+      operationId: addEmailChannel
+      summary: Add an email address, and send it a test
+      description: |
+        Needs a person's token with the `manage` scope. The address gets alerts once
+        the link in its test message was opened, signed in. The same address again
+        keeps its channel. At most three per person.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address]
+              properties:
+                address: {type: string, format: email, maxLength: 254}
+      responses:
+        '200':
+          description: The address's channel.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Channel'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409':
+          description: The server cannot send email; its administrator has not set it up.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '429':
+          description: The person has as many addresses as they may.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+
   /me/channels/{channel_id}:
     parameters:
       - $ref: '#/components/parameters/ChannelId'
@@ -448,11 +488,19 @@ paths:
       tags: [Alerts]
       operationId: testMyChannel
       summary: Send a test message, even in shadow mode
-      description: Opening the test message on the device confirms the channel; alerts go only to confirmed channels.
+      description: |
+        Opening the test message on the device, or the link in it signed in, confirms
+        the channel; alerts go only to confirmed channels. At most one test a minute
+        to a channel, and ten a day per person, as a test can go to any address.
       security:
         - bearer: [manage]
       responses:
         '202': {description: The test message is on its way.}
+        '429':
+          description: Too soon after the last test, or too many today.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
@@ -1842,9 +1890,13 @@ components:
         id: {$ref: '#/components/schemas/Id'}
         kind:
           type: string
-          description: '`webpush` for a browser or Home Screen app, `email` once it comes. Clients show kinds they do not know by name.'
+          description: '`webpush` for a browser or Home Screen app, `email` for an address. Clients show kinds they do not know by name.'
           enum: [webpush, email]
-        name: {type: string, description: 'The device, such as "iPhone, Safari".'}
+        name: {type: string, description: 'The device, such as "iPhone, Safari"; for an email address, `Email`.'}
+        address:
+          type: string
+          format: email
+          description: For `email`, the address. It is the person's own, so it is shown to them.
         state:
           type: string
           description: |

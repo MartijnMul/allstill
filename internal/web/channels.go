@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/MartijnMul/allstill/internal/email"
 	"github.com/MartijnMul/allstill/internal/store"
 	"github.com/MartijnMul/allstill/internal/webpush"
 )
@@ -15,6 +16,9 @@ type channelsData struct {
 	Shadow    bool
 	Confirmed bool // just confirmed by opening a test message
 	Channels  []channelRow
+	MailOn    bool   // the server can send email
+	Email     string // the person's own address, to fill in
+	CanAdd    bool   // fewer than store.MaxEmails addresses
 }
 
 type channelRow struct {
@@ -40,11 +44,18 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		s.fail(w, r, err)
 		return
 	}
-	d := channelsData{Shadow: shadow, Confirmed: r.URL.Query().Has("confirmed")}
+	d := channelsData{Shadow: shadow, Confirmed: r.URL.Query().Has("confirmed"), MailOn: s.MailOn, Email: v.Email}
 	now := s.Now()
+	emails := 0
 	for _, c := range cs {
 		row := channelRow{ID: c.ID, Name: c.Name, Kind: "Push to this browser", Since: clock(now, c.CreatedAt, v.Loc)}
+		if c.Kind == "email" {
+			emails++
+			row.Name, row.Kind = "Email to "+c.Address, "Email"
+		}
 		switch {
+		case c.Kind == "email" && !s.MailOn:
+			row.State, row.Class = "Email is not set up on this server", "down"
 		case c.Kind == "webpush" && c.Key != s.PushKey:
 			row.State, row.Class = "Must subscribe again: open Allstill on this device", "down"
 		case !c.FailedAt.IsZero():
@@ -56,6 +67,7 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		}
 		d.Channels = append(d.Channels, row)
 	}
+	d.CanAdd = emails < store.MaxEmails
 	crumbs := []crumb{{"Devices", ""}}
 	s.render(w, r, http.StatusOK, "channels", page{Title: "Devices", Person: v.Name, Crumbs: crumbs, Data: d})
 }
@@ -101,9 +113,56 @@ func (s *Server) savePush(w http.ResponseWriter, r *http.Request, v viewer) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": c.ID, "confirmed": !c.VerifiedAt.IsZero()})
 }
 
+// POST /channels/email adds an email address, to be confirmed by the link
+// in a test message, which it sends at once.
+func (s *Server) addEmail(w http.ResponseWriter, r *http.Request, v viewer) {
+	if !s.MailOn {
+		s.render(w, r, http.StatusConflict, "error", page{Title: "Email is not set up", Person: v.Name,
+			Data: "This server cannot send email yet. Its administrator sets it up with ALLSTILL_SMTP_HOST and the rest; see Running Allstill."})
+		return
+	}
+	address, err := email.ParseAddress(r.FormValue("address"))
+	if err != nil {
+		s.render(w, r, http.StatusBadRequest, "error", page{Title: "Not an email address", Person: v.Name, Data: err.Error()})
+		return
+	}
+	c, err := s.Store.SaveEmail(r.Context(), v.WorkspaceID, v.ID, address)
+	if s.limited(w, r, v, err) {
+		return
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if c.VerifiedAt.IsZero() {
+		if err := s.Store.Test(r.Context(), v.ID, c.ID, s.Now()); err != nil && !errors.As(err, new(store.LimitError)) {
+			s.fail(w, r, err)
+			return
+		}
+		if s.Wake != nil {
+			s.Wake()
+		}
+	}
+	http.Redirect(w, r, "/channels", http.StatusSeeOther)
+}
+
+// limited shows a limit that was reached, and says whether one was.
+func (s *Server) limited(w http.ResponseWriter, r *http.Request, v viewer, err error) bool {
+	var limit store.LimitError
+	if !errors.As(err, &limit) {
+		return false
+	}
+	s.render(w, r, http.StatusTooManyRequests, "error", page{Title: "Not now", Person: v.Name, Data: limit.Reason})
+	return true
+}
+
 // POST /channels/{id}/test sends a test message, even in shadow mode.
 func (s *Server) testChannel(w http.ResponseWriter, r *http.Request, v viewer) {
-	if err := s.Store.Test(r.Context(), v.ID, r.PathValue("id"), s.Now()); err != nil {
+	err := s.Store.Test(r.Context(), v.ID, r.PathValue("id"), s.Now())
+	if s.limited(w, r, v, err) {
+		return
+	}
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}

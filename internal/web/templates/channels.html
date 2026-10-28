@@ -42,9 +42,25 @@
         </tbody>
       </table>
     </div>
-    <p class="muted">A device gets alerts once you have opened a test message on it.</p>
+    <p class="muted">A device or address gets alerts once you have opened a test message on it.</p>
     {{else}}
     <p class="muted">No devices yet. Open Allstill on your phone and add it here.</p>
+    {{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Email</h2>
+    {{if .MailOn}}
+    <p class="muted">An alert goes by email when none of your devices takes it, and the daily digest comes by email.</p>
+    {{if .CanAdd}}
+    <form class="inline" action="/channels/email" method="post">
+      <label for="address" class="sr">Email address</label>
+      <input id="address" name="address" type="email" value="{{.Email}}" placeholder="you@example.com" required>
+      <button type="submit" class="small">Add, and send a test</button>
+    </form>
+    {{end}}
+    {{else}}
+    <p class="muted">This server cannot send email yet: its administrator sets it up with <code>ALLSTILL_SMTP_HOST</code> and the rest.</p>
     {{end}}
   </section>
 </main>

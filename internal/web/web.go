@@ -23,6 +23,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
+	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/store"
 )
 
@@ -43,6 +44,10 @@ type Server struct {
 	Wake func()
 	// Behind says how far the sender lags (R11).
 	Behind func(context.Context) (time.Duration, error)
+	// MailOn says whether the server can send email, and MailProblem
+	// whether it fails as it is set up.
+	MailOn      bool
+	MailProblem func() *alert.MailProblem
 
 	base       *url.URL
 	workspace  string
@@ -120,6 +125,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("GET /messages", s.signedIn(s.messagesPage))
 	handle("GET /channels", s.signedIn(s.channelsPage))
 	handle("POST /channels/push", s.signedIn(s.savePush))
+	handle("POST /channels/email", s.signedIn(s.addEmail))
 	handle("POST /channels/{id}/test", s.signedIn(s.testChannel))
 	handle("GET /channels/{id}/confirm", s.signedIn(s.confirmChannel))
 	handle("POST /channels/{id}/delete", s.signedIn(s.deleteChannel))

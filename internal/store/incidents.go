@@ -316,8 +316,9 @@ func createDelivery(ctx context.Context, q *db.Queries, d Delivery) error {
 	if d.State == "sent" {
 		sent = sql.NullInt64{Int64: d.At.UnixMilli(), Valid: true}
 	}
+	delivery := id.New(id.Delivery)
 	return q.CreateDelivery(ctx, db.CreateDeliveryParams{
-		ID: id.New(id.Delivery), WorkspaceID: d.WorkspaceID, PersonID: d.PersonID, ChannelID: nullString(d.ChannelID),
+		ID: delivery, MessageID: nullString(delivery), WorkspaceID: d.WorkspaceID, PersonID: d.PersonID, ChannelID: nullString(d.ChannelID),
 		Kind: d.Kind, Items: string(items), State: d.State, LastError: nullString(d.Error), CreatedAt: d.At.UnixMilli(), SentAt: sent,
 	})
 }

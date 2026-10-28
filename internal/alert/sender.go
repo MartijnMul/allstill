@@ -36,13 +36,15 @@ type Store interface {
 	DigestPeople(ctx context.Context) ([]store.DigestPerson, error)
 	DigestOf(ctx context.Context, personID string, since time.Time) ([]store.DigestEntry, []store.SilentCheck, error)
 	RecordDigest(ctx context.Context, personID string, at time.Time, d *store.Delivery, told []store.Told) error
-	PushTargets(ctx context.Context, personID, key string) ([]store.PushTarget, error)
-	Queue(ctx context.Context, d store.Delivery, channels []string, told []store.Told) error
-	QueueDigest(ctx context.Context, d store.Delivery, channels []string, told []store.Told) error
+	Targets(ctx context.Context, personID, key string) (push, email []string, err error)
+	Queue(ctx context.Context, d store.Delivery, kind string, channels []string, told []store.Told) error
+	QueueDigest(ctx context.Context, d store.Delivery, kind string, channels []string, told []store.Told) error
+	PendingDowns(ctx context.Context, personID string) (map[string]bool, error)
 	PendingDeliveries(ctx context.Context, now time.Time, limit int) ([]store.Pending, error)
 	SetConfirm(ctx context.Context, p store.Pending, token string) error
 	Sent(ctx context.Context, deliveryID string, at time.Time) error
-	Failed(ctx context.Context, p store.Pending, reason string, gone, channelFailed bool, at time.Time) error
+	Failed(ctx context.Context, p store.Pending, reason string, gone, channelFailed bool, at time.Time, ways store.Ways) error
+	Postpone(ctx context.Context, deliveryID string, next time.Time) error
 	Retry(ctx context.Context, deliveryID, reason string, next time.Time) error
 	StillFollowed(ctx context.Context, personID string, incidentIDs []string) (map[string]bool, error)
 	Shadowed(ctx context.Context, p store.Pending) error
@@ -58,8 +60,12 @@ type Sender struct {
 	Store Store
 	Log   *slog.Logger
 	Now   func() time.Time
-	// Push sends to browsers; without it, only shadow mode works.
+	// Push sends to browsers, and Mail by email; without either, only
+	// shadow mode works.
 	Push *Push
+	Mail Mailer
+	// Base is the dashboard's address, where the links in emails lead.
+	Base string
 	// Shadow keeps the sender in shadow mode whatever the database says, to
 	// serve a copy of it.
 	Shadow bool
@@ -68,6 +74,7 @@ type Sender struct {
 	Wake chan struct{}
 
 	lastPass atomic.Int64 // when Run last finished a pass, in Unix milliseconds
+	mail     mailState
 }
 
 // Run works every Every until ctx ends.
@@ -127,11 +134,11 @@ func (s *Sender) Pass(ctx context.Context) error {
 	}
 	shadow = shadow || s.Shadow
 	// What waits goes first, or is found no longer true, before anything new
-	// is decided from what each person has heard. A down waiting for its
-	// second try (RetryAfter) is so settled before its recovery can be
-	// decided, which Gather holds back longer. A failure here is logged, and
-	// must not keep new alerts from being decided.
-	if err := s.deliver(ctx, shadow, now); err != nil && ctx.Err() == nil {
+	// is decided from what each person has heard; a recovery also waits while
+	// its down is on its way (alert). A failure here is logged, and must not
+	// keep new alerts from being decided.
+	var mailDown bool
+	if err := s.deliver(ctx, shadow, now, &mailDown); err != nil && ctx.Err() == nil {
 		s.Log.Error("sending waiting messages", "error", err)
 	}
 	due, err := s.Store.DueRecipients(ctx, now, batch)
@@ -149,26 +156,37 @@ func (s *Sender) Pass(ctx context.Context) error {
 		due = due[n:]
 	}
 	// Waiting messages go out even when the digests could not be worked out.
-	return errors.Join(s.digests(ctx, shadow, now), s.deliver(ctx, shadow, now))
+	return errors.Join(s.digests(ctx, shadow, now), s.deliver(ctx, shadow, now, &mailDown))
 }
 
-// targets is where a person's messages go: their confirmed devices.
-func (s *Sender) targets(ctx context.Context, personID string) ([]string, error) {
+// targets is where a person's message goes first: an alert to their
+// confirmed devices, or by email when they have none; a digest by email, or
+// to their devices when they have no email (R12).
+func (s *Sender) targets(ctx context.Context, personID, message string) (kind string, channels []string, err error) {
+	push, mail, err := s.Store.Targets(ctx, personID, s.key())
 	if s.Push == nil {
-		return nil, nil
+		push = nil
 	}
-	ts, err := s.Store.PushTargets(ctx, personID, s.Push.Key.PublicKey())
-	ids := make([]string, len(ts))
-	for i, t := range ts {
-		ids[i] = t.ChannelID
+	if s.Mail == nil {
+		mail = nil
 	}
-	return ids, err
+	if message == "digest" {
+		if len(mail) > 0 {
+			return "email", mail, err
+		}
+		return "webpush", push, err
+	}
+	if len(push) > 0 {
+		return "webpush", push, err
+	}
+	return "email", mail, err
 }
 
 // alert decides for one person's due recipients, and sends them one message.
 func (s *Sender) alert(ctx context.Context, due []store.Due, shadow bool, now time.Time) error {
 	var items []store.Item
 	var told, later []store.Told
+	var pending map[string]bool
 	for _, d := range due {
 		quiet, err := ParseQuietHours(d.QuietHours, d.TimeZone)
 		if err != nil {
@@ -180,6 +198,17 @@ func (s *Sender) alert(ctx context.Context, due []store.Due, shadow bool, now ti
 			Follows: d.Follows, RecoveryMessages: d.RecoveryMessages,
 			Told: Told(d.Told), ToldHow: d.ToldHow, ToldInShadow: d.ToldInShadow, Shadow: shadow, Quiet: quiet,
 		}, now)
+		if dec.Tell == Recovered {
+			// Not before its down went out, or was found unheard (R6).
+			if pending == nil {
+				if pending, err = s.Store.PendingDowns(ctx, d.PersonID); err != nil {
+					return err
+				}
+			}
+			if pending[d.IncidentID] {
+				dec = Decision{Again: now.Add(RetryAfter)}
+			}
+		}
 		if dec.Tell == "" {
 			later = append(later, store.Told{IncidentID: d.IncidentID, PersonID: d.PersonID, Again: dec.Again})
 			continue
@@ -204,20 +233,20 @@ func (s *Sender) alert(ctx context.Context, due []store.Due, shadow bool, now ti
 	if shadow {
 		return s.Store.Record(ctx, d, append(told, later...))
 	}
-	channels, err := s.targets(ctx, d.PersonID)
+	kind, channels, err := s.targets(ctx, d.PersonID, "alert")
 	if err != nil {
 		return err
 	}
 	if len(channels) == 0 {
 		// Nowhere to reach this person (email follows): the message fails,
 		// and is tried again later.
-		d.State, d.Error = "failed", "no confirmed device to reach this person"
+		d.State, d.Error = "failed", "no confirmed device or email address to reach this person"
 		for _, t := range told {
 			later = append(later, store.Told{IncidentID: t.IncidentID, PersonID: t.PersonID, Again: now.Add(retryNoChannel)})
 		}
 		return s.Store.Record(ctx, d, later)
 	}
-	return s.Store.Queue(ctx, *d, channels, append(told, later...))
+	return s.Store.Queue(ctx, *d, kind, channels, append(told, later...))
 }
 
 // digests sends each person whose digest time has passed since the sender
@@ -267,15 +296,15 @@ func (s *Sender) digest(ctx context.Context, p store.DigestPerson, shadow bool, 
 	if shadow {
 		return s.Store.RecordDigest(ctx, p.ID, now, d, told)
 	}
-	channels, err := s.targets(ctx, p.ID)
+	kind, channels, err := s.targets(ctx, p.ID, "digest")
 	if err != nil {
 		return err
 	}
 	if len(channels) == 0 {
-		d.State, d.Error = "failed", "no confirmed device to reach this person"
+		d.State, d.Error = "failed", "no confirmed device or email address to reach this person"
 		return s.Store.RecordDigest(ctx, p.ID, now, d, nil)
 	}
-	return s.Store.QueueDigest(ctx, *d, channels, told)
+	return s.Store.QueueDigest(ctx, *d, kind, channels, told)
 }
 
 // DigestItems is what a digest says, and what it tells:

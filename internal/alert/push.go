@@ -3,12 +3,14 @@
 package alert
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,9 +72,15 @@ func (p *Push) render(d store.Pending, token string) payload {
 // was resolved when it was.
 func itemLine(it store.Item) string {
 	if it.What == string(Recovered) {
-		return "Resolved: " + it.Title
+		return "Resolved: " + oneLine(it.Title)
 	}
-	return it.Title
+	return oneLine(it.Title)
+}
+
+// oneLine keeps a title to one line, so it cannot make lines or links of
+// its own in a message to someone else.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // digestLine sums a digest up in one line; the digest itself is on Messages.
@@ -165,51 +173,35 @@ func (s *Sender) stillTrue(ctx context.Context, d store.Pending) (keep []store.I
 	return keep, dropped, nil
 }
 
-// deliver sends the deliveries whose time has come: each is tried twice, a
-// minute apart (R12). A subscription the push service no longer knows is
-// removed; one made for another key is never pushed to (ADR 0003). Before
-// every attempt it checks again what may go: in shadow mode only tests, to a
-// device that is still the person's and confirmed, and of an alert only what
-// is still true for them (R10, R13, R15).
-func (s *Sender) deliver(ctx context.Context, shadow bool, now time.Time) error {
-	if s.Push == nil {
-		return nil
-	}
+// deliver sends the deliveries whose time has come: pushes first, so a slow
+// mail server does not hold them up. A push is tried twice, a minute apart
+// (R12); an email up to four times. A subscription the push service no
+// longer knows is removed; one made for another key is never pushed to
+// (ADR 0003). A delivery that fails for good goes the other way when it can
+// (store.Failed).
+//
+// mailDown is shared by a pass's rounds: once the mail server could not be
+// reached, the pass's other emails wait.
+func (s *Sender) deliver(ctx context.Context, shadow bool, now time.Time, mailDown *bool) error {
 	pending, err := s.Store.PendingDeliveries(ctx, now, batch)
 	if err != nil {
 		return err
 	}
-	key := s.Push.Key.PublicKey()
+	slices.SortStableFunc(pending, func(a, b store.Pending) int {
+		return cmp.Compare(boolInt(a.ChannelKind == "email"), boolInt(b.ChannelKind == "email"))
+	})
 	for _, d := range pending {
-		if d.Kind != "test" && shadow {
-			if err := s.Store.Shadowed(ctx, d); err != nil {
-				return err
-			}
+		ok, err := s.checkAgain(ctx, &d, shadow, now)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			continue
 		}
-		if d.ChannelPerson != d.PersonID || (d.Kind != "test" && !d.Confirmed) {
-			if err := s.Store.Failed(ctx, d, "the device changed hands or must be confirmed again", false, false, now); err != nil {
-				return err
-			}
-			continue
-		}
-		if d.Kind == "alert" {
-			keep, dropped, err := s.stillTrue(ctx, d)
-			if err != nil {
-				return err
-			}
-			if err := s.Store.Unheard(ctx, d.PersonID, dropped); err != nil {
-				return err
-			}
-			if d.Items = keep; len(d.Items) == 0 {
-				if err := s.Store.Failed(ctx, d, store.NoLongerTrue, false, false, now); err != nil {
-					return err
-				}
-				continue
-			}
-		}
-		if d.Key != key {
-			if err := s.Store.Failed(ctx, d, "the device subscribed for another key and must subscribe again", false, true, now); err != nil {
+		if d.ChannelKind == "email" && *mailDown {
+			// The mail server could not be reached this pass: the rest
+			// wait, without using a try.
+			if err := s.Store.Postpone(ctx, d.ID, now.Add(RetryAfter)); err != nil {
 				return err
 			}
 			continue
@@ -221,23 +213,100 @@ func (s *Sender) deliver(ctx context.Context, shadow bool, now time.Time) error 
 				return err
 			}
 		}
-		outcome, reason := s.Push.send(ctx, d, token, now)
-		switch {
-		case outcome == webpush.Sent:
-			err = s.Store.Sent(ctx, d.ID, now)
-		case outcome == webpush.Gone:
-			err = s.Store.Failed(ctx, d, "the device no longer subscribes; it was removed", true, false, now)
-		case outcome == webpush.Retry && d.Attempts == 0:
-			err = s.Store.Retry(ctx, d.ID, reason, now.Add(RetryAfter))
+		switch d.ChannelKind {
+		case "webpush":
+			err = s.pushOne(ctx, d, token, now)
+		case "email":
+			var down bool
+			down, err = s.mailOne(ctx, d, token, now)
+			*mailDown = *mailDown || down
 		default:
-			err = s.Store.Failed(ctx, d, reason, false, true, now)
+			err = s.Store.Failed(ctx, d, "Allstill cannot send to a channel of kind "+d.ChannelKind, false, false, now, s.ways())
 		}
 		if err != nil {
 			return err
 		}
-		if outcome != webpush.Sent {
-			s.Log.Warn("pushing a message", "delivery", d.ID, "channel", d.ChannelID, "error", reason)
-		}
 	}
 	return nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// ways are the ways the sender can send now, for a delivery that falls back.
+func (s *Sender) ways() store.Ways {
+	return store.Ways{Key: s.key(), Push: s.Push != nil, Mail: s.Mail != nil}
+}
+
+// key is the public VAPID key devices must have subscribed for.
+func (s *Sender) key() string {
+	if s.Push == nil {
+		return ""
+	}
+	return s.Push.Key.PublicKey()
+}
+
+// checkAgain checks, before every attempt, what may still go (R10, R13,
+// R15): in shadow mode only tests; only to a channel that is still the
+// person's and confirmed; of an alert only what is still true for them; to
+// a device only when it subscribed for the current key. It records what it
+// stops, and says whether d may go.
+func (s *Sender) checkAgain(ctx context.Context, d *store.Pending, shadow bool, now time.Time) (bool, error) {
+	if d.Kind != "test" && shadow {
+		return false, s.Store.Shadowed(ctx, *d)
+	}
+	if d.ChannelID == "" {
+		return false, s.Store.Failed(ctx, *d, "the channel was removed", false, false, now, s.ways())
+	}
+	if d.ChannelPerson != d.PersonID || (d.Kind != "test" && !d.Confirmed) {
+		return false, s.Store.Failed(ctx, *d, "the channel changed hands or must be confirmed again", false, false, now, s.ways())
+	}
+	if d.Kind == "alert" {
+		keep, dropped, err := s.stillTrue(ctx, *d)
+		if err != nil {
+			return false, err
+		}
+		if err := s.Store.Unheard(ctx, d.PersonID, dropped); err != nil {
+			return false, err
+		}
+		if d.Items = keep; len(d.Items) == 0 {
+			return false, s.Store.Failed(ctx, *d, store.NoLongerTrue, false, false, now, s.ways())
+		}
+	}
+	if d.ChannelKind == "email" && d.Kind != "test" && d.ChannelFailed {
+		// The server refused the address since this was queued.
+		return false, s.Store.Failed(ctx, *d, "the address was refused; send it a test once it works again", false, false, now, s.ways())
+	}
+	if d.ChannelKind == "webpush" && d.Key != s.key() {
+		return false, s.Store.Failed(ctx, *d, "the device subscribed for another key and must subscribe again", false, true, now, s.ways())
+	}
+	return true, nil
+}
+
+// pushOne pushes one delivery and records how it went.
+func (s *Sender) pushOne(ctx context.Context, d store.Pending, token string, now time.Time) error {
+	if s.Push == nil {
+		return s.Store.Failed(ctx, d, "push is not set up on this server", false, false, now, s.ways())
+	}
+	outcome, reason := s.Push.send(ctx, d, token, now)
+	var err error
+	switch {
+	case outcome == webpush.Sent:
+		err = s.Store.Sent(ctx, d.ID, now)
+	case outcome == webpush.Gone:
+		err = s.Store.Failed(ctx, d, "the device no longer subscribes; it was removed", true, false, now, s.ways())
+	case outcome == webpush.Retry && d.Attempts == 0:
+		// Once more in a minute; a recovery of its down waits for it.
+		err = s.Store.Retry(ctx, d.ID, reason, now.Add(RetryAfter))
+	default:
+		err = s.Store.Failed(ctx, d, reason, false, true, now, s.ways())
+	}
+	if outcome != webpush.Sent {
+		s.Log.Warn("pushing a message", "delivery", d.ID, "channel", d.ChannelID, "error", reason)
+	}
+	return err
 }

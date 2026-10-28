@@ -47,9 +47,12 @@ The ping URLs and answers are those of Healthchecks, with one difference: hc-pin
 
 ## Alerts
 
-Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`. Email can be set up and tested ([below](#email)); alerts going by email, and switching them on, follow ([intent/alerts](../intent/alerts/spec.md)).
+Allstill does not send alerts yet. It runs in shadow mode: when a check goes down, it decides what it would tell whom, and when, and lists that under **Messages** in the dashboard. Compare that with the alerts you get elsewhere, from Healthchecks with `allstill compare healthchecks`. Switching them on follows ([intent/alerts](../intent/alerts/spec.md)).
 
-Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device* subscribes the browser you are in for push notifications; send it a test and open the notification to confirm it, and alerts can reach it. On an iPhone or iPad, add Allstill to the Home Screen first and open it from there. Test messages are sent even in shadow mode.
+Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device* subscribes the browser you are in for push notifications; send it a test and open the notification to confirm it, and alerts can reach it. On an iPhone or iPad, add Allstill to the Home Screen first and open it from there. Add an email address there too, once [email](#email) is set up, and open the link in its test message. Test messages are sent even in shadow mode.
+
+- An alert goes to every confirmed device, and by email when none takes it; the daily digest goes by email, or as a short push without one. An alert that reached nobody is decided again ten minutes later; a digest's news waits for the next digest. A message about a check coming back up waits until the message that it went down has gone out, so you never hear only the half of it.
+- A push service that took a message has not shown it: a phone that is off never makes the email follow. An address of your own as well is the surer way.
 
 - Push needs Allstill reached over https (`-base-url`): Apple refuses pushes from anything else.
 - Each time the dashboard is opened on a device, it renews that device's subscription. A device that shows *Must subscribe again* is put right by opening Allstill on it.
@@ -63,7 +66,7 @@ Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device*
 
 ## Email
 
-Allstill can send email through an SMTP server you already have: your mail provider's, a sending service, or a relay of your own. Email will be the fallback when no device takes an alert, and how digests arrive; set it up and test it now, and email addresses come under **Devices** next.
+Allstill sends email through an SMTP server you already have: your mail provider's, a sending service, or a relay of your own. It is the fallback when no device takes an alert, and how digests arrive. People add their addresses under **Devices**.
 
 | Setting | Example | |
 | --- | --- | --- |
@@ -75,7 +78,7 @@ Allstill can send email through an SMTP server you already have: your mail provi
 | `ALLSTILL_SMTP_FROM` | `Allstill <allstill@example.com>` | On a domain the server may send for. |
 | `ALLSTILL_SMTP_CA_FILE` | | Certificates to trust for a relay with its own, such as Proton Bridge. |
 
-Then check it, in the container: `docker exec allstill allstill admin test-email -to you@example.com`, or with the Linux package, whose settings only root may read: `sudo allstill admin test-email -env-file /etc/allstill/allstill.env -to you@example.com`. It says how far it got (connected, TLS, signed in, sender and recipient accepted), or what the server answered, and whether to change the settings or try again later. At start, `allstill serve` signs in once without sending and logs whether that worked.
+Then check it, in the container: `docker exec allstill allstill admin test-email -to you@example.com`, or with the Linux package, whose settings only root may read: `sudo allstill admin test-email -env-file /etc/allstill/allstill.env -to you@example.com`. It says how far it got (connected, TLS, signed in, sender and recipient accepted), or what the server answered, and whether to change the settings or try again later. At start, `allstill serve` signs in once without sending and logs whether that worked. When email fails because of the settings, administrators see it on the overview; an address the server refuses shows on its owner's.
 
 What to know:
 

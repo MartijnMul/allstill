@@ -211,7 +211,12 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	sender := &alert.Sender{
 		Store: st, Log: log, Now: time.Now, Shadow: *shadow, Wake: wake,
 		Push: &alert.Push{Key: key, Base: base.String(), Client: outbound.Client(30 * time.Second)},
+		Base: base.String(),
 	}
+	if mail != nil {
+		sender.Mail = mail
+	}
+	dashboard.MailOn, dashboard.MailProblem = mail != nil, sender.MailProblem
 	dashboard.Behind = sender.Behind
 	errs := make(chan error, 3)
 	go func() { errs <- sched.Run(ctx) }()

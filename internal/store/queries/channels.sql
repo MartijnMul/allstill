@@ -32,10 +32,23 @@ DELETE FROM channels WHERE id = ? AND person_id = ?;
 -- name: DeleteChannelByID :exec
 DELETE FROM channels WHERE id = ?;
 
--- Only while the channel still holds the subscription the test went to.
+-- Only while the channel still holds the subscription or address the test
+-- went to.
 -- name: SetChannelConfirm :exec
 UPDATE channels SET config = json_set(config, '$.confirm', sqlc.arg(confirm))
-WHERE id = sqlc.arg(id) AND person_id = sqlc.arg(person_id) AND json_extract(config, '$.auth') = sqlc.arg(auth);
+WHERE id = sqlc.arg(id) AND person_id = sqlc.arg(person_id)
+  AND COALESCE(json_extract(config, '$.auth'), json_extract(config, '$.address')) = sqlc.arg(holds);
+
+-- name: EmailChannelsOfPerson :many
+SELECT * FROM channels WHERE person_id = ? AND kind = 'email' ORDER BY created_at, id;
+
+-- name: LastTestOfChannel :one
+SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM deliveries WHERE channel_id = ? AND kind = 'test';
+
+-- Tests are counted per person, so removing and adding a channel does not
+-- make more.
+-- name: TestsOfPersonSince :one
+SELECT COUNT(*) FROM deliveries WHERE person_id = ? AND kind = 'test' AND created_at >= ?;
 
 -- name: ConfirmChannel :exec
 UPDATE channels SET verified_at = ?, failed_at = NULL WHERE id = ?;
@@ -44,22 +57,29 @@ UPDATE channels SET verified_at = ?, failed_at = NULL WHERE id = ?;
 UPDATE channels SET failed_at = ? WHERE id = ?;
 
 -- name: CreatePendingDelivery :exec
-INSERT INTO deliveries (id, workspace_id, person_id, channel_id, kind, items, state, created_at, next_at)
-VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?);
+INSERT INTO deliveries (id, workspace_id, person_id, channel_id, channel_kind, kind, items, state, created_at, next_at, message_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?);
 
 -- Deliveries whose time to be sent has come, with their channel: whose it
--- is now, and whether it is confirmed.
+-- is now, and whether it is confirmed. A delivery whose channel was removed
+-- comes with none, to fail as any other and fall back.
 -- name: PendingDeliveries :many
-SELECT d.id, d.person_id, d.kind, d.items, d.attempts, d.created_at, c.id AS channel_id, c.config,
-       CAST(COALESCE(c.person_id, '') AS TEXT) AS channel_person, c.verified_at
-FROM deliveries d JOIN channels c ON c.id = d.channel_id
+SELECT d.id, d.workspace_id, d.person_id, d.kind, d.items, d.attempts, d.created_at,
+       CAST(COALESCE(d.message_id, d.id) AS TEXT) AS message_id,
+       CAST(COALESCE(d.channel_id, '') AS TEXT) AS channel_id,
+       CAST(COALESCE(d.channel_kind, c.kind, '') AS TEXT) AS channel_kind,
+       CAST(COALESCE(c.config, '{}') AS TEXT) AS config,
+       CAST(COALESCE(c.person_id, '') AS TEXT) AS channel_person, c.verified_at, c.failed_at
+FROM deliveries d LEFT JOIN channels c ON c.id = d.channel_id
 WHERE d.state = 'pending' AND d.next_at <= ?
 ORDER BY d.next_at LIMIT ?;
 
--- A pending delivery whose channel was removed cannot be sent.
--- name: FailOrphanDeliveries :exec
-UPDATE deliveries SET state = 'failed', next_at = NULL, last_error = 'the channel was removed'
-WHERE state = 'pending' AND channel_id IS NULL;
+-- The incidents whose down is still on its way to the person: a recovery
+-- waits for it (R6).
+-- name: PendingDowns :many
+SELECT DISTINCT CAST(json_extract(j.value, '$.incident_id') AS TEXT) AS incident_id
+FROM deliveries d, json_each(d.items) j
+WHERE d.person_id = ? AND d.state = 'pending' AND json_extract(j.value, '$.what') = 'down';
 
 -- The incidents of a delivery that are still open and that the person still
 -- gets alerts for, as DueRecipients works it out.
@@ -77,7 +97,7 @@ WHERE i.id IN (sqlc.slice(ids)) AND i.state <> 'resolved' AND p.disabled_at IS N
 -- A down that went out to none of the person's devices was not heard: a
 -- recovery must not follow it.
 -- name: Unheard :exec
-UPDATE recipients SET told = 'nothing', told_at = NULL, told_how = NULL
+UPDATE recipients SET told = 'nothing', told_at = NULL, told_how = NULL, due_at = sqlc.arg(due_at)
 WHERE recipients.person_id = sqlc.arg(person_id) AND recipients.incident_id IN (sqlc.slice(ids)) AND recipients.told = 'down'
   AND NOT EXISTS (
       SELECT 1 FROM deliveries d, json_each(d.items) j
@@ -98,6 +118,16 @@ WHERE recipients.person_id = sqlc.arg(person_id) AND recipients.incident_id IN (
 -- name: FinishDelivery :exec
 UPDATE deliveries SET state = ?, attempts = attempts + 1, last_error = ?, sent_at = ?, next_at = NULL WHERE id = ?;
 
+-- The deliveries of one message: whether one is still on its way or went
+-- out, and which kinds of channel it was tried on.
+-- name: MessageDeliveries :many
+SELECT state, CAST(COALESCE(channel_kind, '') AS TEXT) AS channel_kind FROM deliveries WHERE message_id = ?;
+
+-- An email that cannot go this pass, as the mail server is out of reach,
+-- waits without using a try.
+-- name: PostponeDelivery :exec
+UPDATE deliveries SET next_at = ? WHERE id = ?;
+
 -- name: RetryDelivery :exec
 UPDATE deliveries SET attempts = attempts + 1, last_error = ?, next_at = ? WHERE id = ?;
 
@@ -110,7 +140,9 @@ SELECT CAST(COALESCE(MIN(t), 0) AS INTEGER) FROM (
     SELECT MIN(next_at) FROM deliveries WHERE state = 'pending'
 );
 
--- A message left out because nothing in it was still true did not fail.
+-- A message left out because nothing in it was still true did not fail, nor
+-- did one that another delivery of it brought.
 -- name: FailedSince :one
-SELECT COUNT(*) FROM deliveries
-WHERE person_id = ? AND state = 'failed' AND created_at >= ? AND COALESCE(last_error, '') <> sqlc.arg(not_failed);
+SELECT COUNT(*) FROM deliveries d
+WHERE d.person_id = ? AND d.state = 'failed' AND d.created_at >= ? AND COALESCE(d.last_error, '') <> sqlc.arg(not_failed)
+  AND NOT EXISTS (SELECT 1 FROM deliveries s WHERE s.message_id = d.message_id AND s.state = 'sent');

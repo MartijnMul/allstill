@@ -159,7 +159,9 @@ const (
 	// Retry: it may work later, such as when the server could not be
 	// reached or answered with a 4xx code.
 	Retry
-	// Rejected: the server refused this recipient for good.
+	// Rejected: the server refused this recipient's mailbox for good: it
+	// does not exist, or is disabled or full for good (enhanced codes 5.1.x
+	// and 5.2.x).
 	Rejected
 	// Failed: it will not work as Allstill is set up, such as a wrong
 	// password or a From address the server will not send for.
@@ -384,7 +386,7 @@ func classify(err error, recipient bool) (Outcome, error) {
 	switch {
 	case errors.As(err, &te) && te.Code >= 400 && te.Code < 500:
 		return Retry, err
-	case errors.As(err, &te) && recipient:
+	case errors.As(err, &te) && recipient && mailbox(te.Msg):
 		return Rejected, err
 	case errors.As(err, &te):
 		return Failed, err
@@ -392,6 +394,21 @@ func classify(err error, recipient bool) (Outcome, error) {
 		return Failed, err
 	}
 	return Retry, err
+}
+
+// mailbox says whether a refusal is about the recipient's mailbox. Other
+// refusals at the recipient, such as "Relay access denied" or a sender the
+// login may not use, come from the installation's settings, as servers like
+// Postfix give every refusal there.
+//
+// RFC 3463 gives 5.1.7 and 5.1.8 to the sender, and Postfix reports sender
+// refusals at the recipient too ("Sender address rejected"): those are the
+// settings' From address, not the recipient's mailbox.
+func mailbox(msg string) bool {
+	if strings.HasPrefix(msg, "5.1.7") || strings.HasPrefix(msg, "5.1.8") || strings.Contains(strings.ToLower(msg), "sender address") {
+		return false
+	}
+	return strings.HasPrefix(msg, "5.1.") || strings.HasPrefix(msg, "5.2.")
 }
 
 // compose writes the message: plain text in UTF-8, marked as sent by a

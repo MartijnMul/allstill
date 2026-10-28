@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/store"
 	"github.com/MartijnMul/allstill/internal/webpush"
 )
@@ -79,7 +81,7 @@ func TestADeviceIsAddedTestedAndConfirmed(t *testing.T) {
 	}
 	// The sender puts a token in the test message; opening it confirms.
 	auth, _ := base64.RawURLEncoding.DecodeString(sub["keys"].(map[string]string)["auth"])
-	if err := f.st.SetConfirm(ctx, store.Pending{ChannelID: added.ID, PersonID: f.ada, Sub: webpush.Subscription{Auth: auth}}, "the-token"); err != nil {
+	if err := f.st.SetConfirm(ctx, store.Pending{ChannelID: added.ID, ChannelKind: "webpush", PersonID: f.ada, Sub: webpush.Subscription{Auth: auth}}, "the-token"); err != nil {
 		t.Fatal(err)
 	}
 	w := b.do("GET", "/channels/"+added.ID+"/confirm?token=the-token", nil)
@@ -89,9 +91,8 @@ func TestADeviceIsAddedTestedAndConfirmed(t *testing.T) {
 	if page := string(b.ok("GET", "/channels?confirmed", nil)); !strings.Contains(page, "Confirmed: alerts can reach") || !strings.Contains(page, "Confirmed ") {
 		t.Fatalf("devices page:\n%s", page)
 	}
-	targets, _ := f.st.PushTargets(ctx, f.ada, key.PublicKey())
-	if len(targets) != 1 || targets[0].Sub.Endpoint != endpoint {
-		t.Fatalf("targets %+v", targets)
+	if push, _, _ := f.st.Targets(ctx, f.ada, key.PublicKey()); len(push) != 1 || push[0] != added.ID {
+		t.Fatalf("targets %+v", push)
 	}
 
 	// Someone else cannot test, confirm or remove it.
@@ -227,5 +228,72 @@ func TestAlertProblemsNeedAttention(t *testing.T) {
 	}
 	if page := string(bob.ok("GET", "/", nil)); !strings.Contains(page, "Nobody would be told about Lab") {
 		t.Errorf("Bob's overview:\n%s", page)
+	}
+}
+
+func TestAnEmailAddressIsAddedAndTested(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	form := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", site+path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, c := range b.cookies {
+			req.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		f.mux.ServeHTTP(w, req)
+		return w
+	}
+
+	// Without email on the server, the page says so and nothing is added.
+	if page := string(b.ok("GET", "/channels", nil)); !strings.Contains(page, "cannot send email yet") {
+		t.Fatalf("devices page:\n%s", page)
+	}
+	if w := form("/channels/email", "address=ada%40example.com"); w.Code != http.StatusConflict {
+		t.Fatalf("adding without email: %d", w.Code)
+	}
+
+	f.srv.MailOn = true
+	page := string(b.ok("GET", "/channels", nil))
+	if !strings.Contains(page, `value="ada@example.com"`) {
+		t.Fatalf("the person's address is not filled in:\n%s", page)
+	}
+	if w := form("/channels/email", "address=not+an+address"); w.Code != http.StatusBadRequest {
+		t.Errorf("a bad address: %d", w.Code)
+	}
+	if w := form("/channels/email", "address=ada%40example.com"); w.Code != http.StatusSeeOther {
+		t.Fatalf("adding: %d %s", w.Code, w.Body)
+	}
+	cs, _ := f.st.Channels(ctx, f.ada)
+	if len(cs) != 1 || cs[0].Kind != "email" || cs[0].Address != "ada@example.com" {
+		t.Fatalf("channels %+v", cs)
+	}
+	if page := string(b.ok("GET", "/channels", nil)); !strings.Contains(page, "Email to ada@example.com") || !strings.Contains(page, "Not confirmed") {
+		t.Fatalf("devices page:\n%s", page)
+	}
+	// Adding it sent a test; another within a minute is refused, kindly.
+	if w := b.do("POST", "/channels/"+cs[0].ID+"/test", nil); w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), "less than a minute ago") {
+		t.Errorf("a second test at once: %d", w.Code)
+	}
+
+	// The overview: an address while email is off, and, for an
+	// administrator, mail settings that fail.
+	f.srv.MailOn = false
+	if page := string(b.ok("GET", "/", nil)); !strings.Contains(page, "Email is not set up on this server") {
+		t.Errorf("overview without the email card:\n%s", page)
+	}
+	f.srv.MailOn = true
+	f.srv.MailProblem = func() *alert.MailProblem {
+		return &alert.MailProblem{At: time.Now(), Error: "535 authentication failed"}
+	}
+	if page := string(b.ok("GET", "/", nil)); !strings.Contains(page, "Email cannot be sent as the server is set up") || !strings.Contains(page, "535 authentication failed") {
+		t.Errorf("overview without the settings card:\n%s", page)
+	}
+	bob := f.browser(t)
+	f.register(t, bob, f.bob)
+	if page := string(bob.ok("GET", "/", nil)); strings.Contains(page, "535 authentication failed") {
+		t.Error("someone who is no administrator sees the server's mail problem")
 	}
 }

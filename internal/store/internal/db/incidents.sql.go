@@ -82,8 +82,8 @@ func (q *Queries) CloseIncidentChecks(ctx context.Context, arg CloseIncidentChec
 }
 
 const createDelivery = `-- name: CreateDelivery :exec
-INSERT INTO deliveries (id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO deliveries (id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at, message_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateDeliveryParams struct {
@@ -98,6 +98,7 @@ type CreateDeliveryParams struct {
 	LastError   sql.NullString
 	CreatedAt   int64
 	SentAt      sql.NullInt64
+	MessageID   sql.NullString
 }
 
 func (q *Queries) CreateDelivery(ctx context.Context, arg CreateDeliveryParams) error {
@@ -113,6 +114,7 @@ func (q *Queries) CreateDelivery(ctx context.Context, arg CreateDeliveryParams) 
 		arg.LastError,
 		arg.CreatedAt,
 		arg.SentAt,
+		arg.MessageID,
 	)
 	return err
 }
@@ -146,7 +148,7 @@ func (q *Queries) CreateIncident(ctx context.Context, arg CreateIncidentParams) 
 }
 
 const deliveriesOfPerson = `-- name: DeliveriesOfPerson :many
-SELECT id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at, next_at FROM deliveries WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
+SELECT id, workspace_id, person_id, channel_id, kind, items, state, attempts, last_error, created_at, sent_at, next_at, message_id, channel_kind FROM deliveries WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
 `
 
 type DeliveriesOfPersonParams struct {
@@ -176,6 +178,8 @@ func (q *Queries) DeliveriesOfPerson(ctx context.Context, arg DeliveriesOfPerson
 			&i.CreatedAt,
 			&i.SentAt,
 			&i.NextAt,
+			&i.MessageID,
+			&i.ChannelKind,
 		); err != nil {
 			return nil, err
 		}

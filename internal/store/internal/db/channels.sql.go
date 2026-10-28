@@ -165,8 +165,8 @@ func (q *Queries) CreateChannel(ctx context.Context, arg CreateChannelParams) er
 }
 
 const createPendingDelivery = `-- name: CreatePendingDelivery :exec
-INSERT INTO deliveries (id, workspace_id, person_id, channel_id, kind, items, state, created_at, next_at)
-VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+INSERT INTO deliveries (id, workspace_id, person_id, channel_id, channel_kind, kind, items, state, created_at, next_at, message_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
 `
 
 type CreatePendingDeliveryParams struct {
@@ -174,10 +174,12 @@ type CreatePendingDeliveryParams struct {
 	WorkspaceID string
 	PersonID    string
 	ChannelID   sql.NullString
+	ChannelKind sql.NullString
 	Kind        string
 	Items       string
 	CreatedAt   int64
 	NextAt      sql.NullInt64
+	MessageID   sql.NullString
 }
 
 func (q *Queries) CreatePendingDelivery(ctx context.Context, arg CreatePendingDeliveryParams) error {
@@ -186,10 +188,12 @@ func (q *Queries) CreatePendingDelivery(ctx context.Context, arg CreatePendingDe
 		arg.WorkspaceID,
 		arg.PersonID,
 		arg.ChannelID,
+		arg.ChannelKind,
 		arg.Kind,
 		arg.Items,
 		arg.CreatedAt,
 		arg.NextAt,
+		arg.MessageID,
 	)
 	return err
 }
@@ -243,20 +247,47 @@ func (q *Queries) DeleteChannelByID(ctx context.Context, id string) error {
 	return err
 }
 
-const failOrphanDeliveries = `-- name: FailOrphanDeliveries :exec
-UPDATE deliveries SET state = 'failed', next_at = NULL, last_error = 'the channel was removed'
-WHERE state = 'pending' AND channel_id IS NULL
+const emailChannelsOfPerson = `-- name: EmailChannelsOfPerson :many
+SELECT id, workspace_id, person_id, kind, name, config, verified_at, failed_at, created_at FROM channels WHERE person_id = ? AND kind = 'email' ORDER BY created_at, id
 `
 
-// A pending delivery whose channel was removed cannot be sent.
-func (q *Queries) FailOrphanDeliveries(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, failOrphanDeliveries)
-	return err
+func (q *Queries) EmailChannelsOfPerson(ctx context.Context, personID sql.NullString) ([]Channel, error) {
+	rows, err := q.db.QueryContext(ctx, emailChannelsOfPerson, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Channel{}
+	for rows.Next() {
+		var i Channel
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.PersonID,
+			&i.Kind,
+			&i.Name,
+			&i.Config,
+			&i.VerifiedAt,
+			&i.FailedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const failedSince = `-- name: FailedSince :one
-SELECT COUNT(*) FROM deliveries
-WHERE person_id = ? AND state = 'failed' AND created_at >= ? AND COALESCE(last_error, '') <> ?3
+SELECT COUNT(*) FROM deliveries d
+WHERE d.person_id = ? AND d.state = 'failed' AND d.created_at >= ? AND COALESCE(d.last_error, '') <> ?3
+  AND NOT EXISTS (SELECT 1 FROM deliveries s WHERE s.message_id = d.message_id AND s.state = 'sent')
 `
 
 type FailedSinceParams struct {
@@ -265,7 +296,8 @@ type FailedSinceParams struct {
 	NotFailed sql.NullString
 }
 
-// A message left out because nothing in it was still true did not fail.
+// A message left out because nothing in it was still true did not fail, nor
+// did one that another delivery of it brought.
 func (q *Queries) FailedSince(ctx context.Context, arg FailedSinceParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, failedSince, arg.PersonID, arg.CreatedAt, arg.NotFailed)
 	var count int64
@@ -327,6 +359,51 @@ func (q *Queries) HeardInShadow(ctx context.Context, arg HeardInShadowParams) er
 	return err
 }
 
+const lastTestOfChannel = `-- name: LastTestOfChannel :one
+SELECT CAST(COALESCE(MAX(created_at), 0) AS INTEGER) FROM deliveries WHERE channel_id = ? AND kind = 'test'
+`
+
+func (q *Queries) LastTestOfChannel(ctx context.Context, channelID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lastTestOfChannel, channelID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const messageDeliveries = `-- name: MessageDeliveries :many
+SELECT state, CAST(COALESCE(channel_kind, '') AS TEXT) AS channel_kind FROM deliveries WHERE message_id = ?
+`
+
+type MessageDeliveriesRow struct {
+	State       string
+	ChannelKind string
+}
+
+// The deliveries of one message: whether one is still on its way or went
+// out, and which kinds of channel it was tried on.
+func (q *Queries) MessageDeliveries(ctx context.Context, messageID sql.NullString) ([]MessageDeliveriesRow, error) {
+	rows, err := q.db.QueryContext(ctx, messageDeliveries, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MessageDeliveriesRow{}
+	for rows.Next() {
+		var i MessageDeliveriesRow
+		if err := rows.Scan(&i.State, &i.ChannelKind); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const oldestDue = `-- name: OldestDue :one
 SELECT CAST(COALESCE(MIN(t), 0) AS INTEGER) FROM (
     SELECT MIN(due_at) AS t FROM recipients WHERE due_at IS NOT NULL
@@ -345,9 +422,13 @@ func (q *Queries) OldestDue(ctx context.Context) (int64, error) {
 }
 
 const pendingDeliveries = `-- name: PendingDeliveries :many
-SELECT d.id, d.person_id, d.kind, d.items, d.attempts, d.created_at, c.id AS channel_id, c.config,
-       CAST(COALESCE(c.person_id, '') AS TEXT) AS channel_person, c.verified_at
-FROM deliveries d JOIN channels c ON c.id = d.channel_id
+SELECT d.id, d.workspace_id, d.person_id, d.kind, d.items, d.attempts, d.created_at,
+       CAST(COALESCE(d.message_id, d.id) AS TEXT) AS message_id,
+       CAST(COALESCE(d.channel_id, '') AS TEXT) AS channel_id,
+       CAST(COALESCE(d.channel_kind, c.kind, '') AS TEXT) AS channel_kind,
+       CAST(COALESCE(c.config, '{}') AS TEXT) AS config,
+       CAST(COALESCE(c.person_id, '') AS TEXT) AS channel_person, c.verified_at, c.failed_at
+FROM deliveries d LEFT JOIN channels c ON c.id = d.channel_id
 WHERE d.state = 'pending' AND d.next_at <= ?
 ORDER BY d.next_at LIMIT ?
 `
@@ -359,19 +440,24 @@ type PendingDeliveriesParams struct {
 
 type PendingDeliveriesRow struct {
 	ID            string
+	WorkspaceID   string
 	PersonID      string
 	Kind          string
 	Items         string
 	Attempts      int64
 	CreatedAt     int64
+	MessageID     string
 	ChannelID     string
+	ChannelKind   string
 	Config        string
 	ChannelPerson string
 	VerifiedAt    sql.NullInt64
+	FailedAt      sql.NullInt64
 }
 
 // Deliveries whose time to be sent has come, with their channel: whose it
-// is now, and whether it is confirmed.
+// is now, and whether it is confirmed. A delivery whose channel was removed
+// comes with none, to fail as any other and fall back.
 func (q *Queries) PendingDeliveries(ctx context.Context, arg PendingDeliveriesParams) ([]PendingDeliveriesRow, error) {
 	rows, err := q.db.QueryContext(ctx, pendingDeliveries, arg.NextAt, arg.Limit)
 	if err != nil {
@@ -383,15 +469,19 @@ func (q *Queries) PendingDeliveries(ctx context.Context, arg PendingDeliveriesPa
 		var i PendingDeliveriesRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.WorkspaceID,
 			&i.PersonID,
 			&i.Kind,
 			&i.Items,
 			&i.Attempts,
 			&i.CreatedAt,
+			&i.MessageID,
 			&i.ChannelID,
+			&i.ChannelKind,
 			&i.Config,
 			&i.ChannelPerson,
 			&i.VerifiedAt,
+			&i.FailedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -404,6 +494,53 @@ func (q *Queries) PendingDeliveries(ctx context.Context, arg PendingDeliveriesPa
 		return nil, err
 	}
 	return items, nil
+}
+
+const pendingDowns = `-- name: PendingDowns :many
+SELECT DISTINCT CAST(json_extract(j.value, '$.incident_id') AS TEXT) AS incident_id
+FROM deliveries d, json_each(d.items) j
+WHERE d.person_id = ? AND d.state = 'pending' AND json_extract(j.value, '$.what') = 'down'
+`
+
+// The incidents whose down is still on its way to the person: a recovery
+// waits for it (R6).
+func (q *Queries) PendingDowns(ctx context.Context, personID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, pendingDowns, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var incident_id string
+		if err := rows.Scan(&incident_id); err != nil {
+			return nil, err
+		}
+		items = append(items, incident_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const postponeDelivery = `-- name: PostponeDelivery :exec
+UPDATE deliveries SET next_at = ? WHERE id = ?
+`
+
+type PostponeDeliveryParams struct {
+	NextAt sql.NullInt64
+	ID     string
+}
+
+// An email that cannot go this pass, as the mail server is out of reach,
+// waits without using a try.
+func (q *Queries) PostponeDelivery(ctx context.Context, arg PostponeDeliveryParams) error {
+	_, err := q.db.ExecContext(ctx, postponeDelivery, arg.NextAt, arg.ID)
+	return err
 }
 
 const replaceChannel = `-- name: ReplaceChannel :exec
@@ -446,23 +583,25 @@ func (q *Queries) RetryDelivery(ctx context.Context, arg RetryDeliveryParams) er
 
 const setChannelConfirm = `-- name: SetChannelConfirm :exec
 UPDATE channels SET config = json_set(config, '$.confirm', ?1)
-WHERE id = ?2 AND person_id = ?3 AND json_extract(config, '$.auth') = ?4
+WHERE id = ?2 AND person_id = ?3
+  AND COALESCE(json_extract(config, '$.auth'), json_extract(config, '$.address')) = ?4
 `
 
 type SetChannelConfirmParams struct {
 	Confirm  interface{}
 	ID       string
 	PersonID sql.NullString
-	Auth     string
+	Holds    string
 }
 
-// Only while the channel still holds the subscription the test went to.
+// Only while the channel still holds the subscription or address the test
+// went to.
 func (q *Queries) SetChannelConfirm(ctx context.Context, arg SetChannelConfirmParams) error {
 	_, err := q.db.ExecContext(ctx, setChannelConfirm,
 		arg.Confirm,
 		arg.ID,
 		arg.PersonID,
-		arg.Auth,
+		arg.Holds,
 	)
 	return err
 }
@@ -534,9 +673,27 @@ func (q *Queries) StillFollowed(ctx context.Context, arg StillFollowedParams) ([
 	return items, nil
 }
 
+const testsOfPersonSince = `-- name: TestsOfPersonSince :one
+SELECT COUNT(*) FROM deliveries WHERE person_id = ? AND kind = 'test' AND created_at >= ?
+`
+
+type TestsOfPersonSinceParams struct {
+	PersonID  string
+	CreatedAt int64
+}
+
+// Tests are counted per person, so removing and adding a channel does not
+// make more.
+func (q *Queries) TestsOfPersonSince(ctx context.Context, arg TestsOfPersonSinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, testsOfPersonSince, arg.PersonID, arg.CreatedAt)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const unheard = `-- name: Unheard :exec
-UPDATE recipients SET told = 'nothing', told_at = NULL, told_how = NULL
-WHERE recipients.person_id = ?1 AND recipients.incident_id IN (/*SLICE:ids*/?) AND recipients.told = 'down'
+UPDATE recipients SET told = 'nothing', told_at = NULL, told_how = NULL, due_at = ?1
+WHERE recipients.person_id = ?2 AND recipients.incident_id IN (/*SLICE:ids*/?) AND recipients.told = 'down'
   AND NOT EXISTS (
       SELECT 1 FROM deliveries d, json_each(d.items) j
       WHERE d.person_id = recipients.person_id AND d.state = 'sent' AND d.kind IN ('alert', 'digest')
@@ -544,6 +701,7 @@ WHERE recipients.person_id = ?1 AND recipients.incident_id IN (/*SLICE:ids*/?) A
 `
 
 type UnheardParams struct {
+	DueAt    sql.NullInt64
 	PersonID string
 	Ids      []string
 }
@@ -553,6 +711,7 @@ type UnheardParams struct {
 func (q *Queries) Unheard(ctx context.Context, arg UnheardParams) error {
 	query := unheard
 	var queryParams []interface{}
+	queryParams = append(queryParams, arg.DueAt)
 	queryParams = append(queryParams, arg.PersonID)
 	if len(arg.Ids) > 0 {
 		for _, v := range arg.Ids {

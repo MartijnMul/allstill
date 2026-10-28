@@ -295,6 +295,27 @@ func TestWhatFailuresMean(t *testing.T) {
 			t.Errorf("%v %v", out, err)
 		}
 	})
+	t.Run("a refusal at the recipient that comes from the settings", func(t *testing.T) {
+		s := newServer(t, &server{starttls: true, rcpt: "554 5.7.1 <ada@example.com>: Relay access denied"})
+		c := s.config()
+		c.Check()
+		if out, err := c.Send(t.Context(), msg, time.Now()); out != Failed || err == nil {
+			t.Errorf("%v %v", out, err)
+		}
+	})
+	t.Run("a sender refused at the recipient", func(t *testing.T) {
+		for _, answer := range []string{
+			"550 5.1.8 <allstill@example.com>: Sender address rejected: Domain not found",
+			"550 5.1.0 <allstill@example.com>: Sender address rejected: User unknown",
+		} {
+			s := newServer(t, &server{starttls: true, rcpt: answer})
+			c := s.config()
+			c.Check()
+			if out, _ := c.Send(t.Context(), msg, time.Now()); out != Failed {
+				t.Errorf("%q: %v", answer, out)
+			}
+		}
+	})
 	t.Run("a recipient refused for now", func(t *testing.T) {
 		s := newServer(t, &server{starttls: true, rcpt: "451 4.7.1 try again later"})
 		c := s.config()
