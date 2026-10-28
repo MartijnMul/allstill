@@ -34,19 +34,19 @@ Allstill's logo is a line a machine prints when it starts: `[  OK  ] allstill`. 
 
 The line shows the worst state that needs someone, and `OK` only when Allstill knows: green is proven green. `FAILED` is the boot line's own word, so the text after it names what happened: `[FAILED] shop.example.com is down`, `[FAILED] nightly-backup did not start`.
 
-This is meant for the menu bar item of the macOS app, the top of the dashboard, the subject of an alert and the first line of the morning digest. None of these exists in this form yet; the dashboard still uses its earlier mark. Before it is built, the mapping has to be played through the states the API knows: `new`, `off_hours` and `maintenance` are not in the table, nor what one unknown or paused check does to the line. Places that show the logo and not the state, such as the website and this page, always show `OK`.
+This is meant for the menu bar item of the macOS app, the top of the dashboard, the subject of an alert and the first line of the morning digest. None of these shows the live line yet: the dashboard's header carries the line with `OK` fixed. Before it is built, the mapping has to be played through the states the API knows: `new`, `off_hours` and `maintenance` are not in the table, nor what one unknown or paused check does to the line. Places that show the logo and not the state, such as the website and this page, always show `OK`.
 
-Drawing the line live means setting it in JetBrains Mono in the app and the dashboard. Shipping the font with Allstill is a new dependency under a third licence (the SIL Open Font License), so it needs its own decision record first; until then the system monospace stands in.
+Drawing the line live means setting it in JetBrains Mono in the app and the dashboard. Shipping the font with Allstill is a new dependency under a third licence (the SIL Open Font License), so it needs its own decision record first. Until then, a live line would have to use the system monospace; the fixed line in the dashboard is drawn as outlines and needs no font.
 
 ## App icon
 
-[`app-icon.svg`](app-icon.svg), on Apple's 1024 grid: an 824 square with rounded corners and a 100 margin, near-black (`#0f1210`) in light and dark mode alike, like a terminal, with the mark centred at about three fifths of its width, the brackets in `#7e847f` and `OK` in `#7fd197`. The square and the mark are separate parts (`#shape` and `#mark`), so they can become the layers of the app's icon when the macOS app is built. The mark reads down to 64 px; at 32 px and below it is a texture, not text.
+[`app-icon.svg`](app-icon.svg), on Apple's 1024 grid: an 824 square with rounded corners and a 100 margin, near-black (`#0f1210`) in light and dark mode alike, like a terminal, with the mark centred at about three fifths of its width, the brackets in `#7e847f` and `OK` in `#7fd197`. The square and the mark are separate parts (`#shape` and `#mark`), so they can become the layers of the app's icon when the macOS app is built. The mark reads down to 64 px; at 32 px and below it is a texture, not text. The dashboard's favicon, web app icon and notification icon, [`icon.svg`](../../internal/web/static/icon.svg), is the same drawing cropped to its square.
 
 ## Colour
 
 Allstill is ink on a calm ground. Its only colours are the state colours, and in the logo the word in the brackets carries one: green is "all ok", not a brand colour, so a red `FAILED` in the same place means something.
 
-The tokens live in [`internal/web/static/app.css`](../../internal/web/static/app.css); where this page and that file disagree, the file wins. The logo's own greys and the dark ground are set in the SVG files.
+The tokens live in [`internal/web/static/app.css`](../../internal/web/static/app.css); where this page and that file disagree, the file wins. The line's bracket grey and green are `--logo-bracket` and `--logo-ok` there; the app icon's dark ground is set in its SVG.
 
 | Role | Light | Dark | Use |
 |---|---|---|---|
@@ -57,7 +57,7 @@ The tokens live in [`internal/web/static/app.css`](../../internal/web/static/app
 | Muted | `#5e676c` | `#9aa29f` | Labels, timestamps |
 | Line | `#e3e6e3` | `#2d3133` | Borders and rules |
 
-Each state has a colour and a shape in the product, so it never depends on colour alone; in the logo the word itself says it. The line is text, so its colours reach a contrast of 4.5:1 on its ground: darker variants on light, lighter on dark.
+Each state has a colour and a shape in the product, so it never depends on colour alone; in the logo the word itself says it. The line is text, so its colours reach a contrast of 4.5:1 on the page ground: darker variants on light, lighter on dark. On a dark panel the grey brackets come just under that, which a logo may.
 
 | State | In the product (light / dark) | Shape in lists | In the line (light / dark) | Word |
 |---|---|---|---|---|

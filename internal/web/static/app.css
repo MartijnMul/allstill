@@ -28,6 +28,8 @@
   --quiet: #8c959b;
   --quiet-bar: #dadfdb;
   --paused: #6a7894;
+  --logo-bracket: #646c71;
+  --logo-ok: #187a4f;
   --code-ground: #16191b;
   --code-ink: #e8ece9;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -61,6 +63,8 @@
     --quiet: #7d8689;
     --quiet-bar: #3a3f41;
     --paused: #8f9cb8;
+    --logo-bracket: #7e847f;
+    --logo-ok: #7fd197;
     --code-ground: #0b0c0d;
   }
 }
@@ -76,8 +80,12 @@ code, pre, .mono { font-family: var(--mono); font-size: 12px; }
 
 /* Header */
 .top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; text-decoration: none; }
-.brand svg { color: var(--ink); }
+/* The logo is the boot line, drawn as outlines (docs/brand). */
+.brand { display: flex; align-items: center; text-decoration: none; }
+.logo { display: block; width: auto; }
+.logo-b { fill: var(--logo-bracket); }
+.logo-ok { fill: var(--logo-ok); }
+.logo-w { fill: var(--ink); }
 .search { flex: 1 1 240px; max-width: 420px; }
 .search input { width: 100%; height: 36px; padding: 0 12px; border: 0; border-radius: 8px; background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); font: inherit; font-size: 13px; }
 .spacer { flex-grow: 1; }
