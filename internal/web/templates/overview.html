@@ -40,7 +40,7 @@
             <td><span class="state {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span></td>
             <td><a class="name" href="{{.Href}}"><span>{{.Name}}</span><span>{{.Sub}}</span></a></td>
             <td class="mono nowrap">{{.Schedule}}</td>
-            <td><span class="bars"><span class="sr">{{.BarsLabel}}</span>{{range .Bars}}<i class="{{.Class}}"{{with .Title}} title="{{.}}"{{end}} aria-hidden="true"></i>{{end}}</span></td>
+            <td><span class="bars"><span class="sr">{{.BarsLabel}}</span>{{range .Bars}}<i class="{{.Class}}" data-tip="{{.Tip}}" aria-hidden="true"></i>{{end}}</span></td>
             <td class="nowrap">{{.Last}}</td>
             <td class="mono nowrap">{{.Value}}</td>
             <td class="nowrap">{{.Next}}</td>

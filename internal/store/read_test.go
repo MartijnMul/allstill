@@ -85,7 +85,7 @@ func TestDownsGoBackAsFarAsTheRuns(t *testing.T) {
 	f.s.SettleIncidents(ctx, at(25), 10*time.Minute)
 	f.s.Ping(ctx, ping(c.PingUUID, check.Fail, "", at(30)))
 	v, err := f.s.Check(ctx, f.viewer, c.ID)
-	if err != nil || len(v.Downs) != 2 || !v.Downs[0].Equal(at(30)) || !v.Downs[1].Equal(at(0)) {
+	if err != nil || len(v.Downs) != 2 || v.Downs[0] != (Down{At: at(30)}) || v.Downs[1] != (Down{At: at(0), Resolved: at(15)}) {
 		t.Fatalf("downs %v: %v", v.Downs, err)
 	}
 	// Once the runs shown no longer reach back to a down, it is left out too.

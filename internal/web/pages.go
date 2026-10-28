@@ -46,9 +46,6 @@ type row struct {
 	BarsLabel                                    string
 }
 
-// bar is one run in a row's last runs, or a moment the check went down.
-type bar struct{ Class, Title string }
-
 // GET /: every check the person may see, the ones that need them first.
 func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	checks, err := s.Store.Checks(r.Context(), v.Access)
@@ -474,76 +471,6 @@ func chartOf(runs []store.RunView, now time.Time, loc *time.Location) *chart {
 		})
 	}
 	return ch
-}
-
-// barsOf shows a check's last runs, oldest on the left as time runs. Red is
-// down: a failed run takes a check down, and so does a run that timed out,
-// also when it ends later. A missed ping, which is no run, gets a red bar of
-// its own where it fell. Within the runs shown, a check down now gets that
-// bar even when its incident opened earlier, or before there were incidents.
-// The bars stay as many as the runs a check view holds, so the newest are
-// kept.
-func barsOf(c store.CheckView, now time.Time, loc *time.Location) ([]bar, string) {
-	downs := c.Downs
-	shownSince := time.Time{}
-	if len(c.Recent) == store.RecentRuns {
-		shownSince = c.Recent[len(c.Recent)-1].At()
-	}
-	if c.Status.State == check.Down && !c.Status.Since.Before(shownSince) && (len(downs) == 0 || downs[0].Before(c.Status.Since)) {
-		downs = append([]time.Time{c.Status.Since}, downs...)
-	}
-	// A run that took the check down is its red bar already. A timed-out run
-	// keeps when it timed out after it ends.
-	byRun := map[int64]bool{}
-	for _, r := range c.Recent {
-		if !r.TimedOut.IsZero() {
-			byRun[r.TimedOut.UnixMilli()] = true
-		}
-		if r.Outcome == "fail" {
-			byRun[r.Ended.UnixMilli()] = true
-		}
-	}
-	var bars []bar
-	runs, d := len(c.Recent)-1, len(downs)-1
-	for runs >= 0 || d >= 0 {
-		if d >= 0 && byRun[downs[d].UnixMilli()] {
-			d--
-			continue
-		}
-		if d < 0 || (runs >= 0 && !c.Recent[runs].At().After(downs[d])) {
-			class := outcomeLook(c.Recent[runs].Outcome).Class
-			if !c.Recent[runs].TimedOut.IsZero() {
-				class = "bad"
-			}
-			bars = append(bars, bar{Class: class})
-			runs--
-			continue
-		}
-		title := "No ping, down at " + clock(now, downs[d], loc)
-		if d == 0 && c.Status.State == check.Down {
-			title = "No ping, down since " + clock(now, downs[d], loc)
-		}
-		bars = append(bars, bar{Class: "bad", Title: title})
-		d--
-	}
-	bars = bars[max(0, len(bars)-store.RecentRuns):]
-	counts := map[string]int{}
-	for _, b := range bars {
-		if b.Title != "" {
-			counts["missed"]++
-		} else {
-			counts[b.Class]++
-			counts["runs"]++
-		}
-	}
-	label := fmt.Sprintf("Last %d runs: %d ok, %d with a warning, %d failed", counts["runs"], counts["up"], counts["warn"], counts["bad"])
-	if counts["missed"] > 0 {
-		label += "; " + plural(counts["missed"], "time", "times") + " down for a missed ping"
-	}
-	if c.Status.State == check.Down {
-		label += "; down since " + clock(now, c.Status.Since, loc)
-	}
-	return bars, label
 }
 
 // logOf shows a run's pings, each with its time and kind, then its body.

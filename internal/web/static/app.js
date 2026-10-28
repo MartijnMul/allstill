@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // The dashboard's only script: signing in and adding a passkey, copying ping
-// URLs, and keeping a page current while it is open.
+// URLs, the tips on the last runs, and keeping a page current while it is
+// open.
 
 const b64 = {
   encode(buffer) {
@@ -151,6 +152,82 @@ document.addEventListener("click", async (event) => {
   setTimeout(() => (button.textContent = "Copy"), 2000);
 });
 
+// A bar in the last runs says what it was and when. With a mouse the tip
+// comes after a short pause, so moving across the page sets nothing off, and
+// then follows the pointer from bar to bar; on a phone a tap shows it. The
+// bars are narrow, so the one nearest the pointer counts.
+const tip = document.createElement("div");
+tip.className = "tip";
+tip.setAttribute("role", "tooltip");
+tip.hidden = true;
+document.body.append(tip);
+let tipBar = null;
+let tipWait = 0;
+
+function barAt(bars, x) {
+  let nearest = null;
+  let distance = Infinity;
+  for (const bar of bars.querySelectorAll("[data-tip]")) {
+    const r = bar.getBoundingClientRect();
+    const d = Math.max(r.left - x, x - r.right, 0);
+    if (d < distance) [nearest, distance] = [bar, d];
+  }
+  return nearest;
+}
+
+function showTip(bar) {
+  if (!bar || bar === tipBar) return;
+  tipBar?.classList.remove("on");
+  tipBar = bar;
+  bar.classList.add("on");
+  tip.textContent = bar.dataset.tip;
+  tip.hidden = false;
+  const r = bar.getBoundingClientRect();
+  const left = Math.min(Math.max(8, r.left + r.width / 2 - tip.offsetWidth / 2), innerWidth - tip.offsetWidth - 8);
+  const above = r.top - tip.offsetHeight - 6;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${above < 8 ? r.bottom + 6 : above}px`;
+}
+
+function hideTip() {
+  clearTimeout(tipWait);
+  tipBar?.classList.remove("on");
+  tipBar = null;
+  tip.hidden = true;
+}
+
+document.addEventListener("pointermove", (event) => {
+  if (event.pointerType !== "mouse") return;
+  const bars = event.target.closest?.(".bars");
+  if (!bars) {
+    hideTip();
+    return;
+  }
+  if (tipBar) {
+    showTip(barAt(bars, event.clientX));
+    return;
+  }
+  clearTimeout(tipWait);
+  tipWait = setTimeout(() => showTip(barAt(bars, event.clientX)), 300);
+});
+
+document.addEventListener("click", (event) => {
+  const bars = event.target.closest(".bars");
+  if (!bars) {
+    hideTip();
+    return;
+  }
+  // A second tap closes it; a mouse just leaves.
+  const bar = barAt(bars, event.clientX);
+  if (bar === tipBar && ["touch", "pen"].includes(event.pointerType)) hideTip();
+  else showTip(bar);
+});
+
+addEventListener("scroll", hideTip, { capture: true, passive: true });
+document.addEventListener("pointerout", (event) => {
+  if (event.pointerType === "mouse" && !event.relatedTarget) hideTip();
+});
+
 // Until the live stream comes, a page with live content fetches itself again
 // every 30 seconds while it is in view. It leaves the page alone while
 // someone works in it (focus or a selection inside), and says so when it
@@ -179,6 +256,7 @@ if (live && stale) {
       const log = live.querySelector("pre.log");
       const scrolled = log ? log.scrollTop : 0;
       live.replaceChildren(...next.childNodes);
+      hideTip();
       const newLog = live.querySelector("pre.log");
       if (newLog) newLog.scrollTop = scrolled;
       updated = new Date();

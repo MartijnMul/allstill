@@ -194,6 +194,7 @@ WHERE p.disabled_at IS NULL
 ORDER BY p.name;
 
 -- When a check went down: when it joined each of its incidents, newest
--- first, from a time on.
+-- first, from a time on, and when that incident resolved.
 -- name: DownsOfCheck :many
-SELECT joined_at FROM incident_checks WHERE check_id = ? AND joined_at >= ? ORDER BY joined_at DESC LIMIT ?;
+SELECT ic.joined_at, i.resolved_at FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
+WHERE ic.check_id = ? AND ic.joined_at >= ? ORDER BY ic.joined_at DESC LIMIT ?;

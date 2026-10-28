@@ -35,7 +35,13 @@ type CheckView struct {
 	// incident, back to the oldest run in Recent when that holds RecentRuns.
 	// A check that goes down again while its incident is still open joins no
 	// new one, so that time is not here.
-	Downs []time.Time
+	Downs []Down
+}
+
+// Down is a time a check went down, and when its incident resolved: zero
+// while it is open.
+type Down struct {
+	At, Resolved time.Time
 }
 
 // RecentRuns is how many of a check's latest runs a CheckView holds.
@@ -183,7 +189,7 @@ func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) 
 		return v, err
 	}
 	for _, d := range downs {
-		v.Downs = append(v.Downs, time.UnixMilli(d).UTC())
+		v.Downs = append(v.Downs, Down{At: time.UnixMilli(d.JoinedAt).UTC(), Resolved: msTime(d.ResolvedAt)})
 	}
 	return v, nil
 }

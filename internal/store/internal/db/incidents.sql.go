@@ -323,7 +323,8 @@ func (q *Queries) DigestPeople(ctx context.Context) ([]DigestPeopleRow, error) {
 }
 
 const downsOfCheck = `-- name: DownsOfCheck :many
-SELECT joined_at FROM incident_checks WHERE check_id = ? AND joined_at >= ? ORDER BY joined_at DESC LIMIT ?
+SELECT ic.joined_at, i.resolved_at FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
+WHERE ic.check_id = ? AND ic.joined_at >= ? ORDER BY ic.joined_at DESC LIMIT ?
 `
 
 type DownsOfCheckParams struct {
@@ -332,21 +333,26 @@ type DownsOfCheckParams struct {
 	Limit    int64
 }
 
+type DownsOfCheckRow struct {
+	JoinedAt   int64
+	ResolvedAt sql.NullInt64
+}
+
 // When a check went down: when it joined each of its incidents, newest
-// first, from a time on.
-func (q *Queries) DownsOfCheck(ctx context.Context, arg DownsOfCheckParams) ([]int64, error) {
+// first, from a time on, and when that incident resolved.
+func (q *Queries) DownsOfCheck(ctx context.Context, arg DownsOfCheckParams) ([]DownsOfCheckRow, error) {
 	rows, err := q.db.QueryContext(ctx, downsOfCheck, arg.CheckID, arg.JoinedAt, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []int64{}
+	items := []DownsOfCheckRow{}
 	for rows.Next() {
-		var joined_at int64
-		if err := rows.Scan(&joined_at); err != nil {
+		var i DownsOfCheckRow
+		if err := rows.Scan(&i.JoinedAt, &i.ResolvedAt); err != nil {
 			return nil, err
 		}
-		items = append(items, joined_at)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
