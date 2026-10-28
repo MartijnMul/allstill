@@ -35,6 +35,7 @@ Beyond Healthchecks, a ping can carry values for a check's rules: `v=name:number
 ## Changing the API
 
 - Within `/api/v1`, changes are additive only: new endpoints, new optional fields, new values in an enum that clients are told to expect. Anything else is `/api/v2`.
+- While the API has no clients outside this repository, a change that is not additive is allowed when its spec decides so, and noted here. So far: `none` among an incident's urgencies ([intent/alerts](../intent/alerts/spec.md), C9), and in 0.6.0 the unused `certificate` check kind removed, with `CheckKind` now telling clients to expect new kinds, and `offline` among the statuses of `/health` ([intent/http-checks](../intent/http-checks/spec.md), R14).
 - Bump `info.version` (semantic versioning) with every change.
 - Run `make api-lint` before committing.
 

@@ -93,13 +93,33 @@ What to know:
 - **Sending services** (Postmark, Resend, Mailgun, Amazon SES and the like) work well, and most are free or nearly so for a few messages a day. Postmark's token is both user name and password; Resend's user name is `resend`; SES needs its SMTP credentials, not IAM keys, and in its sandbox delivers only to verified addresses.
 - **Blocked ports:** some clouds block port 25, and some (Hetzner Cloud) 465 too. Use 587, or a sending service's 2525 or 2587.
 
+## Sites and certificates
+
+Allstill can also look at an address itself, instead of waiting for a ping: a site, an API's health endpoint, and the TLS certificate in front of either ([intent/http-checks](../intent/http-checks/spec.md)). Each attempt is a run with its status code, how long it took and the certificate's days left, and from there a check behaves as any other: incidents, calm alerts, the digest.
+
+```sh
+allstill admin add-check -project Sites -name shop -http https://shop.example.com/health -json /status=ok
+allstill admin add-check -project Sites -name www -http https://www.example.com -expect 301 -location https://example.com/
+```
+
+(With the Linux package: `sudo -u allstill allstill admin add-check -db /var/lib/allstill/allstill.db …`; in the container: `docker exec allstill allstill admin add-check …`.) It tries the address once and says what the check will see, and the running server starts it within a minute. `allstill admin set-check -project Sites -check shop -every 5m` changes only what it is given; `allstill admin add-check -h` lists every setting.
+
+- **When it is down.** A check runs every minute by default (`-every`, from 1 minute to a day), with a timeout of 10 seconds (`-timeout`, at most 60). It goes down after 2 failed attempts in a row (`-fail-after`) and up on the first that passes; the reason says what failed, such as `HTTP 503`, `no answer within 10 s` or `status is degraded instead of ok`.
+- **What counts as up.** Any 2xx, or the codes of `-expect`. `-location` expects a redirect to that address, which is how a `www` that should lead to the apex is watched. Redirects are not followed unless `-follow` says so, then at most five. `-json /status=ok` reads at most 1 MB of the answer.
+- **Certificates.** Every attempt over https reads the certificate. The check is in warning when fewer than 14 days are left (`-warn-days`), or less than a third of its lifetime when that is shorter, and the morning digest lists it; an attempt fails under 3 days (`-fail-days`), or a tenth of its lifetime. An automatically renewed certificate, even one that lives six days, never warns. `-ca` trusts an internal CA's certificates; `-no-verify` skips verification, for a self-signed certificate, and still watches its expiry. Two checks on one host read the same certificate: `add-check` says so, and `-warn-days 0` on one of them has it warn once.
+- **Being a good visitor.** Attempts are spread over their interval, one at a time per host and at most 20 at once. They are sent as `Allstill/<version>`; `-contact` (`ALLSTILL_CONTACT`) adds an address for site owners. A site behind a bot challenge says so in the reason; let Allstill through there.
+- **Private addresses.** The server refuses addresses that are not on the public internet, for the first request and every redirect. `-allow-private 10.0.0.0/8` (`ALLSTILL_ALLOW_PRIVATE`, comma-separated) lets checks reach such ranges: they are then open to the checks of every project, so allow only what you mean to watch. The server's own addresses are never reached.
+- **Allstill's own network.** When the server's own network goes down, every site looks down. Give it a canary, addresses that answer independently of the sites you watch, such as `-canary 9.9.9.9:53,1.1.1.1:53` (`ALLSTILL_CANARY`): when a check times out or finds no route and no canary answers either, the check becomes unknown instead of down, nobody is alerted, and the overview and `/health` say the server is offline. Without a canary, Allstill alerts: it cannot tell its own outage from the sites'.
+- **Who sees the address.** A check's URL may hold a token: owners and editors of its project and administrators see it whole; viewers see only its scheme and host. It is never in a reason, a message or a log.
+- **Pings.** A ping to such a check is answered `409`: a script that pings with `curl -f` notices that Allstill runs this one itself.
+
 ## Keep it
 
 - **Backups.** Copy the database while it runs with `sudo -u allstill allstill backup -db /var/lib/allstill/allstill.db /var/lib/allstill/backup-$(date +%F).db` (in the container: `docker exec allstill allstill backup /home/nonroot/backup.db`), then move the copy somewhere else. Copying the file alone is not enough while Allstill runs.
-- **The database and every copy are secrets.** They hold every check's ping URL, and with Web Push the key Allstill signs phone alerts with and where each phone is reached ([ADR 0003](adr/0003-web-push-secrets.md)): whoever has a copy can ping any check, and can send every subscribed phone a notification that looks like Allstill's. `allstill backup` writes a copy only its owner can read; keep copies that way. Never serve a copy with alerts on, or it alerts everyone a second time.
+- **The database and every copy are secrets.** They hold every check's ping URL and the URLs Allstill fetches, with any token in them ([ADR 0004](adr/0004-what-a-check-fetches.md)): give a health endpoint a token that can only read its health. With Web Push they also hold the key Allstill signs phone alerts with and where each phone is reached ([ADR 0003](adr/0003-web-push-secrets.md)): whoever has a copy can ping any check, and can send every subscribed phone a notification that looks like Allstill's. `allstill backup` writes a copy only its owner can read; keep copies that way. Never serve a copy with alerts on, or it alerts everyone a second time.
 - **Upgrades.** Before a new version changes the database, it copies it next to itself, as `allstill.db.before-0003` for example. Delete the copy once the new version works.
 - **History.** Each check keeps its newest 1000 runs, and the output of its newest 100; `-keep-runs` and `-keep-output` change that.
-- **Watch Allstill itself** from somewhere else, such as one check at another service that Allstill's host pings. `GET /health` answers 200 while Allstill keeps up with sending and 503 when it has fallen more than two minutes behind or cannot read its database, so an outside monitor can watch the sending too; it needs no sign-in and says nothing about checks.
+- **Watch Allstill itself** from somewhere else, such as one check at another service that Allstill's host pings. `GET /health` answers 200 while Allstill keeps up with sending and 503 when it has fallen more than two minutes behind, cannot read its database, or is offline for the checks it runs (its canary does not answer), so an outside monitor can watch the sending too; it needs no sign-in and says nothing about any check.
 
 ## Check a release
 

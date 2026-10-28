@@ -138,6 +138,20 @@ WHERE c.workspace_id = p.workspace_id AND c.deleted_at IS NULL
   AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
 ORDER BY pr.name, c.name;
 
+-- Checks in warning that the person follows, such as a certificate running
+-- out, for the digest (intent/http-checks/spec.md, R9). A check that never
+-- alerts is shown, not sent.
+-- name: WarningChecks :many
+SELECT c.name, c.state_reason, pr.name AS project_name
+FROM checks c
+JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
+JOIN people p ON p.id = sqlc.arg(person_id)
+LEFT JOIN memberships m ON m.project_id = c.project_id AND m.person_id = p.id
+WHERE c.workspace_id = p.workspace_id AND c.deleted_at IS NULL
+  AND c.state = 'warning' AND c.urgency <> 'none'
+  AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
+ORDER BY pr.name, c.name;
+
 -- name: DeliveriesOfPerson :many
 SELECT * FROM deliveries WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?;
 

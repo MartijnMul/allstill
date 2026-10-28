@@ -1,0 +1,69 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="page" id="live">
+  <div class="title">
+    <div>
+      <h1>{{.C.Name}}</h1>
+      <span class="pill {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}} {{.Since}}</span>
+    </div>
+    {{if .C.Status.Reason}}<p class="reason">{{.C.Status.Reason}}</p>{{end}}
+    {{if .Incident}}<p class="reason">{{.Incident}} <a href="/messages">Messages</a></p>{{end}}
+    <p>{{if .C.Description}}{{.C.Description}} · {{end}}{{.C.ProjectName}}</p>
+  </div>
+
+  <div class="tiles">
+    {{range .Tiles}}
+    <div class="panel tile"><span>{{.Label}}</span><strong>{{.Value}}</strong><span>{{.Note}}</span></div>
+    {{end}}
+  </div>
+
+  {{with .Chart}}
+  <section class="panel chart">
+    <h2>Response time</h2>
+    <svg viewBox="0 0 {{.Width}} {{.Height}}" preserveAspectRatio="none" role="img" aria-label="{{.Label}}">
+      {{range .Bars}}<rect class="{{.Class}}" x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}" rx="2"><title>{{.Title}}</title></rect>{{end}}
+    </svg>
+    <div class="axis"><span>{{.From}}</span><span>{{.To}}</span></div>
+  </section>
+  {{end}}
+
+  <section class="panel">
+    <h2>Recent attempts</h2>
+    {{if .Runs}}
+    <div class="runs">
+      <table>
+        <caption class="sr">Recent attempts</caption>
+        <thead><tr><th scope="col">Started</th><th scope="col">Took</th><th scope="col">Status</th><th scope="col">Certificate</th><th scope="col">Result</th></tr></thead>
+        <tbody>
+          {{range .Runs}}
+          <tr>
+            <td>{{.Started}}</td>
+            <td class="mono">{{.Took}}</td>
+            <td class="mono">{{.Status}}</td>
+            <td class="mono">{{.Certificate}}</td>
+            <td><span class="result"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span>{{if .Reason}} <span class="muted">{{.Reason}}</span>{{end}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <p class="muted">No attempts yet. Allstill makes the first within a minute or so of the check's interval.</p>
+    {{end}}
+  </section>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>What it checks</h2>
+      <dl>{{range .What}}<div><dt>{{.K}}</dt><dd{{if .Mono}} class="mono"{{end}}>{{.V}}</dd></div>{{end}}</dl>
+      {{if .Secret}}<p class="muted">Its full address is a secret; the project's editors see it here.</p>{{end}}
+    </section>
+
+    <section class="panel how">
+      <h2>How it runs</h2>
+      <span class="muted">Allstill runs this check itself, from the server, and keeps each attempt as a run. A ping to it is refused.</span>
+      <span class="muted">An attempt Allstill cannot judge, because its own network is down, makes the check unknown, not down.</span>
+    </section>
+  </div>
+</main>
+{{end}}{{end}}

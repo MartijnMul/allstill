@@ -35,7 +35,7 @@ Step 3, TCP checks:
 - `cmd/allstill/admin.go`, `internal/web`, `api/openapi.yaml` (0.7.0), `docs/running.md` (changed): `add-check -tcp host:port [-tls]` and its page.
 
 Step 4, probes:
-- `internal/store/migrations/0008_probes.sql` (new): probes (name, key hash, own check, protocol version, last heard), the projects each serves, a check's probe.
+- `internal/store/migrations/0009_probes.sql` (new; 0008 went to an index on `incident_checks`): probes (name, key hash, own check, protocol version, last heard), the projects each serves, a check's probe.
 - `internal/probe` (new): the probe's side: poll with an ETag every 30 seconds, run with `internal/active`'s loop, post runs in batches at least every 30 seconds with ids and ages, check its clock and version.
 - `internal/api` (new, generated): types and a server interface for the `Probe` tag, generated from `api/openapi.yaml` with `oapi-codegen` (a `tool` directive in `go.mod`, part of `make generate` and the check that generated code is current), as ADR 0001 and `api/README.md` say; the first `/api/v1` routes served.
 - `internal/web/probe.go` (new): `GET /api/v1/probe/checks` and `POST /api/v1/probe/runs` on that interface, with the probe's key.
@@ -61,7 +61,7 @@ Step 4, probes:
    6. On the real installation: checks for its own dashboard, a site's www and apex, and a health endpoint, run next to whatever watches them now for a week.
 3. **TCP checks** (release candidate): the attempt, the command, the page, the API and docs; on the real installation, a mail server's port with TLS.
 4. **Probes** (release candidate).
-   1. Migration 0008 and the store, with assignment refused outside the projects a probe serves.
+   1. Migration 0009 and the store, with assignment refused outside the projects a probe serves.
    2. The probe's endpoints, with ids, ages, the server's time and the version.
    3. `oapi-codegen` brought in for the `Probe` tag, then `allstill probe`, reusing the loop, with `-allow` and `-ca`.
    4. The commands, the API and docs.
@@ -86,7 +86,7 @@ Step 4, probes:
 ## Proof
 
 - Step 1: `go test ./internal/check` covers `OnAttempt`, the active check's deadline and unknown, and an active check across a restart staying unknown without a deadline; `internal/store` tests show an active check's unknown keeps its incident open and a ping to it answered 409; `internal/web` shows a viewer no ping URL; migration 0007 runs on a copy of a real database, and `foreign_key_check` stays empty.
-- Step 2: `internal/active` table tests for each reason (none holding a URL), certificate thresholds (90-day and 6-day), a self-signed certificate with `no_verify` still read (spec case 12), redirects with a hop into a private range refused; loop tests for spec cases 1, 2, 5, 6, 7 and 8 under `testing/synctest`; a load test of 1000 checks a minute in which every attempt starts within 5 seconds of its slot and ping ingest answers as fast as without it; on the real installation, a week of the new checks agreeing with the existing watch.
+- Step 2: `internal/active` table tests for each reason (none holding a URL), certificate thresholds (90-day and 6-day), a self-signed certificate with `no_verify` still read (spec case 12), redirects with a hop into a private range refused; loop tests for spec cases 1, 2, 5, 6, 7 and 8 under `testing/synctest`; a load test of 1000 checks a minute (`make load`) in which every attempt starts within 5 seconds of its slot and ping ingest answers as fast as without it; on the real installation, a week of the new checks agreeing with the existing watch.
 - Step 3: a TCP attempt against a test listener, with and without TLS; on the real installation, a mail server's TLS port up with its certificate's days left shown, and a closed port down.
 - Step 4: generated code current; a probe and a server in one test process: assignment refused outside its projects, a replayed batch ignored, a wrong clock reported, a quiet probe alerting once while its checks turn unknown; on a real network, the unplugging in step 4.5.
 - Every step: `make check` clean, and the reviewer agent on the staged diff before each commit.
@@ -95,3 +95,8 @@ Step 4, probes:
 
 - Step 1 already has `Store.RecordAttempt` and `NewCheck.Kind`, which the plan put in step 2: the incident rules for active checks could not be tested without a way to record an attempt. Step 1 also lets a check in warning start its incident's settle period, as the alerts spec's R3 always said; until now only up did.
 - Step 1 checks an active check's settings when it is made, so one Allstill cannot read is never made: the digest does not list an active check that is unknown, so it would never alert and never be listed. `set-check` in step 2 runs the same validation.
+- Step 2 keeps `ca` as the certificates themselves, in PEM, read from the file `-ca` names: the check needs no file on the server, and can move to a probe in step 4.
+- Step 2's load test runs with `make load`, not with `make check`: it runs four times the load (1000 checks every 15 seconds) for half a minute, without the race detector, under which SQLite is so slow that the comparison of pings measures the detector.
+- In step 2 the server writes its `-allow-private` and `-canary` to the database when it starts, as it does `-base-url`, so `add-check` checks an address against what the server may reach; the loop reads its checks every 30 seconds, as the admin commands write from another process.
+- The server's own addresses, which step 2 refuses even within `-allow-private`, are loopback, the unspecified address and the addresses of the host's interfaces.
+- The digest lists checks in warning only when their urgency is not `none`, as for incidents. `/health` answers `offline` as well; adding it to its statuses is the second non-additive change `api/README.md` notes.

@@ -96,6 +96,7 @@ func digestLine(items []store.Item) string {
 		{"recovered", "%d back up", "%d back up"},
 		{"resolved_unseen", "%d resolved before you heard", "%d resolved before you heard"},
 		{"silent_check", "%d check that cannot alert", "%d checks that cannot alert"},
+		{"warning", "%d warning", "%d warnings"},
 	} {
 		switch n := count[c.what]; {
 		case n == 1:

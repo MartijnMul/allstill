@@ -83,6 +83,14 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	}
 	checkCards := len(d.Attention)
 	d.Attention = append(alerts, d.Attention...)
+	// The server cannot judge its checks: they are unknown, not down
+	// (intent/http-checks/spec.md, R7).
+	if s.Offline != nil {
+		if since, off := s.Offline(); off {
+			d.Attention = append([]card{{Href: "/", Class: "down", Title: "Allstill is offline for its checks",
+				Line: "Since " + clock(now, since, v.Loc) + " · its own network does not answer, so the checks it runs are unknown"}}, d.Attention...)
+		}
+	}
 
 	link := func(show, project string) string {
 		q := []string{}
@@ -246,6 +254,9 @@ func rowOf(c store.CheckView, now time.Time, loc *time.Location) row {
 		r.Next = until(now, c.Status.NextExpected, loc)
 	}
 	r.Bars, r.BarsLabel = barsOf(c, now, loc)
+	if store.Active(c.Kind) {
+		return activeRow(r, c, now, loc)
+	}
 	for _, run := range c.Recent {
 		if len(run.Values) > 0 {
 			r.Value = values(run.Values)
@@ -328,9 +339,13 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 				", and closes at " + clock(now, inc.RecoveringSince.Add(alert.Settle), v.Loc) + " if it stays so."
 		}
 	}
+	if store.Active(c.Kind) {
+		s.activePage(w, r, v, c, d)
+		return
+	}
 	// A ping URL is a secret: viewers, often outsiders who only need a
 	// status, do not see it (intent/http-checks/spec.md, R12).
-	if role, _ := v.Access.Role(c.ProjectID); role == store.Editor || role == store.Owner {
+	if whole(v, c.ProjectID) {
 		d.PingURL = s.base.String() + "/ping/" + c.PingUUID
 		if c.Slug != "" {
 			d.SlugURL = s.base.String() + "/ping/<ping key>/" + c.Slug

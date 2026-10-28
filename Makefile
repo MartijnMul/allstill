@@ -9,7 +9,7 @@ REDOCLY := docker run --rm -v "$(CURDIR)/api:/spec:ro" -w /spec redocly/cli:2.11
 GENERATED := internal/store/internal/db
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.18.2
 
-.PHONY: help check go-check fmt-check vet staticcheck test vulncheck generate generated-check \
+.PHONY: help check go-check fmt-check vet staticcheck test load vulncheck generate generated-check \
 	api-lint hooks hooks-test secrets release-snapshot
 
 help: ## List the commands
@@ -30,6 +30,9 @@ staticcheck: ## staticcheck
 
 test: ## The tests, with the race detector
 	go test -race ./...
+
+load: ## The load test of checks Allstill runs itself, before a release
+	ALLSTILL_LOAD_TEST=1 go test -count=1 -run '^TestLoad$$' -v ./internal/active
 
 vulncheck: ## Known vulnerabilities in the code paths we use
 	go tool govulncheck ./...

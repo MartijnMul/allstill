@@ -48,6 +48,9 @@ type Server struct {
 	// whether it fails as it is set up.
 	MailOn      bool
 	MailProblem func() *alert.MailProblem
+	// Offline says whether the server is offline for the checks it runs,
+	// and since when (intent/http-checks/spec.md, R7).
+	Offline func() (time.Time, bool)
 
 	base       *url.URL
 	workspace  string
@@ -106,7 +109,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{},
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html"))
-	for _, name := range []string{"login", "setup", "overview", "check", "messages", "channels", "error"} {
+	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "channels", "error"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}

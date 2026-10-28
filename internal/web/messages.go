@@ -31,6 +31,7 @@ var whatLabel = map[string]string{
 	"still_open":      "Still open",
 	"resolved_unseen": "Resolved before you heard of it",
 	"silent_check":    "Cannot alert, never pinged or its schedule unreadable",
+	"warning":         "Warning",
 }
 
 var kindLabel = map[string]string{"alert": "Alert", "digest": "Digest", "test": "Test"}

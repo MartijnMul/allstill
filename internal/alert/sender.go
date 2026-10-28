@@ -34,7 +34,7 @@ type Store interface {
 	LastMessageAt(ctx context.Context, personID string) (time.Time, error)
 	ShadowMode(ctx context.Context) (bool, error)
 	DigestPeople(ctx context.Context) ([]store.DigestPerson, error)
-	DigestOf(ctx context.Context, personID string, since time.Time) ([]store.DigestEntry, []store.SilentCheck, error)
+	DigestOf(ctx context.Context, personID string, since time.Time) ([]store.DigestEntry, []store.ListedCheck, error)
 	RecordDigest(ctx context.Context, personID string, at time.Time, d *store.Delivery, told []store.Told) error
 	Targets(ctx context.Context, personID, key string) (push, email []string, err error)
 	Queue(ctx context.Context, d store.Delivery, kind string, channels []string, told []store.Told) error
@@ -307,11 +307,11 @@ func (s *Sender) digests(ctx context.Context, shadow bool, now time.Time) error 
 }
 
 func (s *Sender) digest(ctx context.Context, p store.DigestPerson, shadow bool, now time.Time) error {
-	entries, silent, err := s.Store.DigestOf(ctx, p.ID, p.LookedAt)
+	entries, checks, err := s.Store.DigestOf(ctx, p.ID, p.LookedAt)
 	if err != nil {
 		return err
 	}
-	items, told := DigestItems(entries, silent, shadow)
+	items, told := DigestItems(entries, checks, shadow)
 	for i := range told {
 		told[i].PersonID, told[i].At = p.ID, now
 	}
@@ -338,11 +338,13 @@ func (s *Sender) digest(ctx context.Context, p store.DigestPerson, shadow bool, 
 //   - recovered, for one heard of in a digest that recovered;
 //   - still_open, for one open the person knows of or will hear of at once;
 //   - resolved_unseen, for one resolved before they heard of it;
-//   - silent_check, for a check that can never alert.
+//   - silent_check, for a check that can never alert;
+//   - warning, for a check in warning, such as a certificate running out
+//     (intent/http-checks/spec.md, R9).
 //
 // An incident from shadow mode, once alerts are on, tells nothing: it is
 // listed as still open, or as resolved before they heard of it (R10).
-func DigestItems(entries []store.DigestEntry, silent []store.SilentCheck, shadow bool) ([]store.Item, []store.Told) {
+func DigestItems(entries []store.DigestEntry, checks []store.ListedCheck, shadow bool) ([]store.Item, []store.Told) {
 	var items []store.Item
 	var told []store.Told
 	for _, e := range entries {
@@ -374,7 +376,11 @@ func DigestItems(entries []store.DigestEntry, silent []store.SilentCheck, shadow
 		}
 		items = append(items, item)
 	}
-	for _, c := range silent {
+	for _, c := range checks {
+		if c.State == "warning" {
+			items = append(items, store.Item{What: "warning", Title: c.Project + ": " + c.Name + " (" + c.Reason + ")"})
+			continue
+		}
 		items = append(items, store.Item{What: "silent_check", Title: c.Project + ": " + c.Name})
 	}
 	return items, told

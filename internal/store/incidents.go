@@ -158,7 +158,7 @@ func (s *Store) DueRecipients(ctx context.Context, now time.Time, limit int) ([]
 // Item is one line of a message: what it says about which incident.
 type Item struct {
 	IncidentID string `json:"incident_id,omitempty"`
-	What       string `json:"what"` // down, recovered, still_open, resolved_unseen or silent_check
+	What       string `json:"what"` // down, recovered, still_open, resolved_unseen, silent_check or warning
 	Title      string `json:"title"`
 }
 
@@ -265,16 +265,19 @@ type DigestEntry struct {
 	RecoveryMessages bool
 }
 
-// SilentCheck is a check that can never alert: never pinged, or with a
-// schedule Allstill cannot read.
-type SilentCheck struct {
+// ListedCheck is a check the digest lists for itself: one that can never
+// alert (never pinged, or with a schedule Allstill cannot read), in state new
+// or unknown, or one in warning, with its reason (intent/http-checks/spec.md,
+// R9).
+type ListedCheck struct {
 	Name    string
 	Project string
 	State   string
+	Reason  string
 }
 
 // DigestOf returns what may go in a person's digest since a time.
-func (s *Store) DigestOf(ctx context.Context, personID string, since time.Time) ([]DigestEntry, []SilentCheck, error) {
+func (s *Store) DigestOf(ctx context.Context, personID string, since time.Time) ([]DigestEntry, []ListedCheck, error) {
 	q := db.New(s.r)
 	rows, err := q.DigestIncidents(ctx, db.DigestIncidentsParams{PersonID: personID, Since: sql.NullInt64{Int64: since.UnixMilli(), Valid: true}})
 	if err != nil {
@@ -291,9 +294,16 @@ func (s *Store) DigestOf(ctx context.Context, personID string, since time.Time) 
 	if err != nil {
 		return nil, nil, err
 	}
-	checks := make([]SilentCheck, len(silent))
-	for i, c := range silent {
-		checks[i] = SilentCheck{Name: c.Name, Project: c.ProjectName, State: c.State}
+	var checks []ListedCheck
+	for _, c := range silent {
+		checks = append(checks, ListedCheck{Name: c.Name, Project: c.ProjectName, State: c.State})
+	}
+	warning, err := q.WarningChecks(ctx, personID)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, c := range warning {
+		checks = append(checks, ListedCheck{Name: c.Name, Project: c.ProjectName, State: string(check.Warning), Reason: c.StateReason})
 	}
 	return entries, checks, nil
 }

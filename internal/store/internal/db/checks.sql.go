@@ -12,6 +12,50 @@ import (
 	"database/sql"
 )
 
+const activeChecks = `-- name: ActiveChecks :many
+SELECT id, workspace_id, kind, interval_seconds, settings FROM checks
+WHERE kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused'
+ORDER BY id
+`
+
+type ActiveChecksRow struct {
+	ID              string
+	WorkspaceID     string
+	Kind            string
+	IntervalSeconds sql.NullInt64
+	Settings        string
+}
+
+// The checks Allstill runs itself, for its loop; a paused one does not run.
+func (q *Queries) ActiveChecks(ctx context.Context) ([]ActiveChecksRow, error) {
+	rows, err := q.db.QueryContext(ctx, activeChecks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ActiveChecksRow{}
+	for rows.Next() {
+		var i ActiveChecksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.Kind,
+			&i.IntervalSeconds,
+			&i.Settings,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const checkByID = `-- name: CheckByID :one
 SELECT id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind, schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings, state, state_since, state_reason, last_ping_at, next_expected_at, deadline, version, created_at, updated_at, deleted_at, urgency, critical, fail_streak FROM checks WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
 `
@@ -993,6 +1037,38 @@ type TimeOutRunParams struct {
 func (q *Queries) TimeOutRun(ctx context.Context, arg TimeOutRunParams) error {
 	_, err := q.db.ExecContext(ctx, timeOutRun, arg.TimedOutAt, arg.ID)
 	return err
+}
+
+const updateActiveCheck = `-- name: UpdateActiveCheck :execrows
+UPDATE checks
+SET interval_seconds = ?, grace_seconds = ?, settings = ?, deadline = ?, version = version + 1, updated_at = ?
+WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+`
+
+type UpdateActiveCheckParams struct {
+	IntervalSeconds sql.NullInt64
+	GraceSeconds    int64
+	Settings        string
+	Deadline        sql.NullInt64
+	UpdatedAt       int64
+	WorkspaceID     string
+	ID              string
+}
+
+func (q *Queries) UpdateActiveCheck(ctx context.Context, arg UpdateActiveCheckParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateActiveCheck,
+		arg.IntervalSeconds,
+		arg.GraceSeconds,
+		arg.Settings,
+		arg.Deadline,
+		arg.UpdatedAt,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateCheckStatus = `-- name: UpdateCheckStatus :exec

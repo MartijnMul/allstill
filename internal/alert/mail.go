@@ -105,6 +105,7 @@ func (s *Sender) compose(d store.Pending, token string) (subject, body string) {
 			{"recovered", "Resolved"},
 			{"resolved_unseen", "Resolved before you heard of it"},
 			{"silent_check", "Cannot alert: never pinged, or its schedule cannot be read"},
+			{"warning", "Warnings"},
 		} {
 			var lines []string
 			for _, it := range d.Items {

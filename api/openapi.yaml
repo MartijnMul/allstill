@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.5.0
+  version: 0.6.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -331,8 +331,10 @@ paths:
       summary: Whether Allstill can alert, for a monitor outside it
       description: |
         Watch this from somewhere other than Allstill's own host. It answers 503
-        when the sender has fallen more than two minutes behind or the database
-        cannot be read, and says nothing about checks, so it needs no token.
+        when the sender has fallen more than two minutes behind, the database
+        cannot be read, or the server is offline for the checks it runs (its
+        canary does not answer, so it cannot judge them). It says nothing about
+        any check, so it needs no token.
       security: []
       responses:
         # There is no 4xx: it takes nothing from the caller (lint-ignored).
@@ -342,7 +344,7 @@ paths:
             application/json:
               schema: {$ref: '#/components/schemas/Health'}
         '503':
-          description: Allstill is behind, or cannot read its database.
+          description: Allstill is behind, cannot read its database, or is offline for its checks.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Health'}
@@ -667,7 +669,7 @@ paths:
       summary: One check
       responses:
         '200':
-          description: The check. `ping_url` is included only for the `manage` scope.
+          description: The check. Its secrets, `ping_url` and an HTTP check's `url` and `location` whole, are only for the `manage` scope held by someone who may see them.
           headers:
             ETag: {$ref: '#/components/headers/ETag'}
           content:
@@ -1495,17 +1497,32 @@ components:
 
     HttpCheck:
       type: object
-      description: An HTTP request Allstill makes itself, on its schedule.
+      description: |
+        An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+        with the status code (`status`), how long it took in milliseconds (`ms`) and
+        the days the certificate has left (`cert_days`) in its `values`, and why it
+        failed or warned in its `reason`. The check is down after `fail_after` failed
+        attempts in a row, and up on the first that passes.
       required: [url]
       properties:
-        url: {type: string, format: uri}
+        url:
+          type: string
+          format: uri
+          maxLength: 2000
+          description: |
+            What it fetches, http or https, without a user name or password. A token
+            in its path or query is a secret, as a ping URL is: it is whole only for
+            the `manage` scope held by an editor or owner of the check's project or a
+            workspace administrator, or a project API key with that scope; everyone
+            else gets its scheme and host alone, such as `https://shop.example.com`.
         method:
           type: string
           enum: [GET, HEAD]
           default: GET
         expected_status:
           type: array
-          description: Status codes that count as up. Default any 2xx.
+          description: Status codes that count as up. Default any 2xx, or any 3xx with `location`.
+          maxItems: 20
           items: {type: integer, minimum: 100, maximum: 599}
         json_field:
           type: object
@@ -1514,28 +1531,59 @@ components:
           properties:
             pointer:
               type: string
+              maxLength: 200
               description: A JSON Pointer (RFC 6901), such as `/status`.
-            equals: {type: string}
+            equals:
+              type: string
+              maxLength: 200
+              description: The value, as a string; a number, `true`, `false` or `null` as JSON writes it. At most 1 MB of a body is read.
+        location:
+          type: string
+          format: uri
+          maxLength: 2000
+          description: Where a redirect must lead; the answer must be a redirect there. A secret as `url` is, and returned the same way.
+        follow_redirects:
+          type: boolean
+          default: false
+          description: Follow up to 5 redirects and judge the last answer. Each hop must be an address the server may reach. Not with `location`.
         timeout:
           type: integer
           minimum: 1
           maximum: 60
           default: 10
           description: Seconds.
+        fail_after:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 2
+          description: How many failed attempts in a row make the check down.
+        warn_days:
+          type: integer
+          minimum: 0
+          maximum: 365
+          default: 14
+          description: |
+            Every attempt over TLS reads the certificate. The check is in warning when
+            fewer days than this are left, or less than a third of its lifetime when
+            that is shorter, and the digest lists it. 0 turns warnings off.
+        fail_days:
+          type: integer
+          minimum: 0
+          maximum: 365
+          default: 3
+          description: An attempt fails when fewer days than this are left, or less than a tenth of the certificate's lifetime when that is shorter. 0 turns it off.
+        ca:
+          type: string
+          maxLength: 65536
+          description: Certificates in PEM to trust beyond the system's, such as an internal CA's.
+        no_verify:
+          type: boolean
+          default: false
+          description: Do not verify the certificate, such as a self-signed one; its expiry is still read.
         probe_id:
           $ref: '#/components/schemas/Id'
           description: Run from this probe instead of the server.
-
-    CertificateCheck:
-      type: object
-      description: The TLS certificate of a host, checked daily.
-      required: [host]
-      properties:
-        host: {type: string}
-        port: {type: integer, minimum: 1, maximum: 65535, default: 443}
-        warn_days: {type: integer, minimum: 1, default: 14}
-        fail_days: {type: integer, minimum: 0, default: 3}
-        probe_id: {$ref: '#/components/schemas/Id'}
 
     Alerting:
       type: object
@@ -1555,7 +1603,10 @@ components:
 
     CheckKind:
       type: string
-      enum: [ping, http, certificate]
+      description: |
+        `ping` for a check jobs ping, `http` for one Allstill runs itself. Clients show
+        kinds they do not know by name: more will come.
+      enum: [ping, http]
 
     CheckSettings:
       type: object
@@ -1589,13 +1640,12 @@ components:
           description: Checks this one depends on, in any project of the workspace.
           items: {$ref: '#/components/schemas/Id'}
         http: {$ref: '#/components/schemas/HttpCheck'}
-        certificate: {$ref: '#/components/schemas/CertificateCheck'}
         alerting: {$ref: '#/components/schemas/Alerting'}
 
     CheckInput:
       description: |
-        A new check. `http` is required for `kind: http`, `certificate` for
-        `kind: certificate`.
+        A new check. `http` is required for `kind: http`, whose schedule is an
+        interval of 60 seconds to a day.
       allOf:
         - $ref: '#/components/schemas/CheckSettings'
         - type: object
@@ -1629,7 +1679,10 @@ components:
             ping_url:
               type: string
               format: uri
-              description: The check's secret ping URL. Only for the `manage` scope.
+              description: |
+                The check's secret ping URL, for a `ping` check. Only for the `manage`
+                scope held by an editor or owner of its project or a workspace
+                administrator, or a project API key with that scope.
             last_ping_at: {type: string, format: date-time}
             next_expected_at: {type: string, format: date-time}
             usual_run_time:
@@ -1654,7 +1707,7 @@ components:
 
     Run:
       type: object
-      description: One run of a job, from its start ping (if any) to its end.
+      description: One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
       required: [id, check_id, outcome]
       properties:
         id: {$ref: '#/components/schemas/Id'}
@@ -1669,7 +1722,11 @@ components:
         exit_status: {type: integer, minimum: 0, maximum: 255}
         values:
           type: object
+          description: The values a job sent, or what an attempt measured (see `HttpCheck`).
           additionalProperties: {type: number, format: double}
+        reason:
+          type: string
+          description: Why an attempt failed or warned, in plain words, such as `HTTP 503` or `certificate expires in 12 days`. It never holds the check's URL.
         failed_rules:
           type: array
           description: Indexes into the check's `rules` that warned or failed for this run.
@@ -1875,8 +1932,8 @@ components:
       properties:
         status:
           type: string
-          description: '`ok`, `behind` when the sender lags more than two minutes, `error` when the database cannot be read. The HTTP status says whether all is well: a monitor need not know the values.'
-          enum: [ok, behind, error]
+          description: '`ok`, `behind` when the sender lags more than two minutes, `offline` when the server cannot judge the checks it runs because its own network is down, `error` when the database cannot be read. The HTTP status says whether all is well: a monitor need not know the values, and a client treats one it does not know as not well.'
+          enum: [ok, behind, offline, error]
         sender_behind:
           type: integer
           format: int64
@@ -1951,7 +2008,7 @@ components:
               what:
                 type: string
                 description: Clients show values they do not know as plain text.
-                enum: [down, recovered, still_open, resolved_unseen, silent_check]
+                enum: [down, recovered, still_open, resolved_unseen, silent_check, warning]
               title: {type: string}
         error: {type: string, description: 'Why it failed, when it did.'}
         created_at: {type: string, format: date-time}

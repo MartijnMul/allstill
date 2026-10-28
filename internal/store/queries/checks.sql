@@ -164,3 +164,14 @@ WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
 -- name: CreateAttemptRun :exec
 INSERT INTO runs (id, workspace_id, check_id, outcome, started_at, ended_at, measured, reason)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- The checks Allstill runs itself, for its loop; a paused one does not run.
+-- name: ActiveChecks :many
+SELECT id, workspace_id, kind, interval_seconds, settings FROM checks
+WHERE kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused'
+ORDER BY id;
+
+-- name: UpdateActiveCheck :execrows
+UPDATE checks
+SET interval_seconds = ?, grace_seconds = ?, settings = ?, deadline = ?, version = version + 1, updated_at = ?
+WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;

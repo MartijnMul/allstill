@@ -22,7 +22,9 @@ import (
 	"time"
 	_ "time/tzdata" // every time zone, also on hosts without a zone database
 
+	"github.com/MartijnMul/allstill/internal/active"
 	"github.com/MartijnMul/allstill/internal/alert"
+	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/ingest"
 	"github.com/MartijnMul/allstill/internal/outbound"
 	"github.com/MartijnMul/allstill/internal/runner"
@@ -44,6 +46,8 @@ Usage:
   allstill admin rename-project NAME NEW rename a project
   allstill admin move-checks [flags]     move checks to another project
   allstill admin set-alerting [flags]    how fast a check's problems reach people
+  allstill admin add-check [flags]       add a check Allstill runs itself, such as a site
+  allstill admin set-check [flags]       change one
   allstill admin test-email -to ADDRESS  send a test email with the SMTP settings
   allstill admin set-alerts on|shadow    switch alerts on, or back to shadow mode
   allstill backup [flags] FILE           copy the database while it runs
@@ -118,8 +122,22 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	keepOutput := fs.Int("keep-output", output, "of how many of its newest runs each check keeps the output (ALLSTILL_KEEP_OUTPUT)")
 	mailSettings := smtpFlags(fs)
 	shadow := fs.Bool("shadow", os.Getenv("ALLSTILL_SHADOW") == "1", "record alerts without sending them, whatever the setting in the database, such as to serve a copy of it (ALLSTILL_SHADOW=1)")
+	allowPrivate := fs.String("allow-private", os.Getenv("ALLSTILL_ALLOW_PRIVATE"), "private ranges the checks Allstill runs may reach, such as 10.0.0.0/8, comma-separated; they are open to every project's checks (ALLSTILL_ALLOW_PRIVATE)")
+	canaryAddrs := fs.String("canary", os.Getenv("ALLSTILL_CANARY"), "host:port addresses independent of the sites checked, such as a public DNS server's 9.9.9.9:53, comma-separated: when none answers, the server's own network is down and its checks are unknown instead of down (ALLSTILL_CANARY)")
+	contact := fs.String("contact", os.Getenv("ALLSTILL_CONTACT"), "an address for site owners, sent in the User-Agent of every check's request (ALLSTILL_CONTACT)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	allow, err := parseRanges(*allowPrivate)
+	if err != nil {
+		return fmt.Errorf("-allow-private: %w", err)
+	}
+	canary, err := parseCanary(*canaryAddrs)
+	if err != nil {
+		return err
+	}
+	if err := active.CheckContact(*contact); err != nil {
+		return fmt.Errorf("-contact: %w", err)
 	}
 	retention := store.Retention{Runs: *keepRuns, Output: *keepOutput}
 	if err := retention.Check(); err != nil {
@@ -148,9 +166,12 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// The admin commands print links with it.
-	if err := st.SetSetting(ctx, "base_url", base.String()); err != nil {
-		return err
+	// The admin commands print links with it, and check new checks' addresses
+	// against what the server may reach.
+	for k, v := range map[string]string{"base_url": base.String(), "allow_private": *allowPrivate, "canary": strings.Join(canary, ",")} {
+		if err := st.SetSetting(ctx, k, v); err != nil {
+			return err
+		}
 	}
 	if n, err := st.PasskeysOfOtherHosts(ctx, base.Hostname()); err != nil {
 		return err
@@ -219,8 +240,42 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	dashboard.MailOn, dashboard.MailProblem = mail != nil, sender.MailProblem
 	dashboard.Behind = sender.Behind
-	errs := make(chan error, 3)
+
+	// The checks Allstill runs itself (intent/http-checks/spec.md).
+	runner := &active.Runner{Allow: allow, UserAgent: active.UserAgent(version(), *contact)}
+	checks := &active.Loop{
+		Checks:  st.ActiveChecks,
+		Attempt: runner.Attempt,
+		Record: func(ctx context.Context, done []active.Done) error {
+			attempts := make([]store.AttemptOf, len(done))
+			for i, d := range done {
+				attempts[i] = store.AttemptOf{WorkspaceID: d.Check.WorkspaceID, CheckID: d.Check.ID, Attempt: store.Attempt{
+					Attempt:  check.Attempt{Outcome: d.Result.Outcome, Reason: d.Result.Reason, At: d.Result.Ended},
+					Started:  d.Result.Started,
+					Measured: d.Result.Measured,
+				}}
+			}
+			deadline, err := st.RecordAttempts(ctx, attempts)
+			if !deadline.IsZero() {
+				sched.Nudge(deadline)
+			}
+			return err
+		},
+		Log: log,
+	}
+	if len(canary) > 0 {
+		checks.Canary = active.Canary(canary, 5*time.Second)
+	} else {
+		log.Info("checks: no canary is set, so if the server's own network goes down, the checks it runs go down and alert")
+	}
+	if len(allow) > 0 {
+		log.Warn("checks may reach these private ranges, for every project", "allow_private", *allowPrivate)
+	}
+	dashboard.Offline = checks.Offline
+
+	errs := make(chan error, 4)
 	go func() { errs <- sched.Run(ctx) }()
+	go func() { errs <- checks.Run(ctx) }()
 	go func() { errs <- sender.Run(ctx) }()
 	go func() {
 		log.Info("listening", "address", *listen, "dashboard", base.String(), "version", version())

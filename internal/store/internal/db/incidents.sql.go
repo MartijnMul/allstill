@@ -893,3 +893,47 @@ func (q *Queries) SilentChecks(ctx context.Context, personID string) ([]SilentCh
 	}
 	return items, nil
 }
+
+const warningChecks = `-- name: WarningChecks :many
+SELECT c.name, c.state_reason, pr.name AS project_name
+FROM checks c
+JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
+JOIN people p ON p.id = ?1
+LEFT JOIN memberships m ON m.project_id = c.project_id AND m.person_id = p.id
+WHERE c.workspace_id = p.workspace_id AND c.deleted_at IS NULL
+  AND c.state = 'warning' AND c.urgency <> 'none'
+  AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
+ORDER BY pr.name, c.name
+`
+
+type WarningChecksRow struct {
+	Name        string
+	StateReason string
+	ProjectName string
+}
+
+// Checks in warning that the person follows, such as a certificate running
+// out, for the digest (intent/http-checks/spec.md, R9). A check that never
+// alerts is shown, not sent.
+func (q *Queries) WarningChecks(ctx context.Context, personID string) ([]WarningChecksRow, error) {
+	rows, err := q.db.QueryContext(ctx, warningChecks, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WarningChecksRow{}
+	for rows.Next() {
+		var i WarningChecksRow
+		if err := rows.Scan(&i.Name, &i.StateReason, &i.ProjectName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

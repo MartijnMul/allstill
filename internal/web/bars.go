@@ -46,7 +46,12 @@ func barsOf(c store.CheckView, now time.Time, loc *time.Location) ([]bar, string
 	// a second down only after a pause resolved the first; then its pings
 	// were due from when it went down again.
 	drawn := map[int]time.Time{} // the gaps drawn, up to when
-	for _, d := range missedDowns(c) {
+	var downs []store.Down
+	if !store.Active(c.Kind) {
+		// A check Allstill runs is never down for want of a ping.
+		downs = missedDowns(c)
+	}
+	for _, d := range downs {
 		i := sort.Search(len(runs), func(i int) bool { return runs[i].At().After(d.At) })
 		var after time.Time
 		if to, ok := drawn[i]; ok && (to.IsZero() || !to.Before(d.At)) {
@@ -108,6 +113,9 @@ func runBar(r store.RunView, now time.Time, loc *time.Location) bar {
 	tip := l.Label + " · " + stamp(r.At(), now, loc)
 	if d := r.Duration(); d > 0 {
 		tip += " · took " + span(d)
+	}
+	if r.Reason != "" {
+		tip += " · " + r.Reason
 	}
 	return bar{Class: l.Class, Tip: tip}
 }

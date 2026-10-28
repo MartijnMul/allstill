@@ -185,6 +185,13 @@ func TestHealth(t *testing.T) {
 	if code, body := answer(); code != http.StatusServiceUnavailable || body != `{"status":"error","sender_behind":0}` {
 		t.Errorf("an error: %d %s", code, body)
 	}
+	// The server's own network is down for its checks (intent/http-checks,
+	// R7).
+	f.srv.Behind = func(context.Context) (time.Duration, error) { return 0, nil }
+	f.srv.Offline = func() (time.Time, bool) { return time.Now().Add(-time.Minute), true }
+	if code, body := answer(); code != http.StatusServiceUnavailable || body != `{"status":"offline","sender_behind":0}` {
+		t.Errorf("offline: %d %s", code, body)
+	}
 }
 
 // What may keep alerts from someone shows first on the overview (R11).

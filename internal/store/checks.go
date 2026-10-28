@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/active"
 	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/id"
 	"github.com/MartijnMul/allstill/internal/schedule"
@@ -77,12 +78,9 @@ func (n NewCheck) validate() error {
 			return &InvalidError{"tags", "each must be 1 to 50 characters"}
 		}
 	}
-	if v, ok := n.Settings["fail_after"]; ok && Active(n.Kind) {
-		// Read as configOf reads it, so a check is never made that it cannot read.
-		raw, _ := json.Marshal(v)
-		var after int
-		if json.Unmarshal(raw, &after) != nil || after < 1 || after > 100 {
-			return &InvalidError{"fail_after", "must be a whole number from 1 to 100"}
+	if Active(n.Kind) {
+		if err := validateActive(n.Kind, n.Interval, n.Settings); err != nil {
+			return err
 		}
 	}
 	if n.PingUUID != "" {
@@ -98,6 +96,44 @@ func (n NewCheck) validate() error {
 	}
 	return nil
 }
+
+// MaxActiveInterval is the longest interval of a check Allstill runs itself:
+// at least once a day (intent/http-checks/spec.md, R2).
+const MaxActiveInterval = 24 * time.Hour
+
+// validateActive checks what an active check runs on, so a check is never
+// made or changed into one Allstill cannot read or run.
+func validateActive(kind string, interval time.Duration, settings map[string]any) error {
+	if interval > MaxActiveInterval {
+		return &InvalidError{"schedule.every", "must be at most a day"}
+	}
+	if v, ok := settings["fail_after"]; ok {
+		// Read as configOf reads it.
+		raw, _ := json.Marshal(v)
+		var after int
+		if json.Unmarshal(raw, &after) != nil || after < 1 || after > 100 {
+			return &InvalidError{"fail_after", "must be a whole number from 1 to 100"}
+		}
+	}
+	if kind != "http" {
+		return nil
+	}
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	if _, err := active.ParseHTTP(raw); err != nil {
+		if se, ok := errors.AsType[*active.SettingError](err); ok {
+			return &InvalidError{se.Field, se.Problem}
+		}
+		return err
+	}
+	return nil
+}
+
+// activeGrace is an active check's grace: its deadline is its next attempt
+// plus the interval or 2 minutes, whichever is longer.
+func activeGrace(interval time.Duration) time.Duration { return max(interval, 2*time.Minute) }
 
 // CreatedCheck is what a client needs of a new check.
 type CreatedCheck struct {
@@ -117,7 +153,7 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 		return CreatedCheck{}, ErrForbidden
 	}
 	if Active(n.Kind) {
-		n.Grace = max(n.Grace, n.Interval, 2*time.Minute)
+		n.Grace = max(n.Grace, activeGrace(n.Interval))
 	}
 	if err := n.validate(); err != nil {
 		return CreatedCheck{}, err
@@ -239,7 +275,47 @@ func (s *Store) RecordAttempt(ctx context.Context, workspaceID, checkID string, 
 		return check.Status{}, err
 	}
 	defer tx.Rollback()
+	after, err := recordAttempt(ctx, db.New(tx), workspaceID, checkID, a)
+	if err != nil {
+		return check.Status{}, err
+	}
+	return after, tx.Commit()
+}
+
+// AttemptOf is an attempt of one check, for RecordAttempts.
+type AttemptOf struct {
+	WorkspaceID, CheckID string
+	Attempt
+}
+
+// RecordAttempts keeps the attempts of one tick of the loop in one
+// transaction, so ping ingest waits for the write lock once, not for each.
+// An attempt for a check that is gone is left out. It returns the earliest
+// deadline the checks now have, for the scheduler.
+func (s *Store) RecordAttempts(ctx context.Context, attempts []AttemptOf) (time.Time, error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer tx.Rollback()
 	q := db.New(tx)
+	var earliest time.Time
+	for _, a := range attempts {
+		after, err := recordAttempt(ctx, q, a.WorkspaceID, a.CheckID, a.Attempt)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return time.Time{}, err
+		}
+		if d := after.Deadline; !d.IsZero() && (earliest.IsZero() || d.Before(earliest)) {
+			earliest = d
+		}
+	}
+	return earliest, tx.Commit()
+}
+
+func recordAttempt(ctx context.Context, q *db.Queries, workspaceID, checkID string, a Attempt) (check.Status, error) {
 	c, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: workspaceID, ID: checkID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return check.Status{}, ErrNotFound
@@ -279,5 +355,92 @@ func (s *Store) RecordAttempt(ctx context.Context, workspaceID, checkID string, 
 	if err := saveStatus(ctx, q, c, before, after); err != nil {
 		return check.Status{}, err
 	}
-	return after, tx.Commit()
+	return after, nil
+}
+
+// ActiveChecks returns the checks the server's loop runs: those Allstill
+// runs itself that are not paused, of the kinds it knows. One whose settings
+// it cannot read is left out; it never had a run, or becomes unknown at its
+// deadline.
+func (s *Store) ActiveChecks(ctx context.Context) ([]active.Check, error) {
+	rows, err := db.New(s.r).ActiveChecks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var checks []active.Check
+	for _, r := range rows {
+		if r.Kind != "http" {
+			continue
+		}
+		h, err := active.ParseHTTP([]byte(r.Settings))
+		if err != nil {
+			continue
+		}
+		checks = append(checks, active.Check{
+			ID: r.ID, WorkspaceID: r.WorkspaceID, Every: time.Duration(r.IntervalSeconds.Int64) * time.Second, HTTP: h,
+		})
+	}
+	return checks, nil
+}
+
+// SetActiveCheck changes what a check Allstill runs itself fetches and how
+// often: its interval, and its settings as a whole. The caller must be an
+// editor or owner of its project. A check waiting for an attempt waits at
+// most one new interval for it, so a longer one does not make it unknown.
+// at is when it changes.
+func (s *Store) SetActiveCheck(ctx context.Context, a Access, checkID string, interval time.Duration, settings map[string]any, at time.Time) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	c, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: a.WorkspaceID, ID: checkID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	role, ok := a.Role(c.ProjectID)
+	switch {
+	case !ok:
+		return ErrNotFound
+	case role == Viewer:
+		return ErrForbidden
+	case !Active(c.Kind):
+		return &InvalidError{"kind", "only a check Allstill runs itself has these settings"}
+	case interval < time.Minute:
+		return &InvalidError{"schedule.every", "must be at least 60 seconds"}
+	}
+	if err := validateActive(c.Kind, interval, settings); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	grace := activeGrace(interval)
+	deadline := c.Deadline
+	if deadline.Valid {
+		deadline.Int64 = at.Add(interval + grace).UnixMilli()
+	}
+	n, err := q.UpdateActiveCheck(ctx, db.UpdateActiveCheckParams{
+		IntervalSeconds: sql.NullInt64{Int64: int64(interval / time.Second), Valid: true},
+		GraceSeconds:    int64(grace / time.Second), Settings: string(raw), Deadline: deadline,
+		UpdatedAt: at.UnixMilli(), WorkspaceID: a.WorkspaceID, ID: checkID,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	if err := q.CreateEvent(ctx, db.CreateEventParams{
+		WorkspaceID: a.WorkspaceID, ProjectID: sql.NullString{String: c.ProjectID, Valid: true},
+		Type: "check.updated", SubjectID: checkID, CreatedAt: at.UnixMilli(),
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

@@ -12,25 +12,33 @@ import (
 // few passes, and less than the gather period's wait (R11).
 const BehindAfter = 2 * time.Minute
 
-// GET /health: whether Allstill can alert, for a monitor outside it to
-// watch. 200 when the sender keeps up, 503 when it is behind or the database
-// cannot be read. It says nothing about checks, so it needs no sign-in.
+// GET /health: whether Allstill can alert and judge, for a monitor outside
+// it to watch. 200 when the sender keeps up, 503 when it is behind, the
+// database cannot be read, or the server is offline for the checks it runs
+// (its canary does not answer). It says nothing about any check, so it needs
+// no sign-in.
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	type answer struct {
-		Status       string `json:"status"` // ok, behind or error
+		Status       string `json:"status"` // ok, behind, offline or error
 		SenderBehind int64  `json:"sender_behind"`
 	}
-	if s.Behind == nil {
-		writeJSON(w, http.StatusOK, answer{Status: "ok"})
-		return
+	var behind time.Duration
+	var err error
+	if s.Behind != nil {
+		behind, err = s.Behind(r.Context())
 	}
-	behind, err := s.Behind(r.Context())
+	offline := false
+	if s.Offline != nil {
+		_, offline = s.Offline()
+	}
 	switch {
 	case err != nil:
 		s.Log.Error("checking health", "error", err)
 		writeJSON(w, http.StatusServiceUnavailable, answer{Status: "error"})
 	case behind > BehindAfter:
 		writeJSON(w, http.StatusServiceUnavailable, answer{Status: "behind", SenderBehind: int64(behind / time.Second)})
+	case offline:
+		writeJSON(w, http.StatusServiceUnavailable, answer{Status: "offline", SenderBehind: int64(behind / time.Second)})
 	default:
 		writeJSON(w, http.StatusOK, answer{Status: "ok", SenderBehind: int64(behind / time.Second)})
 	}

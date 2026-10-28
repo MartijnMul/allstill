@@ -23,12 +23,16 @@ type CheckView struct {
 	Description string
 	Tags        []string
 	PingUUID    string
-	Interval    time.Duration // zero for a cron schedule
-	Cron        string
-	TimeZone    string
-	Grace       time.Duration
-	Status      check.Status
-	Created     time.Time
+	// Kind is ping, or http or tcp for a check Allstill runs itself, whose
+	// Settings say what it fetches. They hold its URL, a secret (R12).
+	Kind     string
+	Settings []byte
+	Interval time.Duration // zero for a cron schedule
+	Cron     string
+	TimeZone string
+	Grace    time.Duration
+	Status   check.Status
+	Created  time.Time
 	// Recent holds the latest runs, newest first: up to RecentRuns of them.
 	Recent []RunView
 	// Downs holds when the check went down, newest first: when it joined an
@@ -56,6 +60,7 @@ type RunView struct {
 	TimedOut   time.Time
 	ExitStatus int // -1 when not reported
 	Values     map[string]float64
+	Reason     string // why an attempt of an active check failed or warned
 }
 
 // At is when the run started, or when it ended for a run whose start is not
@@ -154,7 +159,7 @@ func (s *Store) RunLog(ctx context.Context, a Access, checkID, runID string) ([]
 func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) (CheckView, error) {
 	v := CheckView{
 		ID: c.ID, ProjectID: c.ProjectID, ProjectName: projectName, Name: c.Name, Slug: c.Slug.String,
-		Description: c.Description, PingUUID: c.PingUuid,
+		Description: c.Description, PingUUID: c.PingUuid, Kind: c.Kind, Settings: []byte(c.Settings),
 		Interval: time.Duration(c.IntervalSeconds.Int64) * time.Second,
 		Cron:     c.CronExpression.String, TimeZone: c.TimeZone.String,
 		Grace:  time.Duration(c.GraceSeconds) * time.Second,
@@ -171,7 +176,7 @@ func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) 
 	for _, r := range runs {
 		rv := RunView{
 			ID: r.ID, Outcome: r.Outcome, Started: msTime(r.StartedAt), Ended: msTime(r.EndedAt),
-			TimedOut: msTime(r.TimedOutAt), ExitStatus: exitOf(r.ExitStatus),
+			TimedOut: msTime(r.TimedOutAt), ExitStatus: exitOf(r.ExitStatus), Reason: r.Reason,
 		}
 		if r.Measured != "{}" {
 			if err := json.Unmarshal([]byte(r.Measured), &rv.Values); err != nil {

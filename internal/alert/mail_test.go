@@ -348,3 +348,19 @@ func TestAFallbackOnlyGoesAWayThatWorks(t *testing.T) {
 		t.Errorf("a down still waits: %v", pending)
 	}
 }
+
+// The digest lists checks in warning, such as a certificate running out
+// (intent/http-checks/spec.md, R9), and tells nothing for them.
+func TestTheDigestListsWarnings(t *testing.T) {
+	items, told := DigestItems(nil, []store.ListedCheck{
+		{Name: "web", Project: "Shop", State: "new"},
+		{Name: "shop", Project: "Sites", State: "warning", Reason: "certificate expires in 12 days"},
+	}, false)
+	if len(items) != 2 || items[1].What != "warning" || items[1].Title != "Sites: shop (certificate expires in 12 days)" || len(told) != 0 {
+		t.Fatalf("%+v, told %+v", items, told)
+	}
+	subject, body := (&Sender{Base: "https://allstill.example.com"}).compose(store.Pending{Kind: "digest", Items: items}, "")
+	if subject != "Allstill digest: 1 check that cannot alert, 1 warning" || !strings.Contains(body, "Warnings\n- Sites: shop (certificate expires in 12 days)\n") {
+		t.Errorf("%q\n%s", subject, body)
+	}
+}
