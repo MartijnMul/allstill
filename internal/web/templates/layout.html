@@ -14,33 +14,91 @@
 </head>
 <body>
 {{if .Person}}
-<header class="top">
-  <a class="brand" href="/">{{template "logo"}}</a>
-  {{if .Crumbs}}
-  <nav class="crumbs" aria-label="Breadcrumb">
-    {{range $i, $c := .Crumbs}}{{if $i}}<span aria-hidden="true">/</span>{{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Name}}</a>{{else}}<span>{{$c.Name}}</span>{{end}}{{end}}
-  </nav>
-  {{else}}
-  <form class="search" role="search" action="/" method="get">
-    <label for="q" class="sr">Search checks</label>
-    <input id="q" name="q" type="search" value="{{.Search}}" placeholder="Search checks, projects, tags">
-  </form>
-  {{end}}
-  <div class="spacer"></div>
-  <form class="who" action="/logout" method="post">
-    <nav aria-label="Account">
-      <a href="/messages"{{if eq .Here "messages"}} aria-current="page"{{end}}>Messages</a>
-      <a href="/channels"{{if eq .Here "devices"}} aria-current="page"{{end}}>Devices</a>
+<a class="skip" href="#content">Skip to content</a>
+<div class="shell">
+  <aside class="side">
+    <div class="side-top">
+      <a class="brand" href="/">{{template "logo"}}</a>
+      <label class="menu-button" for="menu" title="Menu"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg><span class="sr">Menu</span></label>
+    </div>
+    <input type="checkbox" id="menu" class="menu-toggle sr">
+    <div class="side-body">
+      <form class="search" role="search" action="/" method="get">
+        <label for="q" class="sr">Search checks</label>
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <input id="q" name="q" type="search" value="{{.Search}}" placeholder="Search checks"><kbd title="Press / to search">/</kbd>
+      </form>
+      <nav class="side-nav" id="nav" aria-label="Checks">
+        {{with .Nav}}
+        <ul>
+          {{range .Views}}
+          <li><a href="{{.Href}}"{{with .Current}} aria-current="{{.}}"{{end}}>
+            <svg class="icon" aria-hidden="true"><use href="#i-{{if eq .Class "attention"}}alert{{else if eq .Class "paused"}}pause{{else}}grid{{end}}"/></svg>
+            <span class="label">{{.Name}}</span><span class="count{{if and (eq .Class "attention") .Count}} hot {{$.Nav.Urgency}}{{end}}">{{.Count}}</span>
+          </a></li>
+          {{end}}
+        </ul>
+        {{if .Projects}}
+        <p class="side-label">Projects</p>
+        <ul>
+          {{range .Projects}}
+          <li><a href="{{.Href}}"{{with .Current}} aria-current="{{.}}"{{end}}>
+            <span class="shape"><i class="dot {{.Class}}" aria-hidden="true"></i></span>
+            <span class="label">{{.Name}}</span><span class="count">{{.Count}}</span>
+          </a></li>
+          {{end}}
+        </ul>
+        {{end}}
+        {{else}}
+        <ul><li><a href="/"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span class="label">All checks</span></a></li></ul>
+        {{end}}
+      </nav>
+      <nav class="side-nav side-more" aria-label="Alerts">
+        <ul>
+          <li><a href="/messages"{{if eq .Here "messages"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span class="label">Messages</span></a></li>
+          <li><a href="/channels"{{if eq .Here "devices"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-device"/></svg><span class="label">Devices</span></a></li>
+        </ul>
+      </nav>
+      <form class="account" action="/logout" method="post">
+        <span class="avatar" aria-hidden="true">{{initial .Person}}</span>
+        <span class="person">{{.Person}}</span>
+        <button type="submit" class="icon-button" title="Sign out"><svg class="icon" aria-hidden="true"><use href="#i-logout"/></svg><span class="sr">Sign out</span></button>
+      </form>
+    </div>
+  </aside>
+  <div class="content" id="content" tabindex="-1"><div{{if .Live}} id="live"{{end}}>
+    {{if gt (len .Crumbs) 1}}
+    <nav class="crumbs" aria-label="Breadcrumb">
+      {{range $i, $c := .Crumbs}}{{if $i}}<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg>{{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Name}}</a>{{else}}<span aria-current="page">{{$c.Name}}</span>{{end}}{{end}}
     </nav>
-    <span class="person">{{.Person}}</span>
-    <button type="submit" class="small">Sign out</button>
-  </form>
-</header>
+    {{end}}
+    {{template "content" .}}
+  </div></div>
+</div>
 <p class="stale" id="stale" role="status"></p>
-{{end}}
+{{else}}
 {{template "content" .}}
+{{end}}
+{{template "icons"}}
 </body>
 </html>
 {{end}}
+
+{{/* Icons, drawn for Allstill on a 24 grid with a 1.75 stroke. */}}
+{{define "icons"}}<svg class="sprite" aria-hidden="true">
+<symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></symbol>
+<symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 4.2a2 2 0 0 1 3.4 0l7.6 13.1a2 2 0 0 1-1.7 3H4.4a2 2 0 0 1-1.7-3Z"/><path d="M12 9.5v4.5M12 17.2v.1"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1.2"/><rect x="14" y="4.5" width="4" height="15" rx="1.2"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15Z"/><path d="M10 21a2.2 2.2 0 0 0 4 0"/></symbol>
+<symbol id="i-device" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18h2"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M14 4h3.5A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5H14"/><path d="m9.5 8-4 4 4 4M5.5 12H15"/></symbol>
+<symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></symbol>
+<symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+<symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.1"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.2 2.7 2.7L16.2 9.5"/></symbol>
+<symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3.5 13.5 6 5.5h12l2.5 8v5a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M3.5 13.5h5l1 2.5h5l1-2.5h5"/></symbol>
+</svg>{{end}}
 
 {{define "logo"}}<svg class="logo" viewBox="8.6 -40.84 479.7 47.12" width="183" height="18" role="img" aria-label="Allstill"><path class="logo-b" d="M9.6 5.28V-39.84H21.79V-35.57H14.35V1.01H21.79V5.28Z"/><path class="logo-ok" d="M100.8 0.48Q95.76 0.48 92.81 -2.4Q89.86 -5.28 89.86 -10.37V-24.67Q89.86 -29.76 92.81 -32.64Q95.76 -35.52 100.8 -35.52Q105.84 -35.52 108.79 -32.64Q111.74 -29.76 111.74 -24.72V-10.37Q111.74 -5.28 108.79 -2.4Q105.84 0.48 100.8 0.48ZM100.8 -4.8Q103.25 -4.8 104.5 -6.12Q105.74 -7.44 105.74 -9.89V-25.15Q105.74 -27.6 104.5 -28.92Q103.25 -30.24 100.8 -30.24Q98.35 -30.24 97.1 -28.92Q95.86 -27.6 95.86 -25.15V-9.89Q95.86 -7.44 97.1 -6.12Q98.35 -4.8 100.8 -4.8ZM118.85 0V-35.04H124.85V-20.74H128.98L135.65 -35.04H142.13L134.26 -18.34L142.51 0H135.84L128.93 -15.5H124.85V0Z"/><path class="logo-b" d="M208.61 5.28V1.01H216.05V-35.57H208.61V-39.84H220.8V5.28Z"/><path class="logo-w" d="M271.15 0.48Q267.07 0.48 264.7 -1.8Q262.32 -4.08 262.32 -7.78Q262.32 -11.47 264.79 -13.73Q267.26 -15.98 271.3 -15.98H279.02V-18Q279.02 -22.85 273.65 -22.85Q271.25 -22.85 269.78 -21.96Q268.32 -21.07 268.22 -19.49H263.52Q263.76 -22.7 266.45 -24.79Q269.14 -26.88 273.65 -26.88Q278.5 -26.88 281.14 -24.58Q283.78 -22.27 283.78 -18.1V0H279.12V-4.85H279.02Q278.69 -2.4 276.6 -0.96Q274.51 0.48 271.15 0.48ZM272.4 -3.5Q275.42 -3.5 277.22 -4.97Q279.02 -6.43 279.02 -8.98V-12.48H271.73Q269.66 -12.48 268.39 -11.26Q267.12 -10.03 267.12 -8.02Q267.12 -5.95 268.51 -4.73Q269.9 -3.5 272.4 -3.5ZM306.34 0Q302.74 0 300.58 -2.11Q298.42 -4.22 298.42 -7.73V-30.72H289.39V-35.04H303.17V-7.78Q303.17 -6.19 304.06 -5.26Q304.94 -4.32 306.48 -4.32H314.5V0ZM335.14 0Q331.54 0 329.38 -2.11Q327.22 -4.22 327.22 -7.73V-30.72H318.19V-35.04H331.97V-7.78Q331.97 -6.19 332.86 -5.26Q333.74 -4.32 335.28 -4.32H343.3V0ZM358.94 0.38Q354.43 0.38 351.94 -1.63Q349.44 -3.65 349.44 -7.3H354.14Q354.14 -5.57 355.42 -4.58Q356.69 -3.6 358.94 -3.6H361.06Q363.41 -3.6 364.68 -4.61Q365.95 -5.62 365.95 -7.44Q365.95 -10.66 362.78 -11.04L355.68 -12.05Q352.85 -12.48 351.31 -14.38Q349.78 -16.27 349.78 -19.3Q349.78 -22.85 352.18 -24.82Q354.58 -26.78 358.9 -26.78H361.01Q365.04 -26.78 367.54 -24.86Q370.03 -22.94 370.18 -19.78H365.38Q365.28 -21.12 364.13 -22.01Q362.98 -22.9 361.01 -22.9H358.9Q356.74 -22.9 355.56 -21.94Q354.38 -20.98 354.38 -19.34Q354.38 -16.7 357.02 -16.37L363.7 -15.41Q370.56 -14.5 370.56 -7.44Q370.56 -3.7 368.09 -1.66Q365.62 0.38 361.06 0.38ZM391.44 0Q388.03 0 386.04 -1.97Q384.05 -3.94 384.05 -7.2V-22.08H376.51V-26.4H384.05V-33.84H388.8V-26.4H399.5V-22.08H388.8V-7.25Q388.8 -5.95 389.54 -5.14Q390.29 -4.32 391.54 -4.32H399.26V0ZM407.18 0V-4.32H416.45V-22.08H408.14V-26.4H421.2V-4.32H429.89V0ZM418.37 -31.06Q416.74 -31.06 415.78 -31.9Q414.82 -32.74 414.82 -34.18Q414.82 -35.66 415.78 -36.53Q416.74 -37.39 418.37 -37.39Q420 -37.39 420.96 -36.53Q421.92 -35.66 421.92 -34.18Q421.92 -32.74 420.96 -31.9Q420 -31.06 418.37 -31.06ZM450.34 0Q446.74 0 444.58 -2.11Q442.42 -4.22 442.42 -7.73V-30.72H433.39V-35.04H447.17V-7.78Q447.17 -6.19 448.06 -5.26Q448.94 -4.32 450.48 -4.32H458.5V0ZM479.14 0Q475.54 0 473.38 -2.11Q471.22 -4.22 471.22 -7.73V-30.72H462.19V-35.04H475.97V-7.78Q475.97 -6.19 476.86 -5.26Q477.74 -4.32 479.28 -4.32H487.3V0Z"/></svg>{{end}}

@@ -33,6 +33,8 @@ type activeData struct {
 	Look     look
 	Since    string
 	Incident string
+	Kind     string
+	Updated  string
 	Tiles    []tile
 	What     []pair
 	Chart    *chart
@@ -55,7 +57,7 @@ func settingsOf(c store.CheckView) active.HTTP {
 func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c store.CheckView, d checkData) {
 	now := s.Now()
 	h := settingsOf(c)
-	a := activeData{C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Secret: !whole(v, c.ProjectID)}
+	a := activeData{C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Updated: d.Updated, Kind: strings.ToUpper(c.Kind), Secret: !whole(v, c.ProjectID)}
 
 	var last store.RunView
 	if len(c.Recent) > 0 {
@@ -113,6 +115,7 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 	if ch := chartOf(c.Recent, now, v.Loc); ch != nil {
 		ch.Label = strings.Replace(ch.Label, "Run time of the last", "Response time of the last", 1)
 		ch.Label = strings.Replace(ch.Label, " runs, ", " attempts, ", 1)
+		ch.Title, ch.Max, ch.Mid = "Response time", millis(ch.longest), millis(ch.longest/2)
 		a.Chart = ch
 	}
 	for i, run := range c.Recent {
@@ -131,8 +134,13 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 		}
 		a.Runs = append(a.Runs, row)
 	}
-	crumbs := []crumb{{c.ProjectName, "/?project=" + c.ProjectID}, {c.Name, ""}}
-	s.render(w, r, http.StatusOK, "active", page{Title: c.Name, Person: v.Name, Crumbs: crumbs, Data: a})
+	nav, err := s.nav(r.Context(), v, c.ProjectID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	crumbs := []crumb{{c.ProjectName, overviewLink("", c.ProjectID)}, {c.Name, ""}}
+	s.render(w, r, http.StatusOK, "active", page{Title: c.Name, Person: v.Name, Crumbs: crumbs, Nav: nav, Live: true, Data: a})
 }
 
 // activeRow fills in an overview row for a check Allstill runs itself.

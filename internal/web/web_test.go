@@ -472,3 +472,82 @@ func TestMessagesShowWhatWouldHaveBeenSent(t *testing.T) {
 		t.Fatal("a viewer was alerted")
 	}
 }
+
+// Every signed-in page renders with its sidebar, for every kind of check:
+// one whose runs sent values, one whose runs did not, and one Allstill runs.
+func TestEveryPageRenders(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	admin, _ := f.st.AccessOfPerson(ctx, f.ws, f.ada)
+	plain, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "log-rotate", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.Ping(ctx, store.PingIn{CheckUUID: plain.PingUUID, Kind: check.Fail, ExitStatus: 1, Method: "POST", At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	site, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "shop.example.com", Kind: "http", Interval: time.Minute,
+		Settings: map[string]any{"url": "https://shop.example.com/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two attempts, so its page draws their response times.
+	for _, at := range []time.Time{time.Now().Add(-2 * time.Minute), time.Now().Add(-time.Minute)} {
+		if _, err := f.st.RecordAttempt(ctx, f.ws, site.ID, store.Attempt{Attempt: check.Attempt{Outcome: check.Passed, At: at},
+			Started: at.Add(-time.Second), Measured: map[string]float64{"status": 200}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	for path, want := range map[string]string{
+		"/":                      "health-bar",
+		"/?show=attention":       "Needs attention",
+		"/?show=paused":          "No checks here.",
+		"/?project=" + f.project: "log-rotate",
+		"/?q=nothing-like-it":    "No check matches",
+		"/checks/" + f.checkID:   "size 18.4 G",
+		"/checks/" + plain.ID:    "The job failed with exit status 1.",
+		"/checks/" + site.ID:     "Response time",
+		"/messages":              "History",
+		"/channels":              "Where alerts go",
+	} {
+		page := string(b.ok("GET", path, nil))
+		if !strings.Contains(page, want) {
+			t.Errorf("%s lacks %q", path, want)
+		}
+		if !strings.Contains(page, `id="nav"`) || !strings.Contains(page, "Backups") {
+			t.Errorf("%s has no sidebar with the projects", path)
+		}
+	}
+	if page := string(b.ok("GET", "/", nil)); !strings.Contains(page, "<title>(1) Checks · Allstill</title>") {
+		t.Error("the overview's title does not count the check that needs someone")
+	}
+}
+
+// The view of what needs attention says all is well only when Allstill
+// knows it: a check that is unknown, as when its own network is down, needs
+// no one to act on it, but is not known to be up.
+func TestTheAttentionViewClaimsOnlyWhatItKnows(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	b := f.browser(t)
+	f.register(t, b, f.bob)
+	if page := string(b.ok("GET", "/?show=attention", nil)); !strings.Contains(page, "Nothing needs you") {
+		t.Fatal("the attention view of checks that are all well does not say so")
+	}
+	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	site, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "shop.example.com", Kind: "http", Interval: time.Minute,
+		Settings: map[string]any{"url": "https://shop.example.com/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.st.RecordAttempt(ctx, f.ws, site.ID, store.Attempt{Attempt: check.Attempt{Outcome: check.Unjudged, At: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	page := string(b.ok("GET", "/?show=attention", nil))
+	if strings.Contains(page, "Nothing needs you") || !strings.Contains(page, "No check is down, late or in warning.") {
+		t.Fatal("the attention view says all is well while a check is unknown")
+	}
+}

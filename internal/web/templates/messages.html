@@ -1,41 +1,52 @@
 {{/* SPDX-License-Identifier: AGPL-3.0-only */}}
 {{define "content"}}{{with .Data}}
-<main class="page">
-  <div class="title">
-    <div><h1>Messages to you</h1></div>
-    {{if .Shadow}}
-    <p class="reason">Shadow mode: Allstill decides what it would tell you and records it here, but sends only test messages yet. Compare it with the alerts you get elsewhere before relying on it.</p>
-    {{end}}
-  </div>
+<main class="main">
+  <header class="page-head">
+    <div class="page-title"><h1>Messages</h1></div>
+    <p class="lede">What Allstill told you about your checks, newest first.</p>
+  </header>
 
-  {{if .Nobody}}
-  <section class="panel">
-    <h2>Nobody would be told</h2>
-    <p class="muted">Nobody gets alerts for these projects: {{range $i, $p := .Nobody}}{{if $i}}, {{end}}{{$p}}{{end}}.</p>
-  </section>
+  {{if .Shadow}}
+  <div class="callout info">
+    <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+    <div>
+      <p class="callout-title">Shadow mode</p>
+      <p>Allstill decides what it would tell you and records it here, but sends only test messages yet. Compare it with the alerts you get elsewhere before relying on it.</p>
+    </div>
+  </div>
   {{end}}
 
-  <section class="panel">
-    <h2>Newest first</h2>
+  {{if .Nobody}}
+  <div class="callout warn">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div>
+      <p class="callout-title">Nobody would be told</p>
+      <p>Nobody gets alerts for these projects: {{range $i, $p := .Nobody}}{{if $i}}, {{end}}{{$p}}{{end}}.</p>
+    </div>
+  </div>
+  {{end}}
+
+  <section class="panel" aria-labelledby="messages">
+    <div class="panel-head"><h2 id="messages">History</h2>{{if .Messages}}<span class="count">{{len .Messages}}</span>{{end}}</div>
     {{if .Messages}}
-    <div class="runs">
-      <table>
+    <div class="table">
+      <table class="messages">
         <caption class="sr">Messages to you, newest first</caption>
         <thead><tr><th scope="col">When</th><th scope="col">Kind</th><th scope="col">What</th><th scope="col">Result</th></tr></thead>
         <tbody>
           {{range .Messages}}
           <tr>
-            <td class="mono">{{.When}}</td>
-            <td>{{.Kind}}</td>
+            <td class="mono nowrap">{{.When}}</td>
+            <td><span class="tag">{{.Kind}}</span></td>
             <td>{{range .Lines}}<div>{{.}}</div>{{end}}</td>
-            <td><span class="result"><i class="dot {{.Class}}" aria-hidden="true"></i>{{.State}}</span></td>
+            <td><span class="state {{.Class}}"><i class="dot {{.Class}}" aria-hidden="true"></i>{{.State}}</span></td>
           </tr>
           {{end}}
         </tbody>
       </table>
     </div>
     {{else}}
-    <p class="muted">Nothing yet. When a check goes down, what you are told appears here.</p>
+    <div class="empty"><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><p>Nothing yet. When a check goes down, what you are told appears here.</p></div>
     {{end}}
   </section>
 </main>

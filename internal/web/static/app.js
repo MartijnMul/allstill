@@ -137,19 +137,37 @@ if (setup) {
   });
 }
 
+// "/" goes to the search, as in most tools people use all day.
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.target.closest("input, textarea, select, [contenteditable]")) return;
+  const search = document.getElementById("q");
+  // On a phone the search is in the closed menu.
+  if (!search || !search.offsetParent) return;
+  event.preventDefault();
+  search.focus();
+  search.select();
+});
+
 // Copy buttons may be replaced when the page refreshes, so one listener
 // serves them all.
 document.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-copy]");
   if (!button) return;
   const text = document.getElementById(button.dataset.copy).textContent;
+  // An icon button says it in its label, and shows it while it lasts.
+  const label = button.querySelector("[data-label]") ?? button;
   try {
     await navigator.clipboard.writeText(text);
-    button.textContent = "Copied";
+    label.textContent = "Copied";
+    button.classList.add("done");
   } catch {
-    button.textContent = "Copy failed";
+    label.textContent = "Copy failed";
   }
-  setTimeout(() => (button.textContent = "Copy"), 2000);
+  setTimeout(() => {
+    label.textContent = "Copy";
+    button.classList.remove("done");
+  }, 2000);
 });
 
 // A bar in the last runs says what it was and when. With a mouse the tip
@@ -229,17 +247,19 @@ document.addEventListener("pointerout", (event) => {
 });
 
 // Until the live stream comes, a page with live content fetches itself again
-// every 30 seconds while it is in view. It leaves the page alone while
-// someone works in it (focus or a selection inside), and says so when it
-// cannot refresh: a monitoring page must never look current when it is not.
+// every 30 seconds while it is in view, with the sidebar's counts. It leaves
+// the page alone while someone works in it (focus or a selection inside),
+// and says so when it cannot refresh: a monitoring page must never look
+// current when it is not.
 const live = document.getElementById("live");
+const nav = document.getElementById("nav");
 const stale = document.getElementById("stale");
 if (live && stale) {
   let updated = new Date();
   const inUse = () => {
     const selection = getSelection();
-    return live.contains(document.activeElement) ||
-      (selection && !selection.isCollapsed && live.contains(selection.anchorNode));
+    return [live, nav].some((region) => region && (region.contains(document.activeElement) ||
+      (selection && !selection.isCollapsed && region.contains(selection.anchorNode))));
   };
   setInterval(async () => {
     if (document.visibilityState !== "visible" || inUse()) return;
@@ -250,12 +270,16 @@ if (live && stale) {
         return;
       }
       if (!response.ok) throw new Error(response.statusText);
-      const next = new DOMParser().parseFromString(await response.text(), "text/html").getElementById("live");
+      const doc = new DOMParser().parseFromString(await response.text(), "text/html");
+      const next = doc.getElementById("live");
       if (!next) throw new Error("no live content");
       if (inUse()) return;
       const log = live.querySelector("pre.log");
       const scrolled = log ? log.scrollTop : 0;
       live.replaceChildren(...next.childNodes);
+      const nextNav = doc.getElementById("nav");
+      if (nav && nextNav) nav.replaceChildren(...nextNav.childNodes);
+      document.title = doc.title;
       hideTip();
       const newLog = live.querySelector("pre.log");
       if (newLog) newLog.scrollTop = scrolled;

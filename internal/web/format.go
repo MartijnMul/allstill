@@ -14,7 +14,15 @@ import (
 	"github.com/MartijnMul/allstill/internal/check"
 )
 
-var funcs = template.FuncMap{}
+var funcs = template.FuncMap{
+	// initial is the first letter of a name, for the person's avatar.
+	"initial": func(name string) string {
+		for _, r := range strings.TrimSpace(name) {
+			return strings.ToUpper(string(r))
+		}
+		return "?"
+	},
+}
 
 // look is how a state shows: a label, and a class that gives it a colour and
 // a shape.

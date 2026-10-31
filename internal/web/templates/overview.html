@@ -1,58 +1,80 @@
 {{/* SPDX-License-Identifier: AGPL-3.0-only */}}
-{{define "content"}}{{with .Data}}
-<div class="layout" id="live">
-  <nav class="side" aria-label="Views and projects">
-    {{range .Views}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><span>{{.Name}}</span><span class="count">{{.Count}}</span></a>{{end}}
-    {{if .Projects}}<p>Projects</p>{{end}}
-    {{range .Projects}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}><i class="dot {{.Class}}" aria-hidden="true"></i><span>{{.Name}}</span><span class="count">{{.Count}}</span></a>{{end}}
-  </nav>
-
-  <main class="main">
-    <div class="heading">
+{{define "content"}}{{$search := .Search}}{{with .Data}}
+<main class="main">
+  <header class="page-head">
+    <div class="page-title">
       <h1>{{.Headline}}</h1>
-      <p>{{.Summary}}</p>
+      <p class="updated">Updated {{.Updated}}</p>
     </div>
-
-    {{if .Attention}}
-    <div class="cards">
-      {{range .Attention}}
-      <a class="card {{.Class}}" href="{{.Href}}">
-        <strong><i class="dot big {{.Class}}" aria-hidden="true"></i>{{.Title}}</strong>
-        <span>{{.Line}}</span>
-        {{if .Note}}<span>{{.Note}}</span>{{end}}
-      </a>
-      {{end}}
+    {{if .Health}}
+    <div class="health">
+      <svg class="health-bar" viewBox="0 0 100 10" preserveAspectRatio="none" role="img" aria-label="{{.Summary}}">
+        {{range .Health}}<rect class="{{.Class}}" x="{{.X}}" y="0" width="{{.W}}" height="10" vector-effect="non-scaling-stroke"/>{{end}}
+      </svg>
+      <ul class="legend">
+        {{range .Health}}<li><i class="dot {{.Class}}" aria-hidden="true"></i><strong>{{.N}}</strong> {{.Label}}</li>{{end}}
+      </ul>
     </div>
     {{end}}
+  </header>
 
-    <div class="panel table">
-      {{if .Groups}}
+  {{if .Attention}}
+  <section class="panel" aria-labelledby="attention">
+    <div class="panel-head">
+      <h2 id="attention">Needs you</h2>
+      <span class="count">{{len .Attention}}</span>
+    </div>
+    <ul class="alerts">
+      {{range .Attention}}
+      <li class="{{.Class}}">
+        <a href="{{.Href}}">
+          <i class="dot big {{.Class}}" aria-hidden="true"></i>
+          <span class="alert-text"><strong>{{.Title}}</strong>{{if .Note}}<span>{{.Note}}</span>{{end}}</span>
+          <span class="alert-meta">{{.Line}}</span>
+          <svg class="icon chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
+        </a>
+      </li>
+      {{end}}
+    </ul>
+  </section>
+  {{end}}
+
+  <section class="panel" aria-labelledby="list">
+    <div class="panel-head">
+      <h2 id="list">{{.List}}</h2>
+      <span class="count">{{.Shown}}</span>
+      {{if $search}}<span class="filter">matching “{{$search}}” <a href="{{.Clear}}">Clear</a></span>{{end}}
+    </div>
+    {{if .Groups}}
+    <div class="table">
       <table class="checks">
         <caption class="sr">Checks</caption>
         <thead>
-          <tr><th scope="col">Status</th><th scope="col">Check</th><th scope="col">Schedule</th><th scope="col">Last runs</th><th scope="col">Last seen</th><th scope="col">Value</th><th scope="col">Next</th></tr>
+          <tr><th scope="col">Status</th><th scope="col">Check</th><th scope="col">Last runs</th><th scope="col">Schedule</th><th scope="col">Last seen</th><th scope="col">Next</th></tr>
         </thead>
         {{range .Groups}}
         <tbody>
-          <tr class="group"><th colspan="7" scope="rowgroup">{{.Name}}</th></tr>
+          <tr class="group"><th colspan="6" scope="rowgroup">{{.Name}} <span class="count">{{len .Checks}}</span></th></tr>
           {{range .Checks}}
           <tr class="check">
             <td><span class="state {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span></td>
-            <td><a class="name" href="{{.Href}}"><span>{{.Name}}</span><span>{{.Sub}}</span></a></td>
-            <td class="nowrap"><span class="when"><span class="mono">{{.Schedule}}</span>{{if .ScheduleNote}}<span>{{.ScheduleNote}}</span>{{end}}</span></td>
-            <td><span class="bars"><span class="sr">{{.BarsLabel}}</span>{{range .Bars}}<i class="{{.Class}}" data-tip="{{.Tip}}" aria-hidden="true"></i>{{end}}</span></td>
-            <td class="nowrap">{{.Last}}</td>
-            <td class="mono nowrap{{if eq .Value "—"}} none{{end}}">{{.Value}}</td>
-            <td class="nowrap{{if eq .Next "—"}} none{{end}}">{{.Next}}</td>
+            <td><a class="name stretch" href="{{.Href}}"><span>{{.Name}}</span><span>{{.Sub}}</span></a></td>
+            <td><span class="bars"><span class="sr">{{.BarsLabel}}</span>{{range .Bars}}<i class="{{.Class}}"{{if .Tip}} data-tip="{{.Tip}}"{{end}} aria-hidden="true"></i>{{end}}</span></td>
+            <td class="nowrap"><span class="two"><span class="mono">{{.Schedule}}</span>{{if .ScheduleNote}}<span>{{.ScheduleNote}}</span>{{end}}</span></td>
+            <td class="nowrap"><span class="two"><span>{{.Last}}</span>{{if ne .Value "—"}}<span class="mono">{{.Value}}</span>{{end}}</span></td>
+            <td class="nowrap{{if eq .Next "—"}} none{{else if eq .Next "overdue"}} overdue {{.Look.Class}}{{end}}">{{.Next}}</td>
           </tr>
           {{end}}
         </tbody>
         {{end}}
       </table>
-      {{else}}
-      <p class="empty">{{.Empty}}</p>
-      {{end}}
     </div>
-  </main>
-</div>
+    {{else}}
+    <div class="empty">
+      <svg class="icon" aria-hidden="true"><use href="#i-{{if .Calm}}check{{else}}inbox{{end}}"/></svg>
+      <p>{{.Empty}}</p>
+    </div>
+    {{end}}
+  </section>
+</main>
 {{end}}{{end}}

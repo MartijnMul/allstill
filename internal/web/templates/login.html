@@ -1,13 +1,14 @@
 {{/* SPDX-License-Identifier: AGPL-3.0-only */}}
 {{define "content"}}
 <main class="center">
+  <a class="brand" href="/">{{template "logo"}}</a>
   <form class="panel box" id="login">
-    <a class="brand" href="/">{{template "logo"}}</a>
     <h1>Sign in</h1>
     <p>Use the passkey you made for this site, on this device or your phone.</p>
     <button type="submit" class="primary">Sign in with a passkey</button>
     <p class="alert" role="alert"></p>
     <noscript><p class="alert">Signing in with a passkey needs JavaScript.</p></noscript>
   </form>
+  <p class="aside">No passkey yet? Ask your administrator for a link to make one.</p>
 </main>
 {{end}}

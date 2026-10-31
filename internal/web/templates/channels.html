@@ -1,66 +1,83 @@
 {{/* SPDX-License-Identifier: AGPL-3.0-only */}}
 {{define "content"}}{{with .Data}}
-<main class="page">
-  <div class="title">
-    <div><h1>Your devices</h1></div>
-    {{if .Shadow}}
-    <p class="reason">Shadow mode: alerts are recorded under Messages, not sent. Test messages are sent, so you can get your devices ready.</p>
-    {{end}}
-  </div>
+<main class="main">
+  <header class="page-head">
+    <div class="page-title"><h1>Devices</h1></div>
+    <p class="lede">Where your alerts go: this browser, your phone, and your email.</p>
+  </header>
 
-  {{if .Confirmed}}
-  <section class="panel" role="status"><p>Confirmed: alerts can reach that device.</p></section>
+  {{if .Shadow}}
+  <div class="callout info">
+    <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+    <div>
+      <p class="callout-title">Shadow mode</p>
+      <p>Alerts are recorded under Messages, not sent. Test messages are sent, so you can get your devices ready.</p>
+    </div>
+  </div>
   {{end}}
 
-  <section class="panel" id="push">
-    <h2>This device</h2>
-    <p class="muted" data-push-state>Alerts can come to this browser as notifications, also when Allstill is not open.</p>
-    <p class="muted" data-push-ios hidden>On an iPhone or iPad, first add Allstill to your Home Screen (Share, then Add to Home Screen) and open it from there.</p>
-    <p class="alert" role="alert"></p>
-    <button type="button" class="primary" data-push-add hidden>Get alerts on this device</button>
-  </section>
+  {{if .Confirmed}}
+  <div class="callout up" role="status">
+    <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+    <div><p class="callout-title">Confirmed: alerts can reach that device.</p></div>
+  </div>
+  {{end}}
 
-  <section class="panel">
-    <h2>Where alerts go</h2>
+  <div class="cols even">
+    <section class="panel" id="push" aria-labelledby="this-device">
+      <div class="panel-head"><h2 id="this-device">This device</h2></div>
+      <div class="panel-body stack">
+        <p class="muted" data-push-state>Alerts can come to this browser as notifications, also when Allstill is not open.</p>
+        <p class="muted" data-push-ios hidden>On an iPhone or iPad, first add Allstill to your Home Screen (Share, then Add to Home Screen) and open it from there.</p>
+        <p class="alert" role="alert"></p>
+        <button type="button" class="primary" data-push-add hidden>Get alerts on this device</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="email">
+      <div class="panel-head"><h2 id="email">Email</h2></div>
+      <div class="panel-body stack">
+        {{if .MailOn}}
+        <p class="muted">An alert goes by email when none of your devices takes it, and the daily digest comes by email.</p>
+        {{if .CanAdd}}
+        <form class="inline" action="/channels/email" method="post">
+          <label for="address" class="sr">Email address</label>
+          <input id="address" name="address" type="email" value="{{.Email}}" placeholder="{{if .Another}}another@example.com{{else}}you@example.com{{end}}" required>
+          <button type="submit">{{if .Another}}Add another, and send a test{{else}}Add, and send a test{{end}}</button>
+        </form>
+        {{end}}
+        {{else}}
+        <p class="muted">This server cannot send email yet: its administrator sets it up with <code>ALLSTILL_SMTP_HOST</code> and the rest.</p>
+        {{end}}
+      </div>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="where">
+    <div class="panel-head"><h2 id="where">Where alerts go</h2>{{if .Channels}}<span class="count">{{len .Channels}}</span>{{end}}</div>
     {{if .Channels}}
-    <div class="runs">
+    <div class="table">
       <table>
         <caption class="sr">Your devices</caption>
         <thead><tr><th scope="col">Device</th><th scope="col">State</th><th scope="col">Added</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
         <tbody>
           {{range .Channels}}
           <tr data-channel="{{.ID}}">
-            <td>{{.Name}} <span class="muted" data-this-device hidden>(this device)</span></td>
-            <td><span class="result"><i class="dot {{.Class}}" aria-hidden="true"></i>{{.State}}</span></td>
-            <td class="mono">{{.Since}}</td>
-            <td class="actions">
+            <td><span class="two"><span>{{.Name}} <span class="tag" data-this-device hidden>This device</span></span>{{with .Kind}}<span>{{.}}</span>{{end}}</span></td>
+            <td><span class="state {{.Class}}"><i class="dot {{.Class}}" aria-hidden="true"></i>{{.State}}</span></td>
+            <td class="mono nowrap">{{.Since}}</td>
+            <td><span class="actions">
               <form action="/channels/{{.ID}}/test" method="post"><button type="submit" class="small">Send a test</button></form>
-              <form action="/channels/{{.ID}}/delete" method="post" data-remove="{{.ID}}"><button type="submit" class="small">Remove</button></form>
-            </td>
+              <form action="/channels/{{.ID}}/delete" method="post" data-remove="{{.ID}}"><button type="submit" class="small quiet">Remove</button></form>
+            </span></td>
           </tr>
           {{end}}
         </tbody>
       </table>
     </div>
-    <p class="muted">A device or address gets alerts once you have opened a test message on it.</p>
+    <p class="panel-foot">A device or address gets alerts once you have opened a test message on it.</p>
     {{else}}
-    <p class="muted">No devices yet. Open Allstill on your phone and add it here.</p>
-    {{end}}
-  </section>
-
-  <section class="panel">
-    <h2>Email</h2>
-    {{if .MailOn}}
-    <p class="muted">An alert goes by email when none of your devices takes it, and the daily digest comes by email.</p>
-    {{if .CanAdd}}
-    <form class="inline" action="/channels/email" method="post">
-      <label for="address" class="sr">Email address</label>
-      <input id="address" name="address" type="email" value="{{.Email}}" placeholder="{{if .Another}}another@example.com{{else}}you@example.com{{end}}" required>
-      <button type="submit" class="small">{{if .Another}}Add another, and send a test{{else}}Add, and send a test{{end}}</button>
-    </form>
-    {{end}}
-    {{else}}
-    <p class="muted">This server cannot send email yet: its administrator sets it up with <code>ALLSTILL_SMTP_HOST</code> and the rest.</p>
+    <div class="empty"><svg class="icon" aria-hidden="true"><use href="#i-device"/></svg><p>No devices yet. Open Allstill on your phone and add it here.</p></div>
     {{end}}
   </section>
 </main>

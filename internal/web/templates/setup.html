@@ -1,8 +1,8 @@
 {{/* SPDX-License-Identifier: AGPL-3.0-only */}}
 {{define "content"}}
 <main class="center">
+  <a class="brand" href="/">{{template "logo"}}</a>
   <form class="panel box" id="setup" hidden>
-    <a class="brand" href="/">{{template "logo"}}</a>
     <h1>Add a passkey</h1>
     <p>For <strong data-name></strong>. A passkey signs you in with this device's fingerprint, face or PIN; there is no password.</p>
     <p class="alert" data-other hidden>You are signed in as <strong data-other-name></strong> in this browser. Adding this passkey signs you in as the person above instead.</p>
@@ -11,10 +11,9 @@
     <p class="alert" role="alert"></p>
   </form>
   <div class="panel box" id="setup-error" hidden>
-    <a class="brand" href="/">{{template "logo"}}</a>
     <h1>Add a passkey</h1>
     <p class="alert" role="alert"></p>
-    <a href="/login">Sign in</a>
+    <a class="button" href="/login">Sign in</a>
   </div>
   <noscript><div class="panel box"><p class="alert">Adding a passkey needs JavaScript.</p></div></noscript>
 </main>

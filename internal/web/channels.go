@@ -49,31 +49,36 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 	now := s.Now()
 	emails := 0
 	for _, c := range cs {
-		row := channelRow{ID: c.ID, Name: c.Name, Kind: "Push to this browser", Since: clock(now, c.CreatedAt, v.Loc)}
+		row := channelRow{ID: c.ID, Name: c.Name, Kind: "Push notifications", Since: clock(now, c.CreatedAt, v.Loc)}
 		if c.Kind == "email" {
 			emails++
 			if strings.EqualFold(c.Address, d.Email) {
 				d.Email = "" // added already: the form offers another
 			}
-			row.Name, row.Kind = "Email to "+c.Address, "Email"
+			row.Name, row.Kind = "Email to "+c.Address, ""
 		}
 		switch {
 		case c.Kind == "email" && !s.MailOn:
-			row.State, row.Class = "Email is not set up on this server", "down"
+			row.State, row.Class = "Email is not set up on this server", "bad"
 		case c.Kind == "webpush" && c.Key != s.PushKey:
-			row.State, row.Class = "Must subscribe again: open Allstill on this device", "down"
+			row.State, row.Class = "Must subscribe again: open Allstill on this device", "bad"
 		case !c.FailedAt.IsZero():
-			row.State, row.Class = "Failed "+clock(now, c.FailedAt, v.Loc)+"; send a test", "down"
+			row.State, row.Class = "Failed "+clock(now, c.FailedAt, v.Loc)+"; send a test", "bad"
 		case c.VerifiedAt.IsZero():
-			row.State, row.Class = "Not confirmed: send a test and open it", "late"
+			row.State, row.Class = "Not confirmed: send a test and open it", "warn"
 		default:
 			row.State, row.Class = "Confirmed "+clock(now, c.VerifiedAt, v.Loc), "up"
 		}
 		d.Channels = append(d.Channels, row)
 	}
 	d.CanAdd, d.Another = emails < store.MaxEmails, emails > 0
+	nav, err := s.nav(ctx, v, "")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	crumbs := []crumb{{"Devices", ""}}
-	s.render(w, r, http.StatusOK, "channels", page{Title: "Devices", Person: v.Name, Crumbs: crumbs, Here: "devices", Data: d})
+	s.render(w, r, http.StatusOK, "channels", page{Title: "Devices", Person: v.Name, Crumbs: crumbs, Here: "devices", Nav: nav, Data: d})
 }
 
 // POST /channels/push: the browser's subscription, sent when a device is

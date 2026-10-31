@@ -108,7 +108,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		base: base, workspace: workspaceID, secure: base.Scheme == "https",
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{},
 	}
-	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html"))
+	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/parts.html"))
 	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "channels", "error"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
@@ -259,7 +259,9 @@ type page struct {
 	PushKey string // set on signed-in pages, so the page can renew this device's subscription
 	Crumbs  []crumb
 	Search  string
-	Here    string // the header link this page is: messages or devices
+	Here    string   // the sidebar link this page is: messages or devices
+	Nav     *navData // the sidebar's views and projects, on signed-in pages
+	Live    bool     // the page refreshes itself
 	Data    any
 }
 

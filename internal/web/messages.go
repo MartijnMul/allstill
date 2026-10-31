@@ -66,24 +66,29 @@ func (s *Server) messagesPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		row := messageRow{When: clock(now, m.At, v.Loc), Kind: kindLabel[m.Kind]}
 		switch m.State {
 		case "shadow":
-			row.State, row.Class = "Would have been sent", "new"
+			row.State, row.Class = "Would have been sent", "quiet"
 		case "sent":
 			row.State, row.Class = "Sent", "up"
 		case "pending":
-			row.State, row.Class = "Sending", "late"
+			row.State, row.Class = "Sending", "warn"
 		case "failed":
-			row.State, row.Class = "Failed: "+m.Error, "down"
+			row.State, row.Class = "Failed: "+m.Error, "bad"
 			if m.Error == store.NoLongerTrue {
 				row.State, row.Class = "Left out: no longer true when it could go", "quiet"
 			}
 		default:
-			row.State, row.Class = "Failed: "+m.Error, "down"
+			row.State, row.Class = "Failed: "+m.Error, "bad"
 		}
 		for _, it := range m.Items {
 			row.Lines = append(row.Lines, whatLabel[it.What]+": "+it.Title)
 		}
 		d.Messages = append(d.Messages, row)
 	}
+	nav, err := s.nav(ctx, v, "")
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	crumbs := []crumb{{"Messages", ""}}
-	s.render(w, r, http.StatusOK, "messages", page{Title: "Messages", Person: v.Name, Crumbs: crumbs, Here: "messages", Data: d})
+	s.render(w, r, http.StatusOK, "messages", page{Title: "Messages", Person: v.Name, Crumbs: crumbs, Here: "messages", Nav: nav, Data: d})
 }

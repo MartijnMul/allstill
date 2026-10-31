@@ -55,7 +55,7 @@ func (s *Server) alertCards(ctx context.Context, v viewer, now time.Time) ([]car
 			return nil, err
 		}
 		if behind > BehindAfter {
-			cards = append(cards, card{Href: "/messages", Class: "down",
+			cards = append(cards, card{Href: "/messages", Class: "bad",
 				Title: "Alerts are " + span(behind) + " behind", Line: "Allstill has not kept up with sending; messages may come late."})
 		}
 	}
@@ -64,7 +64,7 @@ func (s *Server) alertCards(ctx context.Context, v viewer, now time.Time) ([]car
 		return nil, err
 	}
 	if failed > 0 {
-		cards = append(cards, card{Href: "/messages", Class: "down",
+		cards = append(cards, card{Href: "/messages", Class: "bad",
 			Title: plural(failed, "message", "messages") + " to you failed", Line: "In the last day · see Messages"})
 	}
 	channels, err := s.Store.Channels(ctx, v.ID)
@@ -76,26 +76,26 @@ func (s *Server) alertCards(ctx context.Context, v viewer, now time.Time) ([]car
 		emails = emails || c.Kind == "email"
 		if c.Kind == "email" {
 			if !c.FailedAt.IsZero() && s.MailOn {
-				cards = append(cards, card{Href: "/channels", Class: "late",
+				cards = append(cards, card{Href: "/channels", Class: "warn",
 					Title: "Email to " + c.Address + " failed", Line: "The mail server refused it · check it and send a test"})
 			}
 			continue
 		}
 		if c.Kind == "webpush" && c.Key != s.PushKey {
-			cards = append(cards, card{Href: "/channels", Class: "late",
+			cards = append(cards, card{Href: "/channels", Class: "warn",
 				Title: c.Name + " must subscribe again", Line: "Open Allstill on that device"})
 		} else if !c.FailedAt.IsZero() {
-			cards = append(cards, card{Href: "/channels", Class: "late",
+			cards = append(cards, card{Href: "/channels", Class: "warn",
 				Title: "Alerts to " + c.Name + " failed", Line: "Since " + clock(now, c.FailedAt, v.Loc) + " · send it a test"})
 		}
 	}
 	if emails && !s.MailOn {
-		cards = append(cards, card{Href: "/channels", Class: "late",
+		cards = append(cards, card{Href: "/channels", Class: "warn",
 			Title: "Email is not set up on this server", Line: "Alerts to your email addresses cannot go out"})
 	}
 	if s.MailProblem != nil && v.Admin {
 		if p := s.MailProblem(); p != nil {
-			cards = append(cards, card{Href: "/channels", Class: "down",
+			cards = append(cards, card{Href: "/channels", Class: "bad",
 				Title: "Email cannot be sent as the server is set up", Line: "Since " + clock(now, p.At, v.Loc) + " · " + p.Error})
 		}
 	}
@@ -105,7 +105,7 @@ func (s *Server) alertCards(ctx context.Context, v viewer, now time.Time) ([]car
 	}
 	for _, p := range nobody {
 		if _, ok := v.Access.Role(p.ID); ok {
-			cards = append(cards, card{Href: "/messages", Class: "late",
+			cards = append(cards, card{Href: "/messages", Class: "warn",
 				Title: "Nobody would be told about " + p.Name, Line: "No member gets alerts for this project"})
 		}
 	}

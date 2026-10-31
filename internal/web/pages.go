@@ -16,22 +16,28 @@ import (
 
 type overviewData struct {
 	Headline  string
-	Summary   string
+	Summary   string       // every state and its count, in words
+	Health    []healthPart // the same, drawn as one bar
+	Updated   string
 	Attention []card
-	Views     []navItem
-	Projects  []navItem
+	List      string // what the list shows: all checks, a view, a project
+	Shown     int    // how many checks the list shows
 	Groups    []group
 	Empty     string
+	Calm      bool   // the list is empty because all is well, not for a filter
+	Clear     string // the list without the search
+}
+
+// healthPart is one state's share of every check, in the bar across the top
+// of the overview: X and W are percentages of its width.
+type healthPart struct {
+	Label, Class string
+	N            int
+	X, W         float64
 }
 
 type card struct {
 	Href, Class, Title, Line, Note string
-}
-
-type navItem struct {
-	Name, Href, Class string
-	Count             int
-	Current           bool
 }
 
 type group struct {
@@ -58,19 +64,12 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	show, project := r.URL.Query().Get("show"), r.URL.Query().Get("project")
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 
-	d := overviewData{}
+	d := overviewData{Updated: clock(now, now, v.Loc)}
 	counts := map[check.State]int{}
-	attention, paused := 0, 0
-	perProject := map[string][]store.CheckView{}
 	for _, c := range checks {
 		counts[c.Status.State]++
-		perProject[c.ProjectID] = append(perProject[c.ProjectID], c)
 		if needsAttention(c.Status.State) {
-			attention++
 			d.Attention = append(d.Attention, attentionCard(c, now, v.Loc))
-		}
-		if c.Status.State == check.Paused {
-			paused++
 		}
 	}
 	// Down before late.
@@ -88,41 +87,11 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	// (intent/http-checks/spec.md, R7).
 	if s.Offline != nil {
 		if since, off := s.Offline(); off {
-			d.Attention = append([]card{{Href: "/", Class: "down", Title: "Allstill is offline for its checks",
+			d.Attention = append([]card{{Href: "/", Class: "bad", Title: "Allstill is offline for its checks",
 				Line: "Since " + clock(now, since, v.Loc) + " · its own network does not answer, so the checks it runs are unknown"}}, d.Attention...)
 		}
 	}
-
-	link := func(show, project string) string {
-		q := []string{}
-		if show != "" {
-			q = append(q, "show="+show)
-		}
-		if project != "" {
-			q = append(q, "project="+project)
-		}
-		if len(q) == 0 {
-			return "/"
-		}
-		return "/?" + strings.Join(q, "&")
-	}
-	d.Views = []navItem{
-		{Name: "All checks", Href: link("", ""), Count: len(checks), Current: show == "" && project == ""},
-		{Name: "Needs attention", Href: link("attention", ""), Count: attention, Current: show == "attention"},
-		{Name: "Paused", Href: link("paused", ""), Count: paused, Current: show == "paused"},
-	}
-	for _, p := range v.Access.Projects {
-		worst := look{Class: "up"}
-		for _, c := range perProject[p.ID] {
-			worst = worse(worst, lookOf(c.Status.State))
-		}
-		if len(perProject[p.ID]) == 0 {
-			worst.Class = "quiet"
-		}
-		d.Projects = append(d.Projects, navItem{
-			Name: p.Name, Href: link("", p.ID), Class: worst.Class, Count: len(perProject[p.ID]), Current: project == p.ID,
-		})
-	}
+	nav := navOf(checks, v, "overview", show, project)
 
 	switch {
 	case len(checks) == 0:
@@ -142,26 +111,45 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 		d.Headline = "All is well"
 	}
 	parts := []string{plural(len(checks), "check", "checks")}
-	for _, st := range []check.State{check.Up, check.Late, check.Warning, check.Down, check.Unknown, check.New, check.Paused} {
-		if counts[st] > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", counts[st], strings.ToLower(lookOf(st).Label)))
+	x := 0.0
+	// The ones that need someone first, so the bar reads from the left.
+	for _, st := range []check.State{check.Down, check.Late, check.Warning, check.Up, check.Unknown, check.New, check.Paused} {
+		if counts[st] == 0 {
+			continue
 		}
+		l := lookOf(st)
+		parts = append(parts, fmt.Sprintf("%d %s", counts[st], strings.ToLower(l.Label)))
+		w := 100 * float64(counts[st]) / float64(len(checks))
+		d.Health = append(d.Health, healthPart{Label: strings.ToLower(l.Label), Class: l.Class, N: counts[st], X: x, W: w})
+		x += w
 	}
-	d.Summary = strings.Join(parts, " · ")
+	d.Summary = strings.Join(parts, ", ")
 
+	d.Clear = overviewLink(show, project)
+	d.List = "All checks"
+	switch show {
+	case "attention":
+		d.List = "Needs attention"
+	case "paused":
+		d.List = "Paused"
+	}
 	for _, p := range v.Access.Projects {
 		if project != "" && project != p.ID {
 			continue
 		}
+		if project != "" {
+			d.List = p.Name
+		}
 		g := group{Name: p.Name}
-		for _, c := range perProject[p.ID] {
-			if !matches(c, show, query) {
+		for _, c := range checks {
+			if c.ProjectID != p.ID || !matches(c, show, query) {
 				continue
 			}
 			g.Checks = append(g.Checks, rowOf(c, now, v.Loc))
 		}
 		if len(g.Checks) > 0 {
 			d.Groups = append(d.Groups, g)
+			d.Shown += len(g.Checks)
 		}
 	}
 	if len(d.Groups) == 0 {
@@ -170,11 +158,22 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 			d.Empty = "Import your checks from Healthchecks with allstill import healthchecks, or ping a new slug with ?create=1 to create it."
 		case query != "":
 			d.Empty = fmt.Sprintf("No check matches “%s”.", query)
+		// Unknown checks and what keeps alerts from reaching the person
+		// need no one to act on a check, but all is not known to be well.
+		case show == "attention" && len(d.Attention) == 0 && counts[check.Unknown] == 0:
+			d.Empty, d.Calm = "Nothing needs you: every check is up, new or paused.", true
+		case show == "attention":
+			d.Empty = "No check is down, late or in warning."
 		default:
 			d.Empty = "No checks here."
 		}
 	}
-	s.render(w, r, http.StatusOK, "overview", page{Title: "Checks", Person: v.Name, Search: query, Data: d})
+	// The tab says how many need someone, so it shows among other tabs.
+	title := "Checks"
+	if checkCards > 0 {
+		title = fmt.Sprintf("(%d) Checks", checkCards)
+	}
+	s.render(w, r, http.StatusOK, "overview", page{Title: title, Person: v.Name, Search: query, Nav: nav, Live: true, Data: d})
 }
 
 // rank orders looks from calm to urgent.
@@ -257,6 +256,10 @@ func rowOf(c store.CheckView, now time.Time, loc *time.Location) row {
 		r.Next = until(now, c.Status.NextExpected, loc)
 	}
 	r.Bars, r.BarsLabel = barsOf(c, now, loc)
+	// Every row has as many slots, so the newest line up on the right.
+	if n := store.RecentRuns - len(r.Bars); n > 0 {
+		r.Bars = append(slices.Repeat([]bar{{Class: "none"}}, n), r.Bars...)
+	}
 	if store.Active(c.Kind) {
 		return activeRow(r, c, now, loc)
 	}
@@ -273,19 +276,22 @@ func rowOf(c store.CheckView, now time.Time, loc *time.Location) row {
 const listedRuns = 10
 
 type checkData struct {
-	C        store.CheckView
-	Look     look
-	Since    string
-	Incident string
-	Tiles    []tile
-	Schedule []pair
-	Chart    *chart
-	Runs     []runRow
-	Log      *runLog
-	NoOutput string
-	PingURL  string
-	SlugURL  string
-	Example  string
+	C         store.CheckView
+	Look      look
+	Since     string
+	Incident  string
+	Kind      string // how it reports, or that Allstill runs it
+	Updated   string
+	HasValues bool // a listed run sent values, so the runs show a column for them
+	Tiles     []tile
+	Schedule  []pair
+	Chart     *chart
+	Runs      []runRow
+	Log       *runLog
+	NoOutput  string
+	PingURL   string
+	SlugURL   string
+	Example   string
 }
 
 type tile struct{ Label, Value, Note string }
@@ -295,11 +301,14 @@ type pair struct {
 }
 
 type chart struct {
+	Title    string
 	Label    string
 	Bars     []chartBar
 	From, To string
+	Max, Mid string // the scale: the longest, and half of it
 	Width    int
 	Height   int
+	longest  time.Duration
 }
 
 type chartBar struct {
@@ -328,8 +337,12 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 		return
 	}
 	now := s.Now()
-	d := checkData{C: c, Look: lookOf(c.Status.State)}
+	d := checkData{C: c, Look: lookOf(c.Status.State), Updated: clock(now, now, v.Loc)}
 	d.Since = "since " + clock(now, c.Status.Since, v.Loc)
+	d.Kind = "Heartbeat"
+	if c.Cron != "" {
+		d.Kind = "Cron"
+	}
 	inc, err := s.Store.OpenIncident(r.Context(), c)
 	if err != nil {
 		s.fail(w, r, err)
@@ -423,6 +436,7 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 		if run.ExitStatus >= 0 {
 			rr.Exit = fmt.Sprint(run.ExitStatus)
 		}
+		d.HasValues = d.HasValues || len(run.Values) > 0
 		d.Runs = append(d.Runs, rr)
 	}
 	if selected != "" {
@@ -445,8 +459,13 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 			}
 		}
 	}
-	crumbs := []crumb{{c.ProjectName, "/?project=" + c.ProjectID}, {c.Name, ""}}
-	s.render(w, r, http.StatusOK, "check", page{Title: c.Name, Person: v.Name, Crumbs: crumbs, Data: d})
+	nav, err := s.nav(r.Context(), v, c.ProjectID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	crumbs := []crumb{{c.ProjectName, overviewLink("", c.ProjectID)}, {c.Name, ""}}
+	s.render(w, r, http.StatusOK, "check", page{Title: c.Name, Person: v.Name, Crumbs: crumbs, Nav: nav, Live: true, Data: d})
 }
 
 func firstOf(ts ...time.Time) time.Time {
@@ -474,17 +493,22 @@ func chartOf(runs []store.RunView, now time.Time, loc *time.Location) *chart {
 	for _, r := range timed {
 		longest = max(longest, r.Duration())
 	}
+	// As many slots as a check view holds runs, so a bar is as wide on
+	// every check, and the newest is on the right.
 	const width, height, gap = 600, 140, 4
-	w := (width - gap*(len(timed)-1)) / len(timed)
+	slots := max(store.RecentRuns, len(timed))
+	w := (width - gap*(slots-1)) / slots
+	offset := (slots - len(timed)) * (w + gap)
 	ch := &chart{
-		Width: width, Height: height,
+		Title: "Run time", Width: width, Height: height, longest: longest,
 		From: clock(now, timed[0].Started, loc), To: clock(now, timed[len(timed)-1].Started, loc),
+		Max: span(longest), Mid: span(longest / 2),
 		Label: fmt.Sprintf("Run time of the last %d runs, the longest %s", len(timed), span(longest)),
 	}
 	for i, r := range timed {
 		h := max(2, int(float64(height)*float64(r.Duration())/float64(longest)))
 		ch.Bars = append(ch.Bars, chartBar{
-			X: i * (w + gap), Y: height - h, W: w, H: h, Class: outcomeLook(r.Outcome).Class,
+			X: offset + i*(w+gap), Y: height - h, W: w, H: h, Class: outcomeLook(r.Outcome).Class,
 			Title: clock(now, r.Started, loc) + ": " + span(r.Duration()),
 		})
 	}

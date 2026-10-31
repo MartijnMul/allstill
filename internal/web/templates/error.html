@@ -1,10 +1,11 @@
 {{/* SPDX-License-Identifier: AGPL-3.0-only */}}
 {{define "content"}}
 <main class="center">
+  {{if not .Person}}<a class="brand" href="/">{{template "logo"}}</a>{{end}}
   <div class="panel box">
     <h1>{{.Title}}</h1>
     <p>{{.Data}}</p>
-    <a href="/">Back to the overview</a>
+    <a class="button" href="/">Back to the overview</a>
   </div>
 </main>
 {{end}}

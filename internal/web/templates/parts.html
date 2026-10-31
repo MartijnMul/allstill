@@ -1,0 +1,44 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{/* The head of a check's page: its name and state, what it is, and why it
+     is not up, if it is not. */}}
+{{define "check-head"}}
+<header class="page-head">
+  <div class="page-title">
+    <h1 class="check-name">{{.C.Name}}</h1>
+    <span class="badge {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}} {{.Since}}</span>
+    <p class="updated">Updated {{.Updated}}</p>
+  </div>
+  <p class="meta"><span>{{.Kind}}</span>{{with .C.Description}}<span>{{.}}</span>{{end}}{{range .C.Tags}}<span class="tag">{{.}}</span>{{end}}</p>
+</header>
+
+{{if or .C.Status.Reason .Incident}}
+<div class="callout {{.Look.Class}}">
+  <svg class="icon" aria-hidden="true"><use href="#i-{{if eq .Look.Class "up"}}info{{else}}alert{{end}}"/></svg>
+  <div>
+    {{with .C.Status.Reason}}<p class="callout-title">{{.}}</p>{{end}}
+    {{with .Incident}}<p>{{.}} <a href="/messages">See messages</a></p>{{end}}
+  </div>
+</div>
+{{end}}
+
+<div class="panel stats">
+  {{range .Tiles}}
+  <div class="stat"><span class="stat-label">{{.Label}}</span><strong>{{.Value}}</strong><span class="stat-note">{{.Note}}</span></div>
+  {{end}}
+</div>
+{{end}}
+
+{{/* A chart of how long the recent runs took, with its scale. */}}
+{{define "chart"}}
+<section class="panel" aria-labelledby="chart">
+  <div class="panel-head"><h2 id="chart">{{.Title}}</h2><span class="hint">last {{len .Bars}}, {{.From}} to {{.To}}</span></div>
+  <div class="panel-body plot">
+    <div class="scale" aria-hidden="true"><span>{{.Max}}</span><span>{{.Mid}}</span><span>0</span></div>
+    <div class="plot-area">
+      <svg viewBox="0 0 {{.Width}} {{.Height}}" preserveAspectRatio="none" role="img" aria-label="{{.Label}}">
+        {{range .Bars}}<rect class="{{.Class}}" x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}" rx="1.5"><title>{{.Title}}</title></rect>{{end}}
+      </svg>
+    </div>
+  </div>
+</section>
+{{end}}
