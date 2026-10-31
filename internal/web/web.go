@@ -259,6 +259,7 @@ type page struct {
 	PushKey string // set on signed-in pages, so the page can renew this device's subscription
 	Crumbs  []crumb
 	Search  string
+	Here    string // the header link this page is: messages or devices
 	Data    any
 }
 

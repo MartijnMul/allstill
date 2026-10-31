@@ -173,7 +173,7 @@ func TestFromLinkToDashboard(t *testing.T) {
 	}
 
 	page := string(b.ok("GET", "/", nil))
-	for _, want := range []string{"nightly-backup", "customer-sync", "Backups", "size 18.4 G", "Ada", "0 3 * * * · Europe/Amsterdam", "1 check has not pinged yet"} {
+	for _, want := range []string{"nightly-backup", "customer-sync", "Backups", "size 18.4 G", "Ada", "0 3 * * *", "Europe/Amsterdam · grace 1 h", "1 check has not pinged yet"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the overview lacks %q", want)
 		}

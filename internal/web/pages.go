@@ -40,10 +40,11 @@ type group struct {
 }
 
 type row struct {
-	Href, Name, Sub, Schedule, Last, Value, Next string
-	Look                                         look
-	Bars                                         []bar
-	BarsLabel                                    string
+	Href, Name, Sub, Last, Value, Next string
+	Schedule, ScheduleNote             string // the time zone and grace go in the note
+	Look                               look
+	Bars                               []bar
+	BarsLabel                          string
 }
 
 // GET /: every check the person may see, the ones that need them first.
@@ -226,18 +227,20 @@ func attentionCard(c store.CheckView, now time.Time, loc *time.Location) card {
 	return k
 }
 
-func scheduleOf(c store.CheckView) string {
+// scheduleOf says when a check is due, and below it its time zone and grace.
+func scheduleOf(c store.CheckView) (schedule, note string) {
 	if c.Cron != "" {
-		return fmt.Sprintf("%s · %s · grace %s", c.Cron, c.TimeZone, span(c.Grace))
+		return c.Cron, c.TimeZone + " · grace " + span(c.Grace)
 	}
-	return fmt.Sprintf("%s · grace %s", every(c.Interval), span(c.Grace))
+	return every(c.Interval), "grace " + span(c.Grace)
 }
 
 func rowOf(c store.CheckView, now time.Time, loc *time.Location) row {
 	r := row{
 		Href: "/checks/" + c.ID, Name: c.Name, Look: lookOf(c.Status.State),
-		Schedule: scheduleOf(c), Last: ago(now, c.Status.LastPing), Value: "—",
+		Last: ago(now, c.Status.LastPing), Value: "—",
 	}
+	r.Schedule, r.ScheduleNote = scheduleOf(c)
 	r.Sub = "Cron"
 	if c.Cron == "" {
 		r.Sub = "Heartbeat"

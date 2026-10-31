@@ -28,9 +28,11 @@
   {{end}}
   <div class="spacer"></div>
   <form class="who" action="/logout" method="post">
-    <a href="/messages">Messages</a>
-    <a href="/channels">Devices</a>
-    <span>{{.Person}}</span>
+    <nav aria-label="Account">
+      <a href="/messages"{{if eq .Here "messages"}} aria-current="page"{{end}}>Messages</a>
+      <a href="/channels"{{if eq .Here "devices"}} aria-current="page"{{end}}>Devices</a>
+    </nav>
+    <span class="person">{{.Person}}</span>
     <button type="submit" class="small">Sign out</button>
   </form>
 </header>

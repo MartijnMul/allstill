@@ -85,5 +85,5 @@ func (s *Server) messagesPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		d.Messages = append(d.Messages, row)
 	}
 	crumbs := []crumb{{"Messages", ""}}
-	s.render(w, r, http.StatusOK, "messages", page{Title: "Messages", Person: v.Name, Crumbs: crumbs, Data: d})
+	s.render(w, r, http.StatusOK, "messages", page{Title: "Messages", Person: v.Name, Crumbs: crumbs, Here: "messages", Data: d})
 }

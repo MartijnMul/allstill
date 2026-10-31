@@ -30,20 +30,20 @@
       <table class="checks">
         <caption class="sr">Checks</caption>
         <thead>
-          <tr><th scope="col">Status</th><th scope="col">Check</th><th scope="col">Schedule</th><th scope="col">Last runs</th><th scope="col">Last ping</th><th scope="col">Value</th><th scope="col">Next</th></tr>
+          <tr><th scope="col">Status</th><th scope="col">Check</th><th scope="col">Schedule</th><th scope="col">Last runs</th><th scope="col">Last seen</th><th scope="col">Value</th><th scope="col">Next</th></tr>
         </thead>
         {{range .Groups}}
         <tbody>
           <tr class="group"><th colspan="7" scope="rowgroup">{{.Name}}</th></tr>
           {{range .Checks}}
-          <tr>
+          <tr class="check">
             <td><span class="state {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span></td>
             <td><a class="name" href="{{.Href}}"><span>{{.Name}}</span><span>{{.Sub}}</span></a></td>
-            <td class="mono nowrap">{{.Schedule}}</td>
+            <td class="nowrap"><span class="when"><span class="mono">{{.Schedule}}</span>{{if .ScheduleNote}}<span>{{.ScheduleNote}}</span>{{end}}</span></td>
             <td><span class="bars"><span class="sr">{{.BarsLabel}}</span>{{range .Bars}}<i class="{{.Class}}" data-tip="{{.Tip}}" aria-hidden="true"></i>{{end}}</span></td>
             <td class="nowrap">{{.Last}}</td>
-            <td class="mono nowrap">{{.Value}}</td>
-            <td class="nowrap">{{.Next}}</td>
+            <td class="mono nowrap{{if eq .Value "—"}} none{{end}}">{{.Value}}</td>
+            <td class="nowrap{{if eq .Next "—"}} none{{end}}">{{.Next}}</td>
           </tr>
           {{end}}
         </tbody>

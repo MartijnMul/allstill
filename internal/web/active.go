@@ -140,7 +140,8 @@ func activeRow(r row, c store.CheckView, now time.Time, loc *time.Location) row 
 	h := settingsOf(c)
 	host, _ := h.Host()
 	r.Sub = strings.ToUpper(c.Kind) + " · " + host
-	r.Schedule = every(c.Interval)
+	// Its grace follows from its interval, so it is not shown.
+	r.Schedule, r.ScheduleNote = every(c.Interval), ""
 	var parts []string
 	if len(c.Recent) > 0 {
 		last := c.Recent[0]

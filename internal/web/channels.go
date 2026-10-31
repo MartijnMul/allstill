@@ -73,7 +73,7 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 	}
 	d.CanAdd, d.Another = emails < store.MaxEmails, emails > 0
 	crumbs := []crumb{{"Devices", ""}}
-	s.render(w, r, http.StatusOK, "channels", page{Title: "Devices", Person: v.Name, Crumbs: crumbs, Data: d})
+	s.render(w, r, http.StatusOK, "channels", page{Title: "Devices", Person: v.Name, Crumbs: crumbs, Here: "devices", Data: d})
 }
 
 // POST /channels/push: the browser's subscription, sent when a device is
