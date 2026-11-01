@@ -43,6 +43,12 @@ SELECT id FROM runs
 WHERE check_id = ? AND rid = ? AND started_at IS NULL AND ended_at >= ?
 ORDER BY id DESC LIMIT 1;
 
+-- name: EndedRunWithoutRid :one
+SELECT r.id FROM runs r
+WHERE r.id = (SELECT l.id FROM runs l WHERE l.check_id = ? ORDER BY l.id DESC LIMIT 1)
+AND r.rid IS NULL AND r.started_at IS NULL AND r.ended_at >= ?
+AND NOT EXISTS (SELECT 1 FROM pings p WHERE p.run_id = r.id AND p.kind = 'start');
+
 -- name: CreateRun :exec
 INSERT INTO runs (id, workspace_id, check_id, rid, outcome, started_at, ended_at, exit_status)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?);

@@ -74,13 +74,10 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 	if err != nil {
 		return PingOut{}, err
 	}
-	// A start can join a run whose end overtook it, within the grace period
-	// a run has to end in: an older run with that rid is another run.
 	var ended string
-	if in.Kind == check.Start && in.RID != "" {
-		since := in.At.Add(-time.Duration(c.GraceSeconds) * time.Second).UnixMilli()
-		ended, err = q.EndedRunByRid(ctx, db.EndedRunByRidParams{CheckID: c.ID, Rid: nullString(in.RID), EndedAt: sql.NullInt64{Int64: since, Valid: true}})
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if in.Kind == check.Start {
+		ended, err = overtakenBy(ctx, q, c, in)
+		if err != nil {
 			return PingOut{}, err
 		}
 	}
@@ -150,6 +147,41 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 	}
 	out.Deadline = after.Deadline
 	return out, tx.Commit()
+}
+
+// overtakeWithoutRid is how long after an end a start without a rid can still
+// be that end's own: the job took less time than its start took to send. Ten
+// seconds is what a ping sent with a timeout of that length can take. Longer
+// would take the start of the next run for more jobs.
+const overtakeWithoutRid = 10 * time.Second
+
+// overtakenBy finds the run a start belongs to whose end got there first, or
+// "" when there is none. With a rid that is a run with that rid that ended
+// within the grace period a run has to end in: an older one is another run.
+// Without a rid only the time ties them, so it must be the latest run, an end
+// that came without a start, a moment ago, that no other start has joined yet.
+//
+// A real start can be taken for one: after an end without a start, such as
+// from a lost start or a test ping, by a job that starts within seconds of it.
+// That run then opens nothing, so it has no run time, its log pings stay outside
+// it and the start's values go to the run before, and if it hangs, the schedule
+// finds out rather than the grace period. Its end comes without a start in turn,
+// so this goes on until the job leaves a longer gap. A job that cannot have that
+// sends a rid.
+func overtakenBy(ctx context.Context, q *db.Queries, c db.Check, in PingIn) (string, error) {
+	var ended string
+	var err error
+	if in.RID != "" {
+		since := in.At.Add(-time.Duration(c.GraceSeconds) * time.Second).UnixMilli()
+		ended, err = q.EndedRunByRid(ctx, db.EndedRunByRidParams{CheckID: c.ID, Rid: nullString(in.RID), EndedAt: sql.NullInt64{Int64: since, Valid: true}})
+	} else {
+		since := in.At.Add(-overtakeWithoutRid).UnixMilli()
+		ended, err = q.EndedRunWithoutRid(ctx, db.EndedRunWithoutRidParams{CheckID: c.ID, EndedAt: sql.NullInt64{Int64: since, Valid: true}})
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return ended, err
 }
 
 // CreateLimit is how many checks a project may have for a ping with

@@ -682,6 +682,25 @@ func (q *Queries) EndedRunByRid(ctx context.Context, arg EndedRunByRidParams) (s
 	return id, err
 }
 
+const endedRunWithoutRid = `-- name: EndedRunWithoutRid :one
+SELECT r.id FROM runs r
+WHERE r.id = (SELECT l.id FROM runs l WHERE l.check_id = ? ORDER BY l.id DESC LIMIT 1)
+AND r.rid IS NULL AND r.started_at IS NULL AND r.ended_at >= ?
+AND NOT EXISTS (SELECT 1 FROM pings p WHERE p.run_id = r.id AND p.kind = 'start')
+`
+
+type EndedRunWithoutRidParams struct {
+	CheckID string
+	EndedAt sql.NullInt64
+}
+
+func (q *Queries) EndedRunWithoutRid(ctx context.Context, arg EndedRunWithoutRidParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, endedRunWithoutRid, arg.CheckID, arg.EndedAt)
+	var id string
+	err := row.Scan(&id)
+	return id, err
+}
+
 const finishRun = `-- name: FinishRun :exec
 UPDATE runs SET outcome = ?, ended_at = ?, exit_status = ? WHERE id = ?
 `

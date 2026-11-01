@@ -207,6 +207,200 @@ func TestAStartOvertakenByItsEndJoinsThatRun(t *testing.T) {
 	}
 }
 
+func TestAStartWithoutRidOvertakenByItsEndJoinsThatRun(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pingAt := func(k check.Kind, rid string, at time.Time) {
+		t.Helper()
+		if _, err := f.s.Ping(ctx, ping(c.PingUUID, k, rid, at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	openRuns := func() int {
+		t.Helper()
+		open, err := db.New(f.s.r).OpenRuns(ctx, c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(open)
+	}
+
+	// A wrapper sent its start in the background, and the end got there first.
+	pingAt(check.Success, "", t0)
+	pingAt(check.Start, "", t0.Add(time.Second))
+	if n := openRuns(); n != 0 {
+		t.Fatalf("%d open runs after the late start", n)
+	}
+	runs, _ := db.New(f.s.r).RunsOfCheck(ctx, db.RunsOfCheckParams{CheckID: c.ID, ID: "run_~", Limit: 10})
+	if len(runs) != 1 || runs[0].Outcome != "success" {
+		t.Fatalf("runs %+v", runs)
+	}
+	if pings, _ := db.New(f.s.r).PingsOfRun(ctx, sql.NullString{String: runs[0].ID, Valid: true}); len(pings) != 2 {
+		t.Fatalf("the run has %d pings", len(pings))
+	}
+	// So nothing times out, and the check is judged by its schedule.
+	if _, err := f.s.ProcessDue(ctx, t0.Add(30*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t, c.ID); got.State != "up" || msTime(got.Deadline) != t0.Add(time.Hour) {
+		t.Fatalf("%s, deadline %v", got.State, msTime(got.Deadline))
+	}
+
+	// That end has its start: the next start is the next run.
+	pingAt(check.Start, "", t0.Add(2*time.Second))
+	if n := openRuns(); n != 1 {
+		t.Fatalf("%d open runs after a second start", n)
+	}
+}
+
+func TestAStartWithoutRidJoinsOnlyAnEndJustBeforeIt(t *testing.T) {
+	cases := []struct {
+		name    string
+		end     check.Kind
+		endRID  string
+		after   time.Duration
+		running bool
+	}{
+		{name: "within the ten seconds", end: check.Success, after: 10 * time.Second},
+		{name: "a failed end", end: check.Fail, after: time.Second},
+		{name: "past the ten seconds, however long the grace", end: check.Success, after: 11 * time.Second, running: true},
+		{name: "an end that belongs to a rid", end: check.Success, endRID: "r1", after: time.Second, running: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t)
+			ctx := t.Context()
+			c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.s.Ping(ctx, ping(c.PingUUID, tc.end, tc.endRID, t0)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Start, "", t0.Add(tc.after))); err != nil {
+				t.Fatal(err)
+			}
+			open, err := db.New(f.s.r).OpenRuns(ctx, c.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (len(open) == 1) != tc.running {
+				t.Fatalf("open runs %+v, want a running run: %v", open, tc.running)
+			}
+			if want := map[check.Kind]string{check.Success: "up", check.Fail: "down"}[tc.end]; f.get(t, c.ID).State != want {
+				t.Fatalf("%s, want %s", f.get(t, c.ID).State, want)
+			}
+		})
+	}
+}
+
+// A start that came too long after an end to be its own still guards its run:
+// after a lost start the next run is tracked as usual, and when it hangs the
+// grace period finds out, not the schedule.
+func TestAStartAfterALostStartIsTrackedAgain(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: 24 * time.Hour, Grace: 5 * time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := t0.Add(30 * time.Second)
+	for _, p := range []PingIn{ping(c.PingUUID, check.Success, "", t0), ping(c.PingUUID, check.Start, "", start)} {
+		if _, err := f.s.Ping(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.s.ProcessDue(ctx, start.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.get(t, c.ID); got.State != "down" {
+		t.Fatalf("a hung run left the check %s", got.State)
+	}
+}
+
+// The price of joining by time alone: a job that starts again within seconds of
+// its end looks the same as one whose ends overtake their starts, so after one
+// end without a start its runs stay untracked until it leaves a longer gap.
+func TestAFastJobIsTrackedAgainAfterALongerGap(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := t0
+	send := func(k check.Kind, after time.Duration) int {
+		t.Helper()
+		at = at.Add(after)
+		if _, err := f.s.Ping(ctx, ping(c.PingUUID, k, "", at)); err != nil {
+			t.Fatal(err)
+		}
+		open, err := db.New(f.s.r).OpenRuns(ctx, c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(open)
+	}
+	send(check.Success, 0)
+	for range 3 {
+		if n := send(check.Start, 5*time.Second); n != 0 {
+			t.Fatalf("%d open runs after a start within seconds", n)
+		}
+		send(check.Success, 20*time.Second)
+	}
+	if n := send(check.Start, 30*time.Second); n != 1 {
+		t.Fatalf("%d open runs after a longer gap", n)
+	}
+}
+
+// Only the latest run can be joined: once another run came after an end, a
+// start is not that end's own.
+func TestAStartJoinsOnlyTheLatestRun(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pings := []PingIn{
+		ping(c.PingUUID, check.Success, "", t0),
+		ping(c.PingUUID, check.Start, "r1", t0.Add(time.Second)),
+		ping(c.PingUUID, check.Success, "r1", t0.Add(2*time.Second)),
+		ping(c.PingUUID, check.Start, "", t0.Add(3*time.Second)),
+	}
+	for _, p := range pings {
+		if _, err := f.s.Ping(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if open, _ := db.New(f.s.r).OpenRuns(ctx, c.ID); len(open) != 1 {
+		t.Fatalf("open runs %+v", open)
+	}
+}
+
+// An end that closed a run has its start, so a start right after it is the
+// next run.
+func TestAStartAfterAFinishedRunIsTheNextRun(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, k := range []check.Kind{check.Start, check.Success, check.Start} {
+		if _, err := f.s.Ping(ctx, ping(c.PingUUID, k, "", t0.Add(time.Duration(i)*time.Second))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if open, _ := db.New(f.s.r).OpenRuns(ctx, c.ID); len(open) != 1 {
+		t.Fatalf("open runs %+v", open)
+	}
+}
+
 func TestPingsBySlug(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()

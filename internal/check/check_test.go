@@ -185,9 +185,12 @@ func TestAStartOvertakenByItsEndJoinsThatRun(t *testing.T) {
 	if !is(act, LateStart, "z") || s != w.s {
 		t.Fatalf("the late start: %+v, status %+v", act, s)
 	}
-	// Without a rid nothing says which run a start belongs to.
-	if _, act, _ := OnPing(w.c, w.s, w.open, Ping{Kind: Start, ExitStatus: -1, At: at(time.Second), Ended: "z"}); act.Op != OpenNew {
+	// Without a rid it joins all the same, when the store found a run for it.
+	if _, act, _ := OnPing(w.c, w.s, w.open, Ping{Kind: Start, ExitStatus: -1, At: at(time.Second), Ended: "z"}); !is(act, LateStart, "z") {
 		t.Fatalf("a start without rid: %+v", act)
+	}
+	if _, act, _ := OnPing(w.c, w.s, w.open, Ping{Kind: Start, ExitStatus: -1, At: at(time.Second)}); act.Op != OpenNew {
+		t.Fatalf("a start with no run to join: %+v", act)
 	}
 }
 

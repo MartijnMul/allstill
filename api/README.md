@@ -16,6 +16,8 @@ curl -fsS -m 10 --retry 3 "https://ping.example.com/ping/5f3e…/$?"
 
 or, with the wrapper that does all of that and more: `allstill run --url https://ping.example.com/ping/5f3e… -- ./backup.sh`.
 
+A job that starts again within seconds of its end should add a `rid` to both pings: without one, Allstill can take its start for one that its previous end overtook, and that run is not tracked. The wrapper always sends one.
+
 Beyond Healthchecks, a ping can carry values for a check's rules: `v=name:number` in the query, repeatable (`/ping/5f3e…?v=size:18400000000&v=rows:312`), or an `Allstill-Values` header holding a Structured Field dictionary (RFC 9651), such as `size=18400000000, rows=312`.
 
 **The JSON API** lives under `/api/v1` and needs a bearer token: a project API key, or an OAuth access token from the menu bar app or the CLI. The token's scope (`read`, `manage`) and the caller's role in each project (viewer, editor, owner) decide what it may do.

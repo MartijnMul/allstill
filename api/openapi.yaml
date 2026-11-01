@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.6.0
+  version: 0.6.1
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -111,7 +111,8 @@ paths:
         Starts a run. The next success, failure or exit status with the same `rid`
         (or, without one, the next of them) finishes it and records the run time.
         A run that is not finished within the check's grace period after its
-        expected end is a failure.
+        expected end is a failure. A start that arrives after its end joins that
+        run instead: see `rid`.
       security: []
       parameters: *ping-query
       responses: *ping-responses
@@ -123,7 +124,8 @@ paths:
         Starts a run. The next success, failure or exit status with the same `rid`
         (or, without one, the next of them) finishes it and records the run time.
         A run that is not finished within the check's grace period after its
-        expected end is a failure.
+        expected end is a failure. A start that arrives after its end joins that
+        run instead: see `rid`.
       security: []
       parameters: *ping-query
       requestBody:
@@ -1042,7 +1044,10 @@ components:
         A UUID the job chooses per run, to pair a start with its end when runs
         overlap, or when the end arrives first: a start within the grace period
         after the end with the same `rid` joins that run instead of starting
-        one. `allstill run` sets it.
+        one. Without a `rid`, a start joins the latest run if that is an end
+        that came without a start, within the ten seconds before it, and no
+        other start has joined it. A start that joins opens no run, so it cannot
+        time out; the check's schedule still applies. `allstill run` sets it.
       schema: {type: string, format: uuid}
     Values:
       name: v
