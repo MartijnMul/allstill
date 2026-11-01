@@ -9,7 +9,7 @@ if grep -q -i -E '^Claude-Session:|claude\.ai/code/session' "$msg"; then
   exit 1
 fi
 
-denylist="$(git rev-parse --git-dir)/info/denylist"
+denylist="$(git rev-parse --git-common-dir)/info/denylist"
 if [ -s "$denylist" ]; then
   terms=$(mktemp)
   grep -v -e '^#' -e '^[[:space:]]*$' "$denylist" > "$terms" || true

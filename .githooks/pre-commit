@@ -25,7 +25,7 @@ fi
 
 # Names from other work and personal terms, kept outside the repository in
 # .git/info/denylist, one per line, matched without regard to case.
-denylist="$(git rev-parse --git-dir)/info/denylist"
+denylist="$(git rev-parse --git-common-dir)/info/denylist"
 if [ -s "$denylist" ]; then
   terms=$(mktemp)
   grep -v -e '^#' -e '^[[:space:]]*$' "$denylist" > "$terms" || true
