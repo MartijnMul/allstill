@@ -165,7 +165,7 @@ Flags:
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Made the probe %s. Its key, shown once:\n\n  %s\n\nRun it inside its network, with a range it may reach:\n\n  ALLSTILL_PROBE_KEY=... allstill probe -server https://allstill.example.com -allow 10.0.0.0/8\n\nThen give it checks: allstill admin add-check ... -probe %q\n", name, key, name)
+	fmt.Fprintf(stdout, "Made the probe %s. Its key, shown once:\n\n  %s\n\nRun it inside its network, with a range it may reach:\n\n  ALLSTILL_PROBE_KEY=... allstill probe -server https://allstill.example.com -allow 10.0.0.0/8\n\nThen give it checks: allstill admin add-check ... -probe %q\n\nEditors of the projects it serves can have it fetch anything it reaches, also another project's network, and whoever runs it receives the addresses of its checks. One probe per party is the safe setup.\n", name, key, name)
 	return nil
 }
 

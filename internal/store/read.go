@@ -33,6 +33,10 @@ type CheckView struct {
 	Cron     string
 	TimeZone string
 	Grace    time.Duration
+	// Urgency is how fast its problems reach people: now, digest or none.
+	// Critical breaks through quiet hours.
+	Urgency  string
+	Critical bool
 	Status   check.Status
 	Created  time.Time
 	// Recent holds the latest runs, newest first: up to RecentRuns of them.
@@ -164,7 +168,8 @@ func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) 
 		Description: c.Description, PingUUID: c.PingUuid, ProbeID: c.ProbeID.String, Version: c.Version, Kind: c.Kind, Settings: []byte(c.Settings),
 		Interval: time.Duration(c.IntervalSeconds.Int64) * time.Second,
 		Cron:     c.CronExpression.String, TimeZone: c.TimeZone.String,
-		Grace:  time.Duration(c.GraceSeconds) * time.Second,
+		Grace:   time.Duration(c.GraceSeconds) * time.Second,
+		Urgency: c.Urgency, Critical: c.Critical == 1,
 		Status: statusOf(c), Created: time.UnixMilli(c.CreatedAt).UTC(),
 	}
 	if err := json.Unmarshal([]byte(c.Tags), &v.Tags); err != nil {

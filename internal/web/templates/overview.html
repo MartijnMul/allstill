@@ -5,6 +5,7 @@
     <div class="page-title">
       <h1>{{.Headline}}</h1>
       <p class="updated">Updated {{.Updated}}</p>
+      {{if .Add}}{{if not .AddFirst}}<div class="page-actions"><a class="button" href="{{.Add}}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add check</a></div>{{end}}{{end}}
     </div>
     {{if .Health}}
     <div class="health">
@@ -18,10 +19,12 @@
     {{end}}
   </header>
 
+  {{template "notice" .Notice}}
+
   {{if .Attention}}
   <section class="panel" aria-labelledby="attention">
     <div class="panel-head">
-      <h2 id="attention">Needs you</h2>
+      <h2 id="attention">{{.Needs}}</h2>
       <span class="count">{{len .Attention}}</span>
     </div>
     <ul class="alerts">
@@ -73,6 +76,8 @@
     <div class="empty">
       <svg class="icon" aria-hidden="true"><use href="#i-{{if .Calm}}check{{else}}inbox{{end}}"/></svg>
       <p>{{.Empty}}</p>
+      {{if .AddFirst}}<a class="button primary" href="{{.Add}}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add check</a>{{end}}
+      {{if .Import}}<p class="note">Moving from Healthchecks? On the server: <code>allstill import healthchecks</code></p>{{end}}
     </div>
     {{end}}
   </section>

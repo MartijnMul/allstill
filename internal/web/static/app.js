@@ -170,6 +170,16 @@ document.addEventListener("click", async (event) => {
   }, 2000);
 });
 
+// "1 day", and "2 days": the server names a form's units for the number it wrote,
+// and this keeps them right as it is typed.
+document.addEventListener("input", (event) => {
+  const list = event.target.closest(".span-field")?.querySelector("select");
+  if (!list || event.target === list) return;
+  for (const option of list.options) {
+    option.textContent = event.target.value.trim() === "1" ? option.dataset.one : option.dataset.many;
+  }
+});
+
 // A bar in the last runs says what it was and when. With a mouse the tip
 // comes after a short pause, so moving across the page sets nothing off, and
 // then follows the pointer from bar to bar; on a phone a tap shows it. The

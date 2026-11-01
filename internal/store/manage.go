@@ -54,6 +54,9 @@ type Change struct {
 	Settings map[string]any
 	// Probe has that probe run it, or with "" the server.
 	Probe *string
+	// Urgency and Critical say how fast its problems reach people, set together.
+	Urgency  *string
+	Critical *bool
 }
 
 // viaPerson says the caller is a person, or a key, not the administrator's
@@ -168,6 +171,11 @@ func (s *Store) UpdateCheck(ctx context.Context, a Access, checkID string, ch Ch
 	}
 	if err := saveStatus(ctx, q, updated, before, after); err != nil {
 		return time.Time{}, err
+	}
+	if ch.Urgency != nil {
+		if err := changeAlerting(ctx, q, a, c, *ch.Urgency, ch.Critical != nil && *ch.Critical, at); err != nil {
+			return time.Time{}, err
+		}
 	}
 	if err := q.CreateEvent(ctx, db.CreateEventParams{
 		WorkspaceID: a.WorkspaceID, ProjectID: sql.NullString{String: c.ProjectID, Valid: true},
@@ -375,8 +383,12 @@ func (s *Store) RotatePingURL(ctx context.Context, a Access, checkID string, at 
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	if _, err := editable(ctx, q, a, checkID); err != nil {
+	c, err := editable(ctx, q, a, checkID)
+	if err != nil {
 		return "", err
+	}
+	if Active(c.Kind) {
+		return "", &InvalidError{"kind", "Allstill runs this check itself, so nothing pings it"}
 	}
 	uuid := id.UUID()
 	if err := q.SetPingUUID(ctx, db.SetPingUUIDParams{PingUuid: uuid, UpdatedAt: at.UnixMilli(), WorkspaceID: a.WorkspaceID, ID: checkID}); err != nil {
@@ -457,19 +469,76 @@ func (s *Store) SetAlertingAs(ctx context.Context, a Access, checkID, urgency st
 	if err != nil {
 		return err
 	}
+	if err := changeAlerting(ctx, q, a, c, urgency, critical, at); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// changeAlerting holds SetAlertingAs's rules, within a caller's transaction.
+func changeAlerting(ctx context.Context, q *db.Queries, a Access, c db.Check, urgency string, critical bool, at time.Time) error {
 	role, _ := a.Role(c.ProjectID)
 	if critical && c.Critical == 0 && role != Owner && !a.Admin {
 		return &InvalidError{"critical", "only an owner or administrator can turn this on: it wakes people during their quiet hours"}
 	}
-	if _, own, err := ownProbe(ctx, q, a.WorkspaceID, checkID); err != nil {
+	if _, own, err := ownProbe(ctx, q, a.WorkspaceID, c.ID); err != nil {
 		return err
 	} else if own && urgency != "now" && !a.Admin {
 		return &InvalidError{"urgency", ownCheckProblem + ", so only an administrator can change this"}
 	}
-	if err := setAlerting(ctx, q, a.WorkspaceID, checkID, urgency, critical, at); err != nil {
-		return err
+	return setAlerting(ctx, q, a.WorkspaceID, c.ID, urgency, critical, at)
+}
+
+// IsProbesOwnCheck says whether a check is a probe's own, which has its own rules
+// (R19). The caller must be able to see it.
+func (s *Store) IsProbesOwnCheck(ctx context.Context, a Access, checkID string) (bool, error) {
+	q := db.New(s.r)
+	c, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: a.WorkspaceID, ID: checkID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrNotFound
 	}
-	return tx.Commit()
+	if err != nil {
+		return false, err
+	}
+	if _, ok := a.Role(c.ProjectID); !ok {
+		return false, ErrNotFound
+	}
+	_, own, err := ownProbe(ctx, q, a.WorkspaceID, checkID)
+	return own, err
+}
+
+// RunsOfCheck says how many runs a check has, for the page that deletes it.
+func (s *Store) RunsOfCheck(ctx context.Context, a Access, checkID string) (int64, error) {
+	if _, err := s.Check(ctx, a, checkID); err != nil {
+		return 0, err
+	}
+	return db.New(s.r).CountRunsOfCheck(ctx, checkID)
+}
+
+// ProbeChoice is a probe someone may give a check to.
+type ProbeChoice struct {
+	ID, Name, ProjectID string
+}
+
+// ProbesFor lists the probes serving the projects the caller may edit, per
+// project. Someone who may only look, or has no part in a project, is not told of
+// its probes (case 9).
+func (s *Store) ProbesFor(ctx context.Context, a Access) ([]ProbeChoice, error) {
+	q := db.New(s.r)
+	var choices []ProbeChoice
+	for _, p := range a.Projects {
+		if p.Role == Viewer {
+			continue
+		}
+		rows, err := q.ProbesOfProject(ctx, db.ProbesOfProjectParams{WorkspaceID: a.WorkspaceID, ProjectID: p.ID})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			choices = append(choices, ProbeChoice{ID: r.ID, Name: r.Name, ProjectID: p.ID})
+		}
+	}
+	return choices, nil
 }
 
 // revisionOf names a check's settings, so an attempt made under other settings

@@ -1,0 +1,36 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main narrow">
+  <header class="page-head">
+    <div class="page-title"><h1 class="check-name">{{.Title}}</h1></div>
+  </header>
+  {{if .Problem}}
+  <div class="callout warn" role="alert">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div><p class="callout-title">{{.Problem}}</p></div>
+  </div>
+  {{end}}
+  {{if .Warning}}
+  <div class="callout warn">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div><p class="callout-title">{{.Warning}}</p></div>
+  </div>
+  {{end}}
+  <section class="panel form-panel">
+    {{range .Lines}}<p>{{.}}</p>{{end}}
+    <form class="form" action="{{.Action}}" method="post">
+      {{if .Projects}}
+      <div class="field">
+        <label for="project">Move it to</label>
+        <select id="project" name="project">{{range .Projects}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select>
+      </div>
+      {{end}}
+      {{if .NoRoom}}<p class="muted">{{.NoRoom}}</p>{{end}}
+      <div class="form-actions">
+        {{if not .NoRoom}}<button type="submit" class="{{if .Danger}}danger{{else}}primary{{end}}">{{.Button}}</button>{{end}}
+        <a class="button" href="{{.Cancel}}">Cancel</a>
+      </div>
+    </form>
+  </section>
+</main>
+{{end}}{{end}}

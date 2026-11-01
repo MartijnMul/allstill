@@ -7,9 +7,18 @@
     <h1 class="check-name">{{.C.Name}}</h1>
     <span class="badge {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}} {{.Since}}</span>
     <p class="updated">Updated {{.Updated}}</p>
+    {{with .Manage}}
+    <div class="page-actions">
+      <a class="button" href="{{.Edit}}">Edit</a>
+      {{if .Pause}}<a class="button" href="{{.Pause}}">Pause</a>{{end}}
+      {{if .Resume}}<form action="{{.Resume}}" method="post"><button type="submit">Resume</button></form>{{end}}
+    </div>
+    {{end}}
   </div>
   <p class="meta"><span>{{.Kind}}</span>{{with .C.Description}}<span>{{.}}</span>{{end}}{{range .C.Tags}}<span class="tag">{{.}}</span>{{end}}</p>
 </header>
+
+{{template "notice" .Notice}}
 
 {{if or .C.Status.Reason .Incident}}
 <div class="callout {{.Look.Class}}">
@@ -40,5 +49,285 @@
       </svg>
     </div>
   </div>
+</section>
+{{end}}
+
+{{/* How something just went, on the page a post redirects to. */}}
+{{define "notice"}}{{with .}}
+<div class="callout {{.Class}}" role="status">
+  <svg class="icon" aria-hidden="true"><use href="#i-{{if eq .Class "up"}}check{{else}}alert{{end}}"/></svg>
+  <div>
+    <p class="callout-title">{{.Title}}</p>
+    {{range .Lines}}<p>{{.}}</p>{{end}}
+  </div>
+</div>
+{{end}}{{end}}
+
+{{/* What is wrong with a field, at the field. */}}
+{{define "field-error"}}{{if .}}<p class="field-error">{{.}}</p>{{end}}{{end}}
+
+{{/* The units of how often or how long, in the singular for one. A little script
+     keeps that true while the number is typed. */}}
+{{define "span-units"}}{{range .}}<option value="{{.Value}}" data-one="{{.One}}" data-many="{{.Many}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}{{end}}
+
+{{/* The fields of a check, for its kind: the common case first, the rest under
+     "More settings". A tick box says it was on the form, as a post does not mention
+     one left unticked. */}}
+{{define "check-fields"}}{{$e := .Errors}}{{$f := .F}}
+<input type="hidden" name="kind" value="{{$f.Kind}}">
+{{if .Problem}}
+<div class="callout warn" role="alert">
+  <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+  <div><p class="callout-title">{{.Problem}}</p></div>
+</div>
+{{else if $e}}
+<div class="callout warn" role="alert">
+  <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+  <div><p class="callout-title">This is not saved yet. See what is marked below.</p></div>
+</div>
+{{end}}
+
+<section class="panel form-panel">
+  <div class="field">
+    <label for="name">Name</label>
+    <input id="name" name="name" type="text" maxlength="200" required value="{{$f.Name}}"{{if $e.name}} aria-invalid="true"{{end}} placeholder="{{if eq $f.Kind "ping"}}nightly-backup{{else if eq $f.Kind "http"}}www.example.com{{else}}mail server{{end}}">
+    {{template "field-error" $e.name}}
+  </div>
+
+  {{if .New}}
+  {{if gt (len .Projects) 1}}
+  <div class="field">
+    <label for="project">Project</label>
+    <select id="project" name="project"{{if $e.project}} aria-invalid="true"{{end}}>
+      {{range .Projects}}<option value="{{.Value}}"{{if eq .Value $f.Project}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+    {{template "field-error" $e.project}}
+  </div>
+  {{else}}
+  <input type="hidden" name="project" value="{{$f.Project}}">
+  {{template "field-error" $e.project}}
+  {{end}}
+  {{end}}
+
+  {{if eq $f.Kind "http"}}
+  <div class="field">
+    <label for="url">Address</label>
+    <input id="url" name="url" type="text" inputmode="url" maxlength="2000" required value="{{$f.URL}}"{{if $e.url}} aria-invalid="true"{{end}} placeholder="https://www.example.com/">
+    <p class="hint">Up when it answers with a status in the 200s. A token in the address stays hidden from viewers.</p>
+    {{template "field-error" $e.url}}
+  </div>
+  {{else if eq $f.Kind "tcp"}}
+  <div class="field-row">
+    <div class="field grow">
+      <label for="host">Host</label>
+      <input id="host" name="host" type="text" maxlength="253" required value="{{$f.Host}}"{{if $e.host}} aria-invalid="true"{{end}} placeholder="mail.example.com">
+      {{template "field-error" $e.host}}
+    </div>
+    <div class="field port">
+      <label for="port">Port</label>
+      <input id="port" name="port" type="text" inputmode="numeric" required value="{{$f.Port}}"{{if $e.port}} aria-invalid="true"{{end}} placeholder="993">
+      {{template "field-error" $e.port}}
+    </div>
+  </div>
+  <div class="field">
+    <input type="hidden" name="box" value="tls">
+    <label class="tick"><input type="checkbox" name="tls"{{if $f.TLS}} checked{{end}}> Also finish a TLS handshake, and watch its certificate</label>
+    <p class="hint">Not for STARTTLS, as on mail ports 25 and 587.</p>
+  </div>
+  {{end}}
+
+  {{if .Own}}
+  <p class="muted">This is a probe's own check, which tells when the probe goes quiet, so its schedule stays.</p>
+  {{template "field-error" $e.every}}{{template "field-error" $e.cron}}{{template "field-error" $e.grace}}
+  {{else if eq $f.Kind "ping"}}
+  <fieldset class="field schedule">
+    <legend>When it should report</legend>
+    <label class="tick"><input type="radio" name="schedule" value="every"{{if ne $f.Schedule "cron"}} checked{{end}}> Regularly</label>
+    <div class="when-every">
+      <div class="span-field">
+        <label for="every_n" class="sr">Every</label>
+        <span>Every</span>
+        <input id="every_n" name="every_n" type="text" inputmode="numeric" value="{{$f.EveryN}}"{{if $e.every}} aria-invalid="true"{{end}}>
+        <label for="every_unit" class="sr">Unit</label>
+        <select id="every_unit" name="every_unit">{{template "span-units" (units $f.EveryN $f.EveryUnit)}}</select>
+      </div>
+      {{template "field-error" $e.every}}
+    </div>
+    <label class="tick"><input type="radio" name="schedule" value="cron"{{if eq $f.Schedule "cron"}} checked{{end}}> At set times, with a cron expression</label>
+    <div class="when-cron">
+      <div class="field-row">
+        <div class="field grow">
+          <label for="cron">Cron expression</label>
+          <input id="cron" name="cron" type="text" class="mono" value="{{$f.Cron}}"{{if $e.cron}} aria-invalid="true"{{end}} placeholder="0 3 * * *">
+          {{template "field-error" $e.cron}}
+        </div>
+        <div class="field grow">
+          <label for="time_zone">Time zone</label>
+          <input id="time_zone" name="time_zone" type="text" value="{{$f.TimeZone}}"{{if $e.time_zone}} aria-invalid="true"{{end}} placeholder="Europe/Amsterdam">
+          {{template "field-error" $e.time_zone}}
+        </div>
+      </div>
+    </div>
+  </fieldset>
+  <div class="field">
+    <label for="grace_n">Grace</label>
+    <div class="span-field">
+      <input id="grace_n" name="grace_n" type="text" inputmode="numeric" value="{{$f.GraceN}}"{{if $e.grace}} aria-invalid="true"{{end}}>
+      <label for="grace_unit" class="sr">Unit</label>
+      <select id="grace_unit" name="grace_unit">{{template "span-units" (units $f.GraceN $f.GraceUnit)}}</select>
+    </div>
+    <p class="hint">How long after the expected time before it counts as down.</p>
+    {{template "field-error" $e.grace}}
+  </div>
+  {{else}}
+  <div class="field">
+    <label for="every_n">How often</label>
+    <div class="span-field">
+      <span>Every</span>
+      <input id="every_n" name="every_n" type="text" inputmode="numeric" value="{{$f.EveryN}}"{{if $e.every}} aria-invalid="true"{{end}}>
+      <label for="every_unit" class="sr">Unit</label>
+      <select id="every_unit" name="every_unit">{{template "span-units" (units $f.EveryN $f.EveryUnit)}}</select>
+    </div>
+    <p class="hint">From 1 minute to a day.</p>
+    {{template "field-error" $e.every}}
+    {{template "field-error" $e.grace}}
+  </div>
+  {{end}}
+
+  {{if and .Probes (ne $f.Kind "ping") (not .Own)}}
+  <div class="field">
+    <label for="probe">Runs from</label>
+    <select id="probe" name="probe"{{if $e.probe}} aria-invalid="true"{{end}}>
+      <option value=""{{if eq $f.Probe ""}} selected{{end}}>The server</option>
+      {{range .Probes}}<option value="{{.Value}}"{{if eq .Value $f.Probe}} selected{{end}}>The probe {{.Label}}</option>{{end}}
+    </select>
+    <p class="hint">A probe reaches addresses inside its own network, which the server may not reach.</p>
+    {{template "field-error" $e.probe}}
+  </div>
+  {{else if $e.probe}}{{template "field-error" $e.probe}}{{end}}
+
+  {{if .ShowAlerts}}
+  <div class="field">
+    <label for="urgency">When it goes wrong</label>
+    <select id="urgency" name="urgency"{{if $e.urgency}} aria-invalid="true"{{end}}>
+      <option value="now"{{if eq $f.Urgency "now"}} selected{{end}}>Tell people right away</option>
+      <option value="digest"{{if eq $f.Urgency "digest"}} selected{{end}}>Tell people in the morning digest</option>
+      <option value="none"{{if eq $f.Urgency "none"}} selected{{end}}>Tell nobody</option>
+    </select>
+    {{template "field-error" $e.urgency}}
+  </div>
+  {{if or .CanCritical $f.Critical}}
+  <div class="field">
+    <input type="hidden" name="box" value="critical">
+    <label class="tick"><input type="checkbox" name="critical"{{if $f.Critical}} checked{{end}}> Wake people, also during their quiet hours</label>
+    {{template "field-error" $e.critical}}
+  </div>
+  {{else if $e.critical}}{{template "field-error" $e.critical}}{{end}}
+  {{else}}
+  <p class="muted">Alerts for a probe's own check stay at once; an administrator can change them.</p>
+  {{template "field-error" $e.urgency}}
+  {{end}}
+
+  <details class="more"{{if .More}} open{{end}}>
+    <summary>More settings</summary>
+    <div class="more-body">
+      <div class="field">
+        <label for="description">Description</label>
+        <textarea id="description" name="description" rows="2" maxlength="2000"{{if $e.description}} aria-invalid="true"{{end}}>{{$f.Description}}</textarea>
+        {{template "field-error" $e.description}}
+      </div>
+      <div class="field">
+        <label for="tags">Tags</label>
+        <input id="tags" name="tags" type="text" value="{{$f.Tags}}"{{if $e.tags}} aria-invalid="true"{{end}} placeholder="backups, nightly">
+        <p class="hint">Separated by commas.</p>
+        {{template "field-error" $e.tags}}
+      </div>
+      {{if eq $f.Kind "ping"}}
+      <div class="field">
+        <label for="slug">Slug</label>
+        <input id="slug" name="slug" type="text" class="mono" maxlength="100" value="{{$f.Slug}}"{{if $e.slug}} aria-invalid="true"{{end}} placeholder="nightly-backup">
+        <p class="hint">To ping it by name with the project's ping key. Not needed for its own ping URL.</p>
+        {{template "field-error" $e.slug}}
+      </div>
+      {{else}}
+      {{if eq $f.Kind "http"}}
+      <div class="field">
+        <label for="method">Method</label>
+        <select id="method" name="method"{{if $e.method}} aria-invalid="true"{{end}}>
+          <option{{if eq $f.Method "GET"}} selected{{end}}>GET</option>
+          <option{{if eq $f.Method "HEAD"}} selected{{end}}>HEAD</option>
+        </select>
+        {{template "field-error" $e.method}}
+      </div>
+      <div class="field">
+        <label for="expect">Status codes that count as up</label>
+        <input id="expect" name="expect" type="text" value="{{$f.Expect}}"{{if $e.expect}} aria-invalid="true"{{end}} placeholder="200, 301">
+        <p class="hint">Empty means any 2xx, or any 3xx with a redirect address below.</p>
+        {{template "field-error" $e.expect}}
+      </div>
+      <div class="field">
+        <label for="location">Where a redirect must lead</label>
+        <input id="location" name="location" type="text" inputmode="url" value="{{$f.Location}}"{{if $e.location}} aria-invalid="true"{{end}} placeholder="https://www.example.com/">
+        {{template "field-error" $e.location}}
+      </div>
+      <div class="field">
+        <input type="hidden" name="box" value="follow">
+        <label class="tick"><input type="checkbox" name="follow"{{if $f.Follow}} checked{{end}}> Follow redirects, and judge the last answer</label>
+      </div>
+      <div class="field-row">
+        <div class="field grow">
+          <label for="json_pointer">A JSON field in the answer</label>
+          <input id="json_pointer" name="json_pointer" type="text" class="mono" value="{{$f.JSONPointer}}"{{if $e.json_pointer}} aria-invalid="true"{{end}} placeholder="/status">
+          {{template "field-error" $e.json_pointer}}
+        </div>
+        <div class="field grow">
+          <label for="json_equals">Must equal</label>
+          <input id="json_equals" name="json_equals" type="text" class="mono" value="{{$f.JSONEquals}}"{{if $e.json_equals}} aria-invalid="true"{{end}} placeholder="ok">
+          {{template "field-error" $e.json_equals}}
+        </div>
+      </div>
+      {{end}}
+      <div class="field-row">
+        <div class="field grow">
+          <label for="timeout">Timeout, in seconds</label>
+          <input id="timeout" name="timeout" type="text" inputmode="numeric" value="{{$f.Timeout}}"{{if $e.timeout}} aria-invalid="true"{{end}}>
+          {{template "field-error" $e.timeout}}
+        </div>
+        <div class="field grow">
+          <label for="fail_after">Down after this many failures in a row</label>
+          <input id="fail_after" name="fail_after" type="text" inputmode="numeric" value="{{$f.FailAfter}}"{{if $e.fail_after}} aria-invalid="true"{{end}}>
+          {{template "field-error" $e.fail_after}}
+        </div>
+      </div>
+      <fieldset class="field certificate">
+        <legend>Its certificate{{if eq $f.Kind "tcp"}}, with TLS{{end}}</legend>
+        <div class="field-row">
+          <div class="field grow">
+            <label for="warn_days">Warn under this many days left</label>
+            <input id="warn_days" name="warn_days" type="text" inputmode="numeric" value="{{$f.WarnDays}}"{{if $e.warn_days}} aria-invalid="true"{{end}}>
+            <p class="hint">0 turns this off.</p>
+            {{template "field-error" $e.warn_days}}
+          </div>
+          <div class="field grow">
+            <label for="fail_days">Fail under this many days left</label>
+            <input id="fail_days" name="fail_days" type="text" inputmode="numeric" value="{{$f.FailDays}}"{{if $e.fail_days}} aria-invalid="true"{{end}}>
+            <p class="hint">0 turns this off.</p>
+            {{template "field-error" $e.fail_days}}
+          </div>
+        </div>
+        <div class="field">
+          <input type="hidden" name="box" value="no_verify">
+          <label class="tick"><input type="checkbox" name="no_verify"{{if $f.NoVerify}} checked{{end}}> Do not verify it, as for a self-signed certificate; its expiry is still watched</label>
+          {{template "field-error" $e.no_verify}}
+        </div>
+        <div class="field">
+          <label for="ca">Certificates to trust beyond the usual ones, in PEM</label>
+          <textarea id="ca" name="ca" rows="3" class="mono"{{if $e.ca}} aria-invalid="true"{{end}}>{{$f.CA}}</textarea>
+          {{template "field-error" $e.ca}}
+        </div>
+      </fieldset>
+      {{end}}
+    </div>
+  </details>
 </section>
 {{end}}

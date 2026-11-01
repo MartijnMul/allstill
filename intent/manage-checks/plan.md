@@ -88,8 +88,15 @@ Step 4, the API, when something is about to use it:
 - R11 uses a revision named after a check's settings, not its `version`: a rename must not drop the attempt in flight, which could make a check briefly unknown. It travels with a probe's checks and runs too (API 0.9.0), as a probe reads its checks every 30 seconds. A change of settings also gives a check Allstill runs until its next attempt.
 - The spec says pausing, resuming and replacing a ping URL bump `version`. They do not: it names the settings, and a form need not be out of date for them.
 - The address check moved to `outbound` rather than the store, as a shared function that R24 allows: it needs the server's ranges and the network.
-- R18, decided by the maintainer on 2026-11-02: a digest going out anyway lists paused checks, except those that never alert, but a pause alone sends no message. As first written, one paused check meant a message every day, forever. A forgotten pause on a quiet installation shows only in the dashboard.
+- R18, decided by the maintainer on 2026-11-01: a digest going out anyway lists paused checks, except those that never alert, but a pause alone sends no message. As first written, one paused check meant a message every day, forever. A forgotten pause on a quiet installation shows only in the dashboard.
 - Fixing an unreadable schedule of a check with an open incident makes it down, not up: it was down, and no ping has said otherwise.
 - Tests of checks Allstill runs that went down from new now pass once first, for C5. "Every earlier test unchanged" in the Proof holds otherwise.
 - The scheduler now looks at deadlines on its heartbeat too, as a command run beside the server can bring one closer and cannot wake it.
 - Step 2 adds `pause-check`, `resume-check` and `delete-check`, which the plan left implicit, so the rules can be used on a real installation before the forms exist.
+- Step 3 keeps the checks of R27 in the web layer, and the attempts' reason now says the same of the server's own address as of a private one: reasons are shown to people. A person who adds a check is told nothing of the same certificate watched elsewhere in the project, which only `add-check` says.
+- Saving a form and its alerts is one transaction, on `UpdateCheck`: an editor's refused `critical` must not leave half a change. A new check's alerts are a second step after it is added, with `critical` judged before.
+- A try's own timeout is held to 15 seconds as well, so its reason names the limit it had.
+- The tick boxes of a form say they were on it, as a post does not mention one left unticked, and a form's fields left out of a post stay as they are: a hand-made post is judged on what it says, not on what it leaves out.
+- A save with new addresses is limited as well, to 30 a minute for a person: each says whether a name is private, and a refused post stores nothing for R30's counts to hold. The limit on tries alone does not cover that.
+- R27 holds for what is said, not for all that can be inferred: with a private range allowed, one host in it that is the server's own is refused while its neighbours answer. Runs from before this step keep the reason they had, until retention removes them.
+- ADR 0001 names "deleting" under the owner's role. That is read as deleting a project, as R15, accepted with this spec, lets editors delete checks.

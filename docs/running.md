@@ -95,6 +95,8 @@ What to know:
 
 ## Changing and removing checks
 
+Anyone who may edit a project does this in the dashboard: **Add check**, and **Edit** and **Pause** on a check's page, with moving, replacing a ping URL and deleting at the bottom of its form. Each change goes in the server's log with who made it and what kind of change, without an address or a setting's value. From a shell:
+
 ```sh
 allstill admin set-check -project Backups -check nightly -cron "0 5 * * *" -time-zone Europe/Amsterdam -grace 1h
 allstill admin set-check -project Backups -check hourly -every 1h
@@ -106,6 +108,18 @@ allstill admin delete-check -project Backups -check old-job
 - **A new schedule counts from now.** Changing it never makes a check late or down by itself. A check that was late goes up, saying the schedule changed and no ping has come since, and a check that is down stays down until a ping. Only a change of schedule or grace does this: renaming a late check does not postpone it.
 - **Pausing.** Nothing is expected of a paused check, and an open incident closes without a recovery message. A digest that goes out anyway lists paused checks, so a forgotten one gets noticed, unless it never alerts; a pause alone sends no message. A job's next ping resumes it, and a failure then alerts as usual, so stop the job too if it should stay quiet. Resuming starts a check over, as new.
 - **Deleting is for good.** A check is gone at once, its ping URL stops working, and what it fetched is cleared; its runs, pings and output go with the next tidy, within minutes. Past incidents keep its name, and anyone told it was down reads in the next digest that it was closed this way. A job that still pings its slug with `create=1` makes a new check. A probe's own check cannot be deleted, paused or rescheduled.
+
+## What an editor can reach
+
+Someone who may edit a project can have the server, or a probe serving that project, fetch an address. So they can:
+
+- learn whether a port is open, on the public internet and within `-allow-private`;
+- read up to 40 characters of a JSON field that does not hold what they asked for, in a check's reason, which viewers see too;
+- send a GET to any address that can be reached, up to once a minute, under this server's name and address. A site they own sees the server's address and version.
+
+They are not told what a host name resolves to, or that an address is the server's own: only that it may not be reached. A project holds at most 200 checks Allstill runs and 1000 ping checks when added this way, of the 20 attempts running at once at most 5 belong to one project, and a person gets 6 tries and 30 new addresses a minute. A shared probe also opens each served project's editors to the others' network, and whoever runs it receives the addresses of its checks, so one probe per party is the safe setup. Choose editors accordingly.
+
+Only an owner or administrator can have a check wake people during their quiet hours.
 
 ## People
 

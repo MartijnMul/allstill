@@ -121,7 +121,7 @@ func (h HTTP) Validate() error {
 // validateCommon checks the settings every kind of check has.
 func validateCommon(timeout, failAfter int, warn, fail *int, ca string) error {
 	switch {
-	case timeout < 0 || time.Duration(timeout)*time.Second > MaxTimeout:
+	case timeout < 0 || timeout > int(MaxTimeout/time.Second):
 		return &SettingError{"timeout", "must be 1 to 60 seconds"}
 	case warn != nil && (*warn < 0 || *warn > 365):
 		return &SettingError{"warn_days", "must be 0 (off) to 365"}

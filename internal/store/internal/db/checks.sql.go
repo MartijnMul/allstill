@@ -331,6 +331,17 @@ func (q *Queries) CountChecksOfProject(ctx context.Context, projectID string) (i
 	return count, err
 }
 
+const countRunsOfCheck = `-- name: CountRunsOfCheck :one
+SELECT count(*) FROM runs WHERE check_id = ?
+`
+
+func (q *Queries) CountRunsOfCheck(ctx context.Context, checkID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunsOfCheck, checkID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAttemptRun = `-- name: CreateAttemptRun :exec
 INSERT INTO runs (id, workspace_id, check_id, outcome, started_at, ended_at, measured, reason)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)

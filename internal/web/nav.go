@@ -5,6 +5,7 @@ package web
 import (
 	"context"
 	"net/url"
+	"slices"
 
 	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/store"
@@ -18,6 +19,7 @@ type navData struct {
 	Projects  []navItem
 	Attention int    // checks that need someone, so the view can stand out
 	Urgency   string // the worst look among them: warn or bad
+	Add       string // where to add a check, for someone who may
 }
 
 type navItem struct {
@@ -67,7 +69,7 @@ func navOf(checks []store.CheckView, v viewer, here, show, project string) *navD
 		}
 	}
 	overview := here == "overview"
-	n := &navData{Attention: attention, Urgency: urgency.Class}
+	n := &navData{Attention: attention, Urgency: urgency.Class, Add: addLink(v, project)}
 	n.Views = []navItem{
 		{Name: "All checks", Href: overviewLink("", ""), Count: len(checks), Current: current(overview && show == "" && project == "", "page")},
 		{Name: "Needs attention", Href: overviewLink("attention", ""), Count: attention, Current: current(overview && show == "attention" && project == "", "page"), Class: "attention"},
@@ -90,6 +92,19 @@ func navOf(checks []store.CheckView, v viewer, here, show, project string) *navD
 		})
 	}
 	return n
+}
+
+// addLink is where to add a check, to the project shown when the person may change
+// it, or "" for someone who may change none (R2).
+func addLink(v viewer, project string) string {
+	projects := editableProjects(v)
+	if len(projects) == 0 {
+		return ""
+	}
+	if slices.ContainsFunc(projects, func(c choice) bool { return c.Value == project }) {
+		return "/checks/new?project=" + url.QueryEscape(project)
+	}
+	return "/checks/new"
 }
 
 // nav reads the checks for the sidebar of a page other than the overview.

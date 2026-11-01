@@ -1,0 +1,25 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main narrow">
+  <header class="page-head">
+    <div class="page-title"><h1 class="check-name">Edit {{.C.Name}}</h1></div>
+  </header>
+  <form class="form" action="{{.Action}}" method="post">
+    <input type="hidden" name="version" value="{{.F.Version}}">
+    <input type="hidden" name="was" value="{{.Was}}">
+    {{template "check-fields" .}}
+    <div class="form-actions">
+      <button type="submit" class="primary">Save changes</button>
+      <a class="button" href="{{.Cancel}}">Cancel</a>
+    </div>
+  </form>
+  <section class="panel" aria-labelledby="also">
+    <div class="panel-head"><h2 id="also">Also</h2></div>
+    <ul class="also">
+      <li><span class="two"><span>Project</span><span>{{.ProjectName}}</span></span>{{if .CanMove}}<a class="button" href="/checks/{{.C.ID}}/move">Move check</a>{{end}}</li>
+      {{if eq .F.Kind "ping"}}<li><span class="two"><span>Ping URL</span><span>For when it has leaked</span></span><a class="button" href="/checks/{{.C.ID}}/ping-url">Replace ping URL</a></li>{{end}}
+      {{if .CanDelete}}<li><span class="two"><span>Delete</span><span>Its history goes with it, for good</span></span><a class="button danger" href="/checks/{{.C.ID}}/delete">Delete check</a></li>{{end}}
+    </ul>
+  </section>
+</main>
+{{end}}{{end}}

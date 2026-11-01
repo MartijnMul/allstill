@@ -42,6 +42,8 @@ type activeData struct {
 	Runs     []attemptRow
 	Secret   bool   // the viewer sees only the scheme and host
 	Probe    string // the probe that runs it, if not the server
+	Notice   *notice
+	Manage   *manageLinks
 	// HasStatus and HasCertificate say which columns its attempts have.
 	HasStatus, HasCertificate bool
 }
@@ -66,7 +68,7 @@ func tcpOf(c store.CheckView) active.TCP {
 
 func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c store.CheckView, d checkData) {
 	now := s.Now()
-	a := activeData{C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Updated: d.Updated, Kind: strings.ToUpper(c.Kind)}
+	a := activeData{C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Updated: d.Updated, Kind: strings.ToUpper(c.Kind), Notice: d.Notice, Manage: d.Manage}
 
 	var last store.RunView
 	if len(c.Recent) > 0 {
@@ -90,6 +92,8 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 	switch {
 	case c.Status.State == check.Paused:
 		next.Value, next.Note = "—", "paused"
+	case next.Value == "—":
+		next.Value, next.Note = clock(now, firstAttempt(c, now), v.Loc), "at the latest"
 	case !c.Status.Deadline.IsZero():
 		next.Note = "unknown if none by " + clock(now, c.Status.Deadline, v.Loc)
 	}
@@ -192,6 +196,9 @@ func activeRow(r row, c store.CheckView, now time.Time, loc *time.Location) row 
 		where, _ = settingsOf(c).Host()
 	}
 	r.Sub = strings.ToUpper(c.Kind) + " · " + where
+	if c.Status.LastPing.IsZero() {
+		r.Last = "not checked yet"
+	}
 	// Its grace follows from its interval, so it is not shown.
 	r.Schedule, r.ScheduleNote = every(c.Interval), ""
 	var parts []string

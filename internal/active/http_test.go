@@ -183,7 +183,7 @@ func TestExplain(t *testing.T) {
 		{io.ErrUnexpectedEOF, "the connection closed without an answer", false},
 		{&net.OpError{Op: "remote error", Err: errors.New("tls: protocol version not supported")}, "the TLS handshake failed", false},
 		{errors.New("tls: server selected unsupported protocol version 301"), "the TLS handshake failed", false},
-		{fmt.Errorf("dial: %w", outbound.ErrOwn), "the address is the server's own, which checks never reach", false},
+		{fmt.Errorf("dial: %w", outbound.ErrOwn), "the address is not on the public internet, and this server may not reach it", false},
 		{fmt.Errorf("dial: %w: 10.0.0.5", outbound.ErrRefused), "the address is not on the public internet, and this server may not reach it", false},
 		{errors.New("something else at https://shop.example.com/" + token), "the request failed", true},
 	} {
@@ -203,7 +203,7 @@ func TestHTTPRefusesOwnAddress(t *testing.T) {
 	}))
 	defer srv.Close()
 	r := (&Runner{UserAgent: "Allstill/test"}).HTTP(t.Context(), HTTP{URL: srv.URL + "/" + token})
-	if r.Outcome != check.Failed || r.Reason != "the address is the server's own, which checks never reach" || r.Unsure || !r.Local {
+	if r.Outcome != check.Failed || r.Reason != "the address is not on the public internet, and this server may not reach it" || r.Unsure || !r.Local {
 		t.Errorf("%+v", r)
 	}
 }
@@ -347,6 +347,7 @@ func TestValidate(t *testing.T) {
 		{HTTP{URL: "https://example.com", Method: "POST"}, "method"},
 		{HTTP{URL: "https://example.com", Expect: []int{700}}, "expected_status"},
 		{HTTP{URL: "https://example.com", Timeout: 61}, "timeout"},
+		{HTTP{URL: "https://example.com", Timeout: 10000000000}, "timeout"}, // would wrap around as a duration
 		{HTTP{URL: "https://example.com", WarnDays: &five, FailDays: &twenty}, "fail_days"},
 		{HTTP{URL: "https://example.com", Method: "HEAD", JSON: &JSONField{"/status", "ok"}}, "json_field"},
 		{HTTP{URL: "https://example.com", JSON: &JSONField{"status", "ok"}}, "json_field.pointer"},

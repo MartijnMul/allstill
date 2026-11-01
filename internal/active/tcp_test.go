@@ -105,7 +105,7 @@ func TestTCPRefusesOwnAddress(t *testing.T) {
 	ln := listen(t)
 	serve(t, ln, func(net.Conn) {})
 	r := (&Runner{}).TCP(t.Context(), tcpAt(t, ln))
-	if r.Outcome != check.Failed || !r.Local || r.Reason != "the address is the server's own, which checks never reach" {
+	if r.Outcome != check.Failed || !r.Local || r.Reason != "the address is not on the public internet, and this server may not reach it" {
 		t.Fatalf("%+v", r)
 	}
 }

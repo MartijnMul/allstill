@@ -15,6 +15,7 @@ import (
 )
 
 var funcs = template.FuncMap{
+	"units": unitsOf,
 	// initial is the first letter of a name, for the person's avatar.
 	"initial": func(name string) string {
 		for _, r := range strings.TrimSpace(name) {

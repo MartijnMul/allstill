@@ -1,0 +1,28 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main narrow">
+  <header class="page-head">
+    <div class="page-title"><h1>Add a check</h1></div>
+    {{if not .Chosen}}<p class="lede">What should Allstill watch?</p>{{end}}
+  </header>
+  {{if .Chosen}}
+  <form class="form" action="{{.Form.Action}}" method="post">
+    {{template "check-fields" .Form}}
+    <div class="form-actions">
+      <button type="submit" class="primary">Add check</button>
+      <a class="button" href="{{.Form.Cancel}}">Cancel</a>
+    </div>
+  </form>
+  {{else}}
+  <ul class="kinds">
+    {{range .Kinds}}
+    <li><a href="{{.Href}}">
+      <svg class="icon" aria-hidden="true"><use href="#i-{{.Icon}}"/></svg>
+      <span class="kind-text"><strong>{{.Title}}</strong><span>{{.Text}}</span></span>
+      <svg class="icon chevron" aria-hidden="true"><use href="#i-chevron"/></svg>
+    </a></li>
+    {{end}}
+  </ul>
+  {{end}}
+</main>
+{{end}}{{end}}

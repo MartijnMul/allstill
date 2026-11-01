@@ -1,16 +1,16 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 # Allstill guide
 
-Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices; other changes are made with the commands below.
+Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices, and where those who may edit a project add and change its checks. Projects, people and alerting as a whole are managed with the commands below.
 
 There are two ways to watch something:
 
 - **A job reports in.** Cron jobs, backups and scripts ping Allstill when they run. When a ping does not arrive on time, Allstill raises the alarm. Use `allstill run`.
-- **Allstill looks for itself.** Sites, APIs, open ports and TLS certificates. Use `allstill admin add-check`, on the server.
+- **Allstill looks for itself.** Sites, APIs, open ports and TLS certificates. Add them under **Add check** in the dashboard, or with `allstill admin add-check`, on the server.
 
 ## For AI assistants
 
-- A ping URL is a secret: anyone who has it can report for that check. Keep it in the place the project keeps its secrets. Never put it in the repository, in a log or in a message.
+- A ping URL is a secret: anyone who has it can report for that check. Keep it in the place the project keeps its secrets. Never put it in the repository, in a log or in a message. If one leaks, someone who may edit the project replaces it on the check's form in the dashboard; the old one stops working at once, so jobs need the new one.
 - You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands do not fail elsewhere, they quietly do the wrong thing.
 - Do not switch alerts on or off, and do not promise anything from "Not here yet" below.
 - Run `allstill <command> -h` for every flag of a command. If this guide and that help disagree, the help is right.
@@ -36,7 +36,7 @@ This reports the start, the end, the exit status and the tail of the output, whi
 
 To have the first ping create a check that does not exist yet, end a URL of the second form with `?create=1`. If the slug comes out wrong, `allstill admin delete-check` removes the check.
 
-**Check the job against the schedule first.** A check made with `create=1` gets one schedule until someone changes it on the server, with `allstill admin set-check -project Backups -check nightly -every 1h -grace 30m`, or `-cron "0 3 * * *" -time-zone Europe/Amsterdam` in place of `-every`. A new schedule counts from now. As made, it goes down in two cases:
+**Check the job against the schedule first.** A check made with `create=1` gets one schedule until someone changes it, on its form in the dashboard or on the server with `allstill admin set-check -project Backups -check nightly -every 1h -grace 30m`, or `-cron "0 3 * * *" -time-zone Europe/Amsterdam` in place of `-every`. A new schedule counts from now. As made, it goes down in two cases:
 
 - No ping has arrived for a day and an hour. That suits a daily job. An hourly job would be missed for a day, and a weekly job would show as down between its runs.
 - A run started and did not end within an hour. A job that takes longer would go down every time, although not on its first run, so this is easy to miss when you test it. Such a job should ping only when it ends, with curl as below, without the `/start` line. That line then no longer creates the check, so the last ping has to: `"$BACKUP_PING_URL/$??create=1"`.
@@ -126,7 +126,7 @@ A new installation starts in shadow mode: it records what it would have sent und
 - Seeing a check's status from outside the dashboard. The JSON API described in the project's `api/` directory is not served yet, apart from what probes use.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Changing a project's default schedule and grace period.
-- Adding and changing checks in the dashboard: for now they are commands, run on the server.
+- Managing projects, people, probes and who is alerted in the dashboard: for now they are commands, run on the server.
 - Alerts other than by push and email, and changing quiet hours or the digest's time.
 - Calendars, maintenance windows and status pages.
 - The macOS menu bar app.

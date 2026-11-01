@@ -286,6 +286,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	dashboard.Offline = checks.Offline
 	dashboard.Nudge = sched.Nudge
+	dashboard.Allow, dashboard.Try = allow, runner.Attempt
 
 	errs := make(chan error, 4)
 	go func() { errs <- sched.Run(ctx) }()

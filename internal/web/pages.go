@@ -26,6 +26,11 @@ type overviewData struct {
 	Empty     string
 	Calm      bool   // the list is empty because all is well, not for a filter
 	Clear     string // the list without the search
+	Needs     string // what the list of what needs someone is called
+	Add       string // where to add a check, for someone who may
+	AddFirst  bool   // the list is empty, and adding a check is the next step
+	Import    bool   // the list is empty for an administrator, who can import checks
+	Notice    *notice
 }
 
 // healthPart is one state's share of every check, in the bar across the top
@@ -64,10 +69,19 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	show, project := r.URL.Query().Get("show"), r.URL.Query().Get("project")
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 
-	d := overviewData{Updated: clock(now, now, v.Loc)}
+	// Someone who may only look cannot act and gets no alerts: nothing "needs" them.
+	mayAct := len(editableProjects(v)) > 0
+	d := overviewData{Updated: clock(now, now, v.Loc), Needs: "Needs attention", Add: addLink(v, project), Notice: s.noticeFor(r, "")}
+	if mayAct {
+		d.Needs = "Needs you"
+	}
 	counts := map[check.State]int{}
+	waitingToRun := 0 // new checks that Allstill runs, rather than jobs ping
 	for _, c := range checks {
 		counts[c.Status.State]++
+		if c.Status.State == check.New && store.Active(c.Kind) {
+			waitingToRun++
+		}
 		if needsAttention(c.Status.State) {
 			d.Attention = append(d.Attention, attentionCard(c, now, v.Loc))
 		}
@@ -96,15 +110,25 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	switch {
 	case len(checks) == 0:
 		d.Headline = "No checks yet"
-	case checkCards == 1:
+	case checkCards == 1 && mayAct:
 		d.Headline = "1 check needs you"
-	case checkCards > 1:
+	case checkCards > 1 && mayAct:
 		d.Headline = fmt.Sprintf("%d checks need you", checkCards)
+	case checkCards == 1:
+		d.Headline = "1 check needs attention"
+	case checkCards > 1:
+		d.Headline = fmt.Sprintf("%d checks need attention", checkCards)
 	case len(alerts) > 0:
 		d.Headline = "Alerts may not reach you"
 	// A check that never pinged cannot go down, so it is not known to be well.
+	case counts[check.New] == 1 && waitingToRun == 1:
+		d.Headline = "1 check is not checked yet"
 	case counts[check.New] == 1:
 		d.Headline = "1 check has not pinged yet"
+	case counts[check.New] > 1 && waitingToRun == counts[check.New]:
+		d.Headline = fmt.Sprintf("%d checks are not checked yet", counts[check.New])
+	case counts[check.New] > 1 && waitingToRun > 0:
+		d.Headline = fmt.Sprintf("%d checks have not reported yet", counts[check.New])
 	case counts[check.New] > 1:
 		d.Headline = fmt.Sprintf("%d checks have not pinged yet", counts[check.New])
 	default:
@@ -154,20 +178,25 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	}
 	if len(d.Groups) == 0 {
 		switch {
-		case len(checks) == 0 && !v.Access.Admin:
+		// A new installation needs a shell once: projects are made there (C11).
+		case len(v.Access.Projects) == 0 && v.Access.Admin:
+			d.Empty = "There is no project yet. Make the first on the server, and add checks to it here: allstill admin create-project Backups"
+		case len(checks) == 0 && !mayAct:
 			d.Empty = "There are no checks here for you yet. Your administrator adds them, or gives you access to a project."
 		case len(checks) == 0:
-			d.Empty = "Import your checks from Healthchecks with allstill import healthchecks, or ping a new slug with ?create=1 to create it."
+			d.Empty, d.AddFirst = "Nothing is watched yet. Add your first check: a job that reports in, a website or a port.", true
+			d.Import = v.Access.Admin
 		case query != "":
 			d.Empty = fmt.Sprintf("No check matches “%s”.", query)
 		// Unknown checks and what keeps alerts from reaching the person
 		// need no one to act on a check, but all is not known to be well.
 		case show == "attention" && len(d.Attention) == 0 && counts[check.Unknown] == 0:
-			d.Empty, d.Calm = "Nothing needs you: every check is up, new or paused.", true
+			d.Empty, d.Calm = "Nothing "+strings.ToLower(d.Needs)+": every check is up, new or paused.", true
 		case show == "attention":
 			d.Empty = "No check is down, late or in warning."
 		default:
 			d.Empty = "No checks here."
+			d.AddFirst = project != "" && show == "" && strings.Contains(d.Add, "project=")
 		}
 	}
 	// The tab says how many need someone, so it shows among other tabs.
@@ -293,7 +322,11 @@ type checkData struct {
 	NoOutput  string
 	PingURL   string
 	SlugURL   string
+	Curl      string
 	Example   string
+	Connect   bool // new, and nothing has pinged it: how to connect a job comes first (R3)
+	Notice    *notice
+	Manage    *manageLinks
 }
 
 type tile struct{ Label, Value, Note string }
@@ -339,7 +372,11 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 		return
 	}
 	now := s.Now()
-	d := checkData{C: c, Look: lookOf(c.Status.State), Updated: clock(now, now, v.Loc)}
+	d := checkData{C: c, Look: lookOf(c.Status.State), Updated: clock(now, now, v.Loc), Notice: s.noticeFor(r, c.ID)}
+	if d.Manage, err = s.manageOf(r.Context(), v, c); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	d.Since = "since " + clock(now, c.Status.Since, v.Loc)
 	d.Kind = "Heartbeat"
 	if c.Cron != "" {
@@ -368,7 +405,9 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 		if c.Slug != "" {
 			d.SlugURL = s.base.String() + "/ping/<ping key>/" + c.Slug
 		}
+		d.Curl = "curl -fsS -m 10 --retry 3 " + d.PingURL
 		d.Example = "ALLSTILL_URL=" + d.PingURL + " allstill run -- ./backup.sh"
+		d.Connect = c.Status.State == check.New && len(c.Recent) == 0 && !d.Manage.Own
 	}
 
 	var last store.RunView
@@ -396,6 +435,8 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 	next := tile{Label: "Next expected", Value: until(now, c.Status.NextExpected, v.Loc)}
 	if c.Status.State == check.Paused {
 		next.Value, next.Note = "—", "paused until the next ping"
+	} else if c.Status.State == check.New {
+		next.Value, next.Note = "—", "waits for its first ping"
 	} else if !c.Status.Deadline.IsZero() {
 		next.Note = "counts until " + clock(now, c.Status.Deadline, v.Loc)
 	}

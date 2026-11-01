@@ -415,9 +415,9 @@ func explain(err error, timeout time.Duration) (reason string, unsure bool) {
 		netErr    net.Error
 	)
 	switch {
-	case errors.Is(err, outbound.ErrOwn):
-		return "the address is the server's own, which checks never reach", false
 	case errors.Is(err, outbound.ErrRefused):
+		// Also for the server's own address: reasons are shown to people, who
+		// are not told that (intent/manage-checks/spec.md, R27).
 		return "the address is not on the public internet, and this server may not reach it", false
 	case errors.Is(err, outbound.ErrTooManyRedirects):
 		return fmt.Sprintf("more than %d redirects", outbound.MaxRedirects), false

@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
+	"github.com/MartijnMul/allstill/internal/active"
 	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/store"
 )
@@ -51,8 +53,12 @@ type Server struct {
 	// Offline says whether the server is offline for the checks it runs,
 	// and since when (intent/http-checks/spec.md, R7).
 	Offline func() (time.Time, bool)
-	// Nudge tells the scheduler of a new deadline, from a probe's post.
+	// Nudge tells the scheduler of a new deadline, from a probe's post or a form.
 	Nudge func(time.Time)
+	// Allow holds the private ranges the server's checks may reach, and Try makes
+	// one attempt, to say what a new address finds (intent/manage-checks/spec.md, R4).
+	Allow []netip.Prefix
+	Try   func(context.Context, active.Check) active.Result
 
 	base       *url.URL
 	workspace  string
@@ -60,6 +66,7 @@ type Server struct {
 	wa         *webauthn.WebAuthn
 	ceremonies *ceremonies
 	pages      map[string]*template.Template
+	memory     *memory
 }
 
 // ParseBaseURL checks the address people use to reach Allstill: https, or
@@ -108,10 +115,10 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 	s := &Server{
 		Store: st, Log: log, Now: time.Now,
 		base: base, workspace: workspaceID, secure: base.Scheme == "https",
-		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{},
+		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{}, memory: newMemory(),
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/parts.html"))
-	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "channels", "error"} {
+	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "channels", "error", "check-new", "check-edit", "check-confirm"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}
@@ -127,6 +134,18 @@ func (s *Server) Register(mux *http.ServeMux) {
 	}
 	handle("GET /{$}", s.signedIn(s.overview))
 	handle("GET /checks/{id}", s.signedIn(s.checkPage))
+	handle("GET /checks/new", s.signedIn(s.newCheckPage))
+	handle("POST /checks/new", s.signedIn(s.addCheck))
+	handle("GET /checks/{id}/edit", s.signedIn(s.editCheckPage))
+	handle("POST /checks/{id}/edit", s.signedIn(s.saveCheck))
+	for _, action := range []string{"pause", "move", "delete", "ping-url"} {
+		handle("GET /checks/{id}/"+action, s.signedIn(s.confirmPage(action)))
+	}
+	handle("POST /checks/{id}/pause", s.signedIn(s.pauseCheck))
+	handle("POST /checks/{id}/resume", s.signedIn(s.resumeCheck))
+	handle("POST /checks/{id}/move", s.signedIn(s.moveCheck))
+	handle("POST /checks/{id}/delete", s.signedIn(s.removeCheck))
+	handle("POST /checks/{id}/ping-url", s.signedIn(s.replacePingURL))
 	handle("GET /messages", s.signedIn(s.messagesPage))
 	handle("GET /channels", s.signedIn(s.channelsPage))
 	handle("POST /channels/push", s.signedIn(s.savePush))
@@ -288,6 +307,14 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name s
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, store.ErrNotFound) {
 		s.render(w, r, http.StatusNotFound, "error", page{Title: "Not found", Data: "There is nothing here, or you may not see it."})
+		return
+	}
+	if errors.Is(err, store.ErrForbidden) {
+		s.render(w, r, http.StatusForbidden, "error", page{Title: "You may not change this", Data: "You can look at this project, but not change it. To change it, ask your administrator or its owner for more access."})
+		return
+	}
+	if inv, ok := errors.AsType[*store.InvalidError](err); ok {
+		s.render(w, r, http.StatusUnprocessableEntity, "error", page{Title: "This cannot be saved", Data: sentence(inv.Problem)})
 		return
 	}
 	s.Log.Error("serving a page", "path", r.URL.Path, "error", err)

@@ -190,6 +190,9 @@ WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
 -- name: SetPingUUID :exec
 UPDATE checks SET ping_uuid = ?, updated_at = ? WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
 
+-- name: CountRunsOfCheck :one
+SELECT count(*) FROM runs WHERE check_id = ?;
+
 -- name: CountActiveChecksOfProject :one
 SELECT count(*) FROM checks WHERE project_id = ? AND kind IN ('http', 'tcp') AND deleted_at IS NULL;
 

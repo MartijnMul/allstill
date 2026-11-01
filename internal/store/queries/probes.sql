@@ -23,6 +23,12 @@ UPDATE probes SET key_hash = ? WHERE workspace_id = ? AND name = ?;
 -- name: ProbeServes :one
 SELECT count(*) FROM probe_projects WHERE workspace_id = ? AND probe_id = ? AND project_id = ?;
 
+-- name: ProbesOfProject :many
+SELECT p.id, p.name FROM probes p
+JOIN probe_projects pp ON pp.probe_id = p.id AND pp.workspace_id = p.workspace_id
+WHERE pp.workspace_id = ? AND pp.project_id = ?
+ORDER BY p.name;
+
 -- name: ChecksOfProbe :many
 SELECT id, kind, interval_seconds, settings FROM checks
 WHERE probe_id = ? AND kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused'

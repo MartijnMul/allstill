@@ -3,6 +3,18 @@
 <main class="main">
   {{template "check-head" .}}
 
+  {{if .Connect}}
+  <section class="panel" aria-labelledby="connect">
+    <div class="panel-head"><h2 id="connect">Connect your job</h2></div>
+    <div class="panel-body how">
+      <p>Put this line at the end of your job, or run it now to see this check go up. Anyone who has its URL can ping this check.</p>
+      <div class="code"><code id="connect-curl">{{.Curl}}</code><button type="button" class="icon-button" data-copy="connect-curl" title="Copy"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span class="sr" data-label>Copy</span></button></div>
+      <p>Or wrap the job with <code>allstill run</code>, to report its start, exit status and output as well:</p>
+      <div class="code"><code id="connect-run">{{.Example}}</code><button type="button" class="icon-button" data-copy="connect-run" title="Copy"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span class="sr" data-label>Copy</span></button></div>
+    </div>
+  </section>
+  {{end}}
+
   <div class="cols">
     <div class="col-main">
       {{with .Chart}}{{template "chart" .}}{{end}}
@@ -57,6 +69,8 @@
           {{if .PingURL}}
           <p>Ping this URL when the job ends. Anyone who has it can ping this check.</p>
           <div class="code"><code id="ping-url">{{.PingURL}}</code><button type="button" class="icon-button" data-copy="ping-url" title="Copy"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span class="sr" data-label>Copy</span></button></div>
+          <p>As a line at the end of your job:</p>
+          <div class="code"><code id="ping-curl">{{.Curl}}</code><button type="button" class="icon-button" data-copy="ping-curl" title="Copy"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span class="sr" data-label>Copy</span></button></div>
           {{if .SlugURL}}<p>Or by slug, with the project's ping key:</p><div class="code"><code>{{.SlugURL}}</code></div>{{end}}
           <p>Or wrap the job, to report its start, exit status and output:</p>
           <div class="code"><code id="ping-example">{{.Example}}</code><button type="button" class="icon-button" data-copy="ping-example" title="Copy"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span class="sr" data-label>Copy</span></button></div>

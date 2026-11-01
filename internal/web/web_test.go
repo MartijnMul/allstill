@@ -664,7 +664,7 @@ func TestTheAttentionViewClaimsOnlyWhatItKnows(t *testing.T) {
 	ctx := t.Context()
 	b := f.browser(t)
 	f.register(t, b, f.bob)
-	if page := string(b.ok("GET", "/?show=attention", nil)); !strings.Contains(page, "Nothing needs you") {
+	if page := string(b.ok("GET", "/?show=attention", nil)); !strings.Contains(page, "Nothing needs attention") {
 		t.Fatal("the attention view of checks that are all well does not say so")
 	}
 	admin, _ := f.st.AdminAccess(ctx, f.ws)
@@ -677,7 +677,7 @@ func TestTheAttentionViewClaimsOnlyWhatItKnows(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := string(b.ok("GET", "/?show=attention", nil))
-	if strings.Contains(page, "Nothing needs you") || !strings.Contains(page, "No check is down, late or in warning.") {
+	if strings.Contains(page, "Nothing needs attention") || !strings.Contains(page, "No check is down, late or in warning.") {
 		t.Fatal("the attention view says all is well while a check is unknown")
 	}
 }

@@ -225,6 +225,46 @@ func (q *Queries) ProbeServes(ctx context.Context, arg ProbeServesParams) (int64
 	return count, err
 }
 
+const probesOfProject = `-- name: ProbesOfProject :many
+SELECT p.id, p.name FROM probes p
+JOIN probe_projects pp ON pp.probe_id = p.id AND pp.workspace_id = p.workspace_id
+WHERE pp.workspace_id = ? AND pp.project_id = ?
+ORDER BY p.name
+`
+
+type ProbesOfProjectParams struct {
+	WorkspaceID string
+	ProjectID   string
+}
+
+type ProbesOfProjectRow struct {
+	ID   string
+	Name string
+}
+
+func (q *Queries) ProbesOfProject(ctx context.Context, arg ProbesOfProjectParams) ([]ProbesOfProjectRow, error) {
+	rows, err := q.db.QueryContext(ctx, probesOfProject, arg.WorkspaceID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProbesOfProjectRow{}
+	for rows.Next() {
+		var i ProbesOfProjectRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setCheckProbe = `-- name: SetCheckProbe :exec
 UPDATE checks SET probe_id = ?, deadline = ?, fail_streak = 0, updated_at = ? WHERE workspace_id = ? AND id = ?
 `
