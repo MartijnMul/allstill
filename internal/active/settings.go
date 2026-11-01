@@ -18,12 +18,15 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"net"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Defaults of an HTTP check's settings.
+// Defaults of a check's settings.
 const (
 	DefaultTimeout  = 10 * time.Second
 	MaxTimeout      = 60 * time.Second
@@ -89,16 +92,6 @@ func (h HTTP) Validate() error {
 		return &SettingError{"method", "is GET or HEAD"}
 	case len(h.Expect) > 20:
 		return &SettingError{"expected_status", "at most 20"}
-	case h.Timeout < 0 || time.Duration(h.Timeout)*time.Second > MaxTimeout:
-		return &SettingError{"timeout", "must be 1 to 60 seconds"}
-	case h.WarnDays != nil && (*h.WarnDays < 0 || *h.WarnDays > 365):
-		return &SettingError{"warn_days", "must be 0 (off) to 365"}
-	case h.FailDays != nil && (*h.FailDays < 0 || *h.FailDays > 365):
-		return &SettingError{"fail_days", "must be 0 (off) to 365"}
-	case h.warnDays() > 0 && h.failDays() >= h.warnDays():
-		return &SettingError{"fail_days", "must be fewer than warn_days"}
-	case h.FailAfter < 0 || h.FailAfter > 100:
-		return &SettingError{"fail_after", "must be a whole number from 1 to 100"}
 	case h.Location != "" && h.Follow:
 		return &SettingError{"location", "checks a redirect, which follow_redirects would follow instead"}
 	}
@@ -122,15 +115,35 @@ func (h HTTP) Validate() error {
 			return &SettingError{"location", err.Error()}
 		}
 	}
-	if len(h.CA) > MaxCA {
+	return validateCommon(h.Timeout, h.FailAfter, h.WarnDays, h.FailDays, h.CA)
+}
+
+// validateCommon checks the settings every kind of check has.
+func validateCommon(timeout, failAfter int, warn, fail *int, ca string) error {
+	switch {
+	case timeout < 0 || time.Duration(timeout)*time.Second > MaxTimeout:
+		return &SettingError{"timeout", "must be 1 to 60 seconds"}
+	case warn != nil && (*warn < 0 || *warn > 365):
+		return &SettingError{"warn_days", "must be 0 (off) to 365"}
+	case fail != nil && (*fail < 0 || *fail > 365):
+		return &SettingError{"fail_days", "must be 0 (off) to 365"}
+	case daysOr(warn, DefaultWarnDays) > 0 && daysOr(fail, DefaultFailDays) >= daysOr(warn, DefaultWarnDays):
+		return &SettingError{"fail_days", "must be fewer than warn_days"}
+	case failAfter < 0 || failAfter > 100:
+		return &SettingError{"fail_after", "must be a whole number from 1 to 100"}
+	case len(ca) > MaxCA:
 		return &SettingError{"ca", "at most 64 kB"}
-	}
-	if h.CA != "" {
-		if !x509.NewCertPool().AppendCertsFromPEM([]byte(h.CA)) {
-			return &SettingError{"ca", "holds no certificate in PEM"}
-		}
+	case ca != "" && !x509.NewCertPool().AppendCertsFromPEM([]byte(ca)):
+		return &SettingError{"ca", "holds no certificate in PEM"}
 	}
 	return nil
+}
+
+func daysOr(days *int, def int) int {
+	if days == nil {
+		return def
+	}
+	return *days
 }
 
 func checkURL(raw string) error {
@@ -159,6 +172,84 @@ func checkURL(raw string) error {
 	return nil
 }
 
+// TCP is a TCP check's settings, as the check's settings hold them and the
+// API's TcpCheck describes them: a port that should accept a connection, and
+// with TLS, the handshake and its certificate.
+type TCP struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	TLS  bool   `json:"tls,omitempty"`
+	// Timeout is in seconds.
+	Timeout int `json:"timeout,omitempty"`
+	// WarnDays, FailDays, CA and NoVerify are as an HTTP check's, and only
+	// mean something with TLS.
+	WarnDays *int   `json:"warn_days,omitempty"`
+	FailDays *int   `json:"fail_days,omitempty"`
+	CA       string `json:"ca,omitempty"`
+	NoVerify bool   `json:"no_verify,omitempty"`
+	// FailAfter is read by the store, as an HTTP check's is.
+	FailAfter int `json:"fail_after,omitempty"`
+}
+
+// ParseTCP reads and checks a TCP check's settings.
+func ParseTCP(raw []byte) (TCP, error) {
+	var t TCP
+	if err := json.Unmarshal(raw, &t); err != nil {
+		return t, &SettingError{"settings", "cannot be read: " + err.Error()}
+	}
+	return t, t.Validate()
+}
+
+// Validate checks the settings.
+func (t TCP) Validate() error {
+	if err := checkHost(t.Host); err != nil {
+		return &SettingError{"host", err.Error()}
+	}
+	if t.Port < 1 || t.Port > 65535 {
+		return &SettingError{"port", "must be 1 to 65535"}
+	}
+	if !t.TLS {
+		for field, set := range map[string]bool{"warn_days": t.WarnDays != nil, "fail_days": t.FailDays != nil, "ca": t.CA != "", "no_verify": t.NoVerify} {
+			if set {
+				return &SettingError{field, "is about a certificate, so it needs tls"}
+			}
+		}
+	}
+	return validateCommon(t.Timeout, t.FailAfter, t.WarnDays, t.FailDays, t.CA)
+}
+
+// checkHost checks a host name or IP address, without a scheme or a port.
+func checkHost(host string) error {
+	switch {
+	case host == "":
+		return fmt.Errorf("is needed")
+	case len(host) > 253:
+		return fmt.Errorf("at most 253 characters")
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		if a.Zone() != "" {
+			return fmt.Errorf("an address with a zone is not supported")
+		}
+		return nil
+	}
+	for _, r := range host {
+		if !(r == '-' || r == '.' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z') {
+			return fmt.Errorf("must be a host name or IP address, without a scheme or a port")
+		}
+	}
+	return nil
+}
+
+// Address is where a TCP check connects, as host:port.
+func (t TCP) Address() string { return net.JoinHostPort(t.Host, strconv.Itoa(t.Port)) }
+
+func (t TCP) timeout() time.Duration {
+	if t.Timeout == 0 {
+		return DefaultTimeout
+	}
+	return time.Duration(t.Timeout) * time.Second
+}
+
 func (h HTTP) method() string {
 	if h.Method == "" {
 		return "GET"
@@ -171,20 +262,6 @@ func (h HTTP) timeout() time.Duration {
 		return DefaultTimeout
 	}
 	return time.Duration(h.Timeout) * time.Second
-}
-
-func (h HTTP) warnDays() int {
-	if h.WarnDays == nil {
-		return DefaultWarnDays
-	}
-	return *h.WarnDays
-}
-
-func (h HTTP) failDays() int {
-	if h.FailDays == nil {
-		return DefaultFailDays
-	}
-	return *h.FailDays
 }
 
 // Host is the host an HTTP check reads, in lower case, and its port: the

@@ -25,7 +25,7 @@ import (
 // Checks Allstill runs itself are added and changed from the command line
 // for now (intent/http-checks/spec.md, C10).
 
-const httpFlagsHelp = `
+const checkFlagsHelp = `
 What an HTTP check fetches and how it is judged:
   -http URL          the address; a token in its path or query is a secret, as
                      a ping URL is: only the project's editors see it whole
@@ -35,6 +35,13 @@ What an HTTP check fetches and how it is judged:
   -location URL      where a redirect must lead
   -json /status=ok   a field of a JSON answer that must equal a value
   -follow            follow up to 5 redirects, instead of judging the first answer
+
+What a TCP check connects to:
+  -tcp HOST:PORT     a port that should accept a connection
+  -tls               also finish a TLS handshake and watch its certificate; not
+                     for STARTTLS, as on mail ports 25 and 587
+
+For both:
   -every 1m          how often, from 1m to 24h
   -timeout 10s       how long an attempt may take, at most 60s
   -fail-after 2      how many failed attempts in a row make it down
@@ -45,10 +52,17 @@ What an HTTP check fetches and how it is judged:
   -no-verify         do not verify the certificate; its expiry is still read
 `
 
-// httpFlags adds the flags of an HTTP check to fs. apply writes the ones
-// given into settings, and returns the interval when -every was given.
-func httpFlags(fs *flag.FlagSet) (apply func(settings map[string]any) (time.Duration, error)) {
+// certificateSettings are the settings about a certificate, which a TCP check
+// without TLS does not have.
+var certificateSettings = []string{"warn_days", "fail_days", "ca", "no_verify"}
+
+// checkFlags adds the flags of a check Allstill runs itself to fs. apply writes
+// the ones given into settings for a check of this kind, refuses those of
+// another kind, and returns the interval when -every was given.
+func checkFlags(fs *flag.FlagSet) (apply func(kind string, settings map[string]any) (time.Duration, error)) {
 	rawURL := fs.String("http", "", "the URL to fetch")
+	address := fs.String("tcp", "", "the host and port to connect to, such as mail.example.com:993")
+	useTLS := fs.Bool("tls", false, "finish a TLS handshake on the TCP port, and watch its certificate")
 	method := fs.String("method", "GET", "GET or HEAD")
 	expect := fs.String("expect", "", "the status codes that count as up, such as 200,301")
 	location := fs.String("location", "", "where a redirect must lead")
@@ -61,7 +75,11 @@ func httpFlags(fs *flag.FlagSet) (apply func(settings map[string]any) (time.Dura
 	failDays := fs.Int("fail-days", active.DefaultFailDays, "fail under this many days of certificate left; 0 turns it off")
 	ca := fs.String("ca", "", "a file of certificates to trust beyond the system's, in PEM")
 	noVerify := fs.Bool("no-verify", false, "do not verify the certificate")
-	return func(settings map[string]any) (time.Duration, error) {
+	flagKind := map[string]string{
+		"http": "http", "method": "http", "expect": "http", "location": "http", "json": "http", "follow": "http",
+		"tcp": "tcp", "tls": "tcp",
+	}
+	return func(kind string, settings map[string]any) (time.Duration, error) {
 		var interval time.Duration
 		var err error
 		set := func(key string, v any, empty bool) {
@@ -75,9 +93,24 @@ func httpFlags(fs *flag.FlagSet) (apply func(settings map[string]any) (time.Dura
 			if err != nil {
 				return
 			}
+			if k, ok := flagKind[f.Name]; ok && k != kind {
+				err = fmt.Errorf("-%s is for %s checks, and this is %s check", f.Name, strings.ToUpper(k), an(kind))
+				return
+			}
 			switch f.Name {
 			case "http":
 				set("url", *rawURL, false)
+			case "tcp":
+				host, port, e := net.SplitHostPort(*address)
+				n, e2 := strconv.Atoi(port)
+				if e != nil || e2 != nil {
+					err = fmt.Errorf("-tcp %q: give a host and a port, such as mail.example.com:993", *address)
+					return
+				}
+				set("host", host, false)
+				set("port", n, false)
+			case "tls":
+				set("tls", true, !*useTLS)
 			case "method":
 				set("method", strings.ToUpper(*method), strings.EqualFold(*method, "GET"))
 			case "expect":
@@ -131,19 +164,41 @@ func httpFlags(fs *flag.FlagSet) (apply func(settings map[string]any) (time.Dura
 				set("no_verify", true, !*noVerify)
 			}
 		})
+		// Without TLS there is no certificate, so what is known of one goes,
+		// unless it was just given: then the store says it needs TLS.
+		if err == nil && kind == "tcp" && !*useTLS && visited(fs, "tls") {
+			for _, key := range certificateSettings {
+				if !visited(fs, strings.ReplaceAll(key, "_", "-")) {
+					delete(settings, key)
+				}
+			}
+		}
 		return interval, err
 	}
+}
+
+// visited says whether a flag was given.
+func visited(fs *flag.FlagSet, name string) bool {
+	found := false
+	fs.Visit(func(f *flag.Flag) { found = found || f.Name == name })
+	return found
+}
+
+// an names a kind of check as a sentence does.
+func an(kind string) string {
+	if kind == "http" {
+		return "an HTTP"
+	}
+	return "a " + strings.ToUpper(kind)
 }
 
 // reachable refuses an address the server may not reach, saying what to do
 // (ADR 0004). A host name that does not resolve now is only a warning: the
 // check reports it.
-func reachable(ctx context.Context, raw string, allow []netip.Prefix, stdout io.Writer) error {
-	u, err := url.Parse(raw)
-	if err != nil {
+func reachable(ctx context.Context, host string, allow []netip.Prefix, stdout io.Writer) error {
+	if host == "" {
 		return nil // the store says what is wrong with it
 	}
-	host := u.Hostname()
 	addrs := []netip.Addr{}
 	if a, err := netip.ParseAddr(host); err == nil {
 		addrs = append(addrs, a)
@@ -164,6 +219,15 @@ func reachable(ctx context.Context, raw string, allow []netip.Prefix, stdout io.
 		}
 	}
 	return nil
+}
+
+// hostOf is the host of a URL, or "" when it cannot be read.
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 // rangeOf suggests the private range an address is in.
@@ -219,13 +283,14 @@ func addCheck(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	fs := flag.NewFlagSet("admin add-check", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprint(stderr, `Usage: allstill admin add-check -project PROJECT -name NAME -http URL [flags]
+		fmt.Fprint(stderr, `Usage: allstill admin add-check -project PROJECT -name NAME (-http URL | -tcp HOST:PORT) [flags]
 
-Adds a check that Allstill runs itself, from the server: an HTTP request on
-its interval, judged by its status code, a JSON field or where it redirects,
-and the certificate's days left. It tries the address once, to show what the
-check will see. The running server starts it within a minute.
-`+httpFlagsHelp+`
+Adds a check that Allstill runs itself, from the server, on its interval: an
+HTTP request, judged by its status code, a JSON field or where it redirects,
+or a connection to a TCP port, optionally with TLS. Over TLS, also by the
+certificate's days left. It tries the address once, to show what the check
+will see. The running server starts it within a minute.
+`+checkFlagsHelp+`
 Flags:
 `)
 		fs.PrintDefaults()
@@ -239,17 +304,21 @@ Flags:
 		tags = append(tags, v)
 		return nil
 	})
-	apply := httpFlags(fs)
+	apply := checkFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	rawURL := fs.Lookup("http").Value.String()
-	if *project == "" || *name == "" || rawURL == "" || fs.NArg() != 0 {
+	rawURL, address := fs.Lookup("http").Value.String(), fs.Lookup("tcp").Value.String()
+	if *project == "" || *name == "" || (rawURL == "") == (address == "") || fs.NArg() != 0 {
 		fs.Usage()
-		return errors.New("give -project, -name and -http")
+		return errors.New("give -project, -name and one of -http and -tcp")
+	}
+	kind := "http"
+	if address != "" {
+		kind = "tcp"
 	}
 	settings := map[string]any{}
-	interval, err := apply(settings)
+	interval, err := apply(kind, settings)
 	if err != nil {
 		return err
 	}
@@ -271,7 +340,11 @@ Flags:
 	if err != nil {
 		return err
 	}
-	if err := reachable(ctx, rawURL, allow, stdout); err != nil {
+	host := hostOf(rawURL)
+	if kind == "tcp" {
+		host, _ = settings["host"].(string)
+	}
+	if err := reachable(ctx, host, allow, stdout); err != nil {
 		return err
 	}
 	admin, err := st.AdminAccess(ctx, ws)
@@ -279,7 +352,7 @@ Flags:
 		return err
 	}
 	created, err := st.CreateCheck(ctx, admin, projectID, store.NewCheck{
-		Name: *name, Description: *description, Tags: tags, Kind: "http", Interval: interval, Settings: settings,
+		Name: *name, Description: *description, Tags: tags, Kind: kind, Interval: interval, Settings: settings,
 	})
 	if err != nil {
 		return err
@@ -291,7 +364,7 @@ Flags:
 	if canary == "" {
 		fmt.Fprintln(stdout, "This server has no canary (-canary): if its own network goes down, this check goes down and alerts with it.")
 	}
-	return tryOnce(ctx, &active.Runner{Allow: allow, UserAgent: active.UserAgent(version(), "")}, settings, stdout)
+	return tryOnce(ctx, &active.Runner{Allow: allow, UserAgent: active.UserAgent(version(), "")}, kind, settings, stdout)
 }
 
 // sameCertificate says when another check reads the certificate this one
@@ -307,13 +380,13 @@ func sameCertificate(ctx context.Context, st *store.Store, checkID, project, nam
 			this = c
 		}
 	}
-	host, port := this.HTTP.Host()
-	if !strings.HasPrefix(this.HTTP.URL, "https:") || this.HTTP.WarnDays != nil && *this.HTTP.WarnDays == 0 {
+	host, port, watched := this.Certificate()
+	if !watched {
 		return nil
 	}
 	for _, c := range checks {
-		h, p := c.HTTP.Host()
-		if c.ID != checkID && h == host && p == port && strings.HasPrefix(c.HTTP.URL, "https:") && (c.HTTP.WarnDays == nil || *c.HTTP.WarnDays > 0) {
+		h, p, on := c.Certificate()
+		if c.ID != checkID && h == host && p == port && on {
 			fmt.Fprintf(stdout, "Another check already watches the certificate of %s:%s. To have it warn once, turn its warnings off on one of them: allstill admin set-check -project %q -check %q -warn-days 0\n", host, port, project, name)
 			return nil
 		}
@@ -323,28 +396,36 @@ func sameCertificate(ctx context.Context, st *store.Store, checkID, project, nam
 
 // tryOnce makes one attempt and says how it went, and warns when HEAD is
 // refused.
-func tryOnce(ctx context.Context, runner *active.Runner, settings map[string]any, stdout io.Writer) error {
+func tryOnce(ctx context.Context, runner *active.Runner, kind string, settings map[string]any, stdout io.Writer) error {
 	raw, err := json.Marshal(settings)
 	if err != nil {
 		return err
 	}
-	h, err := active.ParseHTTP(raw)
-	if err != nil {
+	var c active.Check
+	if kind == "tcp" {
+		t, err := active.ParseTCP(raw)
+		if err != nil {
+			return err
+		}
+		c.TCP = &t
+	} else if c.HTTP, err = active.ParseHTTP(raw); err != nil {
 		return err
 	}
-	r := runner.HTTP(ctx, h)
+	r := runner.Attempt(ctx, c)
 	line := "Tried it now: " + map[string]string{"passed": "up", "warned": "up, with a warning", "failed": "it fails"}[string(r.Outcome)]
 	if r.Reason != "" {
 		line += ", " + r.Reason
 	}
 	if code, ok := r.Measured["status"]; ok {
 		line += fmt.Sprintf(" (HTTP %d in %d ms)", int(code), int(r.Measured["ms"]))
+	} else if c.TCP != nil {
+		line += fmt.Sprintf(" (in %d ms)", int(r.Measured["ms"]))
 	}
 	if days, ok := r.Measured["cert_days"]; ok {
 		line += fmt.Sprintf("; its certificate has %.0f days left", days)
 	}
 	fmt.Fprintln(stdout, line+".")
-	if h.Method == "HEAD" && r.Measured["status"] == 405 {
+	if c.HTTP.Method == "HEAD" && r.Measured["status"] == 405 {
 		fmt.Fprintln(stdout, "The site answers HEAD with 405: it does not take HEAD requests. Leave out -method HEAD, or set it with set-check -method GET.")
 	}
 	return nil
@@ -360,7 +441,7 @@ Changes a check that Allstill runs itself: only the settings given change.
 An empty -expect, -location, -json or -ca removes that setting; -follow=false
 and -no-verify=false turn those off. The running server follows within a
 minute.
-`+httpFlagsHelp+`
+`+checkFlagsHelp+`
 Flags:
 `)
 		fs.PrintDefaults()
@@ -368,7 +449,7 @@ Flags:
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
 	project := fs.String("project", "", "the project of the check")
 	name := fs.String("check", "", "the check's name")
-	apply := httpFlags(fs)
+	apply := checkFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -416,7 +497,7 @@ Flags:
 	if err := json.Unmarshal(c.Settings, &settings); err != nil {
 		return fmt.Errorf("its settings cannot be read: %w", err)
 	}
-	interval, err := apply(settings)
+	interval, err := apply(c.Kind, settings)
 	if err != nil {
 		return err
 	}
@@ -428,7 +509,12 @@ Flags:
 		return err
 	}
 	if u, ok := settings["url"].(string); ok && fs.Lookup("http").Value.String() != "" {
-		if err := reachable(ctx, u, allow, stdout); err != nil {
+		if err := reachable(ctx, hostOf(u), allow, stdout); err != nil {
+			return err
+		}
+	}
+	if h, ok := settings["host"].(string); ok && fs.Lookup("tcp").Value.String() != "" {
+		if err := reachable(ctx, h, allow, stdout); err != nil {
 			return err
 		}
 	}

@@ -13,15 +13,16 @@
         <div class="table runs">
           <table>
             <caption class="sr">Recent attempts</caption>
-            <thead><tr><th scope="col">Result</th><th scope="col">Started</th><th scope="col">Took</th><th scope="col">Status</th><th scope="col">Certificate</th></tr></thead>
+            <thead><tr><th scope="col">Result</th><th scope="col">Started</th><th scope="col">Took</th>{{if .HasStatus}}<th scope="col">Status</th>{{end}}{{if .HasCertificate}}<th scope="col">Certificate</th>{{end}}</tr></thead>
             <tbody>
+              {{$status := .HasStatus}}{{$certificate := .HasCertificate}}
               {{range .Runs}}
               <tr>
                 <td><span class="state {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span>{{if .Reason}}<span class="reason">{{.Reason}}</span>{{end}}</td>
                 <td>{{.Started}}</td>
                 <td class="mono{{if eq .Took "—"}} none{{end}}">{{.Took}}</td>
-                <td class="mono{{if eq .Status "—"}} none{{end}}">{{.Status}}</td>
-                <td class="mono{{if eq .Certificate "—"}} none{{end}}">{{.Certificate}}</td>
+                {{if $status}}<td class="mono{{if eq .Status "—"}} none{{end}}">{{.Status}}</td>{{end}}
+                {{if $certificate}}<td class="mono{{if eq .Certificate "—"}} none{{end}}">{{.Certificate}}</td>{{end}}
               </tr>
               {{end}}
             </tbody>

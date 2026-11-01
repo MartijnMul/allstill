@@ -475,6 +475,56 @@ func TestMessagesShowWhatWouldHaveBeenSent(t *testing.T) {
 
 // Every signed-in page renders with its sidebar, for every kind of check:
 // one whose runs sent values, one whose runs did not, and one Allstill runs.
+// A TCP check shows its address and only the columns its attempts can fill.
+func TestATCPCheckHasItsOwnPage(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	admin, _ := f.st.AccessOfPerson(ctx, f.ws, f.ada)
+	add := func(name string, settings map[string]any) string {
+		t.Helper()
+		c, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: name, Kind: "tcp", Interval: time.Minute, Settings: settings})
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := time.Now().Add(-time.Minute)
+		if _, err := f.st.RecordAttempt(ctx, f.ws, c.ID, store.Attempt{Attempt: check.Attempt{Outcome: check.Passed, At: at}, Started: at.Add(-time.Second),
+			Measured: map[string]float64{"cert_days": 40}}); err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+	withTLS := add("mail", map[string]any{"host": "mail.example.com", "port": 993, "tls": true, "warn_days": 7})
+	without := add("database", map[string]any{"host": "db.example.com", "port": 5432})
+
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	page := string(b.ok("GET", "/checks/"+withTLS, nil))
+	for _, want := range []string{"mail.example.com:993", "TCP with TLS", "warns under 7 days", `<th scope="col">Certificate</th>`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("with TLS: the page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, `<th scope="col">Status</th>`) {
+		t.Error("with TLS: a column for a status code, which it has none of")
+	}
+	page = string(b.ok("GET", "/checks/"+without, nil))
+	if !strings.Contains(page, "db.example.com:5432") || !strings.Contains(page, "the port accepts a connection") {
+		t.Error("without TLS: the page does not say what it checks")
+	}
+	// Its last result has no status code to come before how long it took.
+	if !strings.Contains(page, "took 1000 ms") && !strings.Contains(page, "took 1 s") || strings.Contains(page, "· took") {
+		t.Error("without TLS: the last result does not say plainly how long it took")
+	}
+	for _, not := range []string{`<th scope="col">Certificate</th>`, "TLS handshake", "Its full address is a secret"} {
+		if strings.Contains(page, not) {
+			t.Errorf("without TLS: the page holds %q", not)
+		}
+	}
+	if overview := string(b.ok("GET", "/", nil)); !strings.Contains(overview, "TCP · mail.example.com:993") {
+		t.Error("the overview does not show the port")
+	}
+}
+
 func TestEveryPageRenders(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
@@ -498,20 +548,40 @@ func TestEveryPageRenders(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	port, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "mail", Kind: "tcp", Interval: time.Minute,
+		Settings: map[string]any{"host": "mail.example.com", "port": 993, "tls": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainPort, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "database", Kind: "tcp", Interval: time.Minute,
+		Settings: map[string]any{"host": "db.example.com", "port": 5432}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{port.ID, plainPort.ID} {
+		for _, at := range []time.Time{time.Now().Add(-2 * time.Minute), time.Now().Add(-time.Minute)} {
+			if _, err := f.st.RecordAttempt(ctx, f.ws, id, store.Attempt{Attempt: check.Attempt{Outcome: check.Passed, At: at},
+				Started: at.Add(-time.Second)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 
 	b := f.browser(t)
 	f.register(t, b, f.ada)
 	for path, want := range map[string]string{
-		"/":                      "health-bar",
-		"/?show=attention":       "Needs attention",
-		"/?show=paused":          "No checks here.",
-		"/?project=" + f.project: "log-rotate",
-		"/?q=nothing-like-it":    "No check matches",
-		"/checks/" + f.checkID:   "size 18.4 G",
-		"/checks/" + plain.ID:    "The job failed with exit status 1.",
-		"/checks/" + site.ID:     "Response time",
-		"/messages":              "History",
-		"/channels":              "Where alerts go",
+		"/checks/" + port.ID:      "and finishes a TLS handshake",
+		"/checks/" + plainPort.ID: "db.example.com:5432",
+		"/":                       "health-bar",
+		"/?show=attention":        "Needs attention",
+		"/?show=paused":           "No checks here.",
+		"/?project=" + f.project:  "log-rotate",
+		"/?q=nothing-like-it":     "No check matches",
+		"/checks/" + f.checkID:    "size 18.4 G",
+		"/checks/" + plain.ID:     "The job failed with exit status 1.",
+		"/checks/" + site.ID:      "Response time",
+		"/messages":               "History",
+		"/channels":               "Where alerts go",
 	} {
 		page := string(b.ok("GET", path, nil))
 		if !strings.Contains(page, want) {

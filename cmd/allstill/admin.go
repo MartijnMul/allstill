@@ -30,7 +30,7 @@ const adminUsage = `Usage:
   allstill admin rename-project [-db file] NAME NEW-NAME
   allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
   allstill admin set-alerting -project PROJECT -check NAME -urgency now|digest|none [-critical] [-db file]
-  allstill admin add-check -project PROJECT -name NAME -http URL [flags]
+  allstill admin add-check -project PROJECT -name NAME (-http URL | -tcp HOST:PORT) [flags]
   allstill admin set-check -project PROJECT -check NAME [flags]
   allstill admin test-email -to ADDRESS [smtp flags]
   allstill admin set-alerts [-db file] on|shadow

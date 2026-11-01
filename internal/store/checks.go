@@ -115,14 +115,16 @@ func validateActive(kind string, interval time.Duration, settings map[string]any
 			return &InvalidError{"fail_after", "must be a whole number from 1 to 100"}
 		}
 	}
-	if kind != "http" {
-		return nil
-	}
 	raw, err := json.Marshal(settings)
 	if err != nil {
 		return err
 	}
-	if _, err := active.ParseHTTP(raw); err != nil {
+	if kind == "http" {
+		_, err = active.ParseHTTP(raw)
+	} else {
+		_, err = active.ParseTCP(raw)
+	}
+	if err != nil {
 		if se, ok := errors.AsType[*active.SettingError](err); ok {
 			return &InvalidError{se.Field, se.Problem}
 		}
@@ -369,16 +371,22 @@ func (s *Store) ActiveChecks(ctx context.Context) ([]active.Check, error) {
 	}
 	var checks []active.Check
 	for _, r := range rows {
-		if r.Kind != "http" {
+		c := active.Check{ID: r.ID, WorkspaceID: r.WorkspaceID, Every: time.Duration(r.IntervalSeconds.Int64) * time.Second}
+		switch r.Kind {
+		case "http":
+			if c.HTTP, err = active.ParseHTTP([]byte(r.Settings)); err != nil {
+				continue
+			}
+		case "tcp":
+			t, err := active.ParseTCP([]byte(r.Settings))
+			if err != nil {
+				continue
+			}
+			c.TCP = &t
+		default:
 			continue
 		}
-		h, err := active.ParseHTTP([]byte(r.Settings))
-		if err != nil {
-			continue
-		}
-		checks = append(checks, active.Check{
-			ID: r.ID, WorkspaceID: r.WorkspaceID, Every: time.Duration(r.IntervalSeconds.Int64) * time.Second, HTTP: h,
-		})
+		checks = append(checks, c)
 	}
 	return checks, nil
 }

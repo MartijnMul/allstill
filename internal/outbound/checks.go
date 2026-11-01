@@ -34,7 +34,23 @@ var ErrOwn = fmt.Errorf("%w: it is the server's own", ErrRefused)
 // address is checked as it is dialled, for every redirect too: a public
 // address, or one within allow, but never one of the server's own.
 func Transport(tlsConfig *tls.Config, timeout time.Duration, allow []netip.Prefix) *http.Transport {
-	dialer := &net.Dialer{
+	return &http.Transport{
+		Proxy:                  nil, // a proxy would dial for us, past the check
+		DialContext:            Dialer(timeout, allow).DialContext,
+		TLSClientConfig:        tlsConfig,
+		ForceAttemptHTTP2:      true,
+		DisableKeepAlives:      true,
+		TLSHandshakeTimeout:    timeout,
+		ResponseHeaderTimeout:  timeout,
+		MaxResponseHeaderBytes: 64 << 10,
+	}
+}
+
+// Dialer returns the dialer of a check, which checks every address as it is
+// dialled: a public address, or one within allow, but never one of the
+// server's own.
+func Dialer(timeout time.Duration, allow []netip.Prefix) *net.Dialer {
+	return &net.Dialer{
 		Timeout: timeout,
 		Control: func(network, address string, _ syscall.RawConn) error {
 			ap, err := netip.ParseAddrPort(address)
@@ -49,16 +65,6 @@ func Transport(tlsConfig *tls.Config, timeout time.Duration, allow []netip.Prefi
 			}
 			return nil
 		},
-	}
-	return &http.Transport{
-		Proxy:                  nil, // a proxy would dial for us, past the check
-		DialContext:            dialer.DialContext,
-		TLSClientConfig:        tlsConfig,
-		ForceAttemptHTTP2:      true,
-		DisableKeepAlives:      true,
-		TLSHandshakeTimeout:    timeout,
-		ResponseHeaderTimeout:  timeout,
-		MaxResponseHeaderBytes: 64 << 10,
 	}
 }
 

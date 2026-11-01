@@ -56,6 +56,8 @@ type Runner struct {
 	UserAgent string
 	// Transport, when set, replaces the outbound transport, for tests.
 	Transport func(*tls.Config, time.Duration) http.RoundTripper
+	// Dial, when set, replaces the outbound dialer of a TCP check, for tests.
+	Dial func(ctx context.Context, network, address string) (net.Conn, error)
 }
 
 // CheckContact checks a contact address for the User-Agent: one line of
@@ -82,15 +84,7 @@ func (r *Runner) HTTP(ctx context.Context, h HTTP) Result {
 	res := Result{Started: time.Now(), Measured: map[string]float64{}}
 	timeout := h.timeout()
 	certs := &certificates{}
-	conf := &tls.Config{MinVersion: tls.VersionTLS12, VerifyConnection: certs.see, InsecureSkipVerify: h.NoVerify}
-	if h.CA != "" {
-		pool, err := x509.SystemCertPool()
-		if err != nil {
-			pool = x509.NewCertPool()
-		}
-		pool.AppendCertsFromPEM([]byte(h.CA))
-		conf.RootCAs = pool
-	}
+	conf := certs.config(h.CA, h.NoVerify)
 	var rt http.RoundTripper
 	if r.Transport != nil {
 		rt = r.Transport(conf, timeout)
@@ -113,7 +107,7 @@ func (r *Runner) HTTP(ctx context.Context, h HTTP) Result {
 	if err != nil {
 		res.Ended = time.Now()
 		res.Measured["ms"] = float64(res.Ended.Sub(res.Started).Milliseconds())
-		res.measureCertificate(h, certs)
+		res.measureCertificate(certs)
 		res.Local = errors.Is(err, outbound.ErrRefused)
 		return res.fail(explain(err, timeout))
 	}
@@ -130,7 +124,7 @@ func (r *Runner) HTTP(ctx context.Context, h HTTP) Result {
 	res.Ended = time.Now()
 	res.Measured["status"] = float64(resp.StatusCode)
 	res.Measured["ms"] = float64(res.Ended.Sub(res.Started).Milliseconds())
-	cert := res.measureCertificate(h, certs)
+	cert := res.measureCertificate(certs)
 
 	if reason := h.judgeStatus(resp, req.URL); reason != "" {
 		return res.fail(reason, false)
@@ -140,7 +134,7 @@ func (r *Runner) HTTP(ctx context.Context, h HTTP) Result {
 			return res.fail(reason, false)
 		}
 	}
-	return res.judgeCertificate(h, cert)
+	return res.judgeCertificate(h.WarnDays, h.FailDays, cert)
 }
 
 func (r Result) fail(reason string, unsure bool) Result {
@@ -312,6 +306,21 @@ type certificates struct {
 	notAfter  time.Time
 }
 
+// config is the TLS configuration of an attempt that keeps its certificates
+// here, trusting ca beyond the system's.
+func (c *certificates) config(ca string, noVerify bool) *tls.Config {
+	conf := &tls.Config{MinVersion: tls.VersionTLS12, VerifyConnection: c.see, InsecureSkipVerify: noVerify}
+	if ca != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		pool.AppendCertsFromPEM([]byte(ca))
+		conf.RootCAs = pool
+	}
+	return conf
+}
+
 func (c *certificates) see(cs tls.ConnectionState) error {
 	chain := cs.PeerCertificates
 	if len(cs.VerifiedChains) > 0 {
@@ -335,7 +344,7 @@ type certificate struct {
 	left, life time.Duration
 }
 
-func (r *Result) measureCertificate(h HTTP, c *certificates) certificate {
+func (r *Result) measureCertificate(c *certificates) certificate {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.notAfter.IsZero() {
@@ -351,7 +360,7 @@ func (r *Result) measureCertificate(h HTTP, c *certificates) certificate {
 // warn_days or a third of its life, whichever is shorter, a failure below
 // fail_days or a tenth. Hours are compared, so a short-lived certificate is
 // measured as such (C5).
-func (r Result) judgeCertificate(h HTTP, c certificate) Result {
+func (r Result) judgeCertificate(warn, fail *int, c certificate) Result {
 	r.Outcome = check.Passed
 	if c == (certificate{}) {
 		return r
@@ -360,10 +369,10 @@ func (r Result) judgeCertificate(h HTTP, c certificate) Result {
 		return r.fail("certificate expired", false)
 	}
 	day := 24 * time.Hour
-	if d := h.failDays(); d > 0 && c.left < min(time.Duration(d)*day, c.life/10) {
+	if d := daysOr(fail, DefaultFailDays); d > 0 && c.left < min(time.Duration(d)*day, c.life/10) {
 		return r.fail("certificate expires in "+left(c.left), false)
 	}
-	if d := h.warnDays(); d > 0 && c.left < min(time.Duration(d)*day, c.life/3) {
+	if d := daysOr(warn, DefaultWarnDays); d > 0 && c.left < min(time.Duration(d)*day, c.life/3) {
 		r.Outcome, r.Reason = check.Warned, "certificate expires in "+left(c.left)
 	}
 	return r
@@ -392,7 +401,6 @@ func explain(err error, timeout time.Duration) (reason string, unsure bool) {
 		invalid   x509.CertificateInvalidError
 		verify    *tls.CertificateVerificationError
 		record    tls.RecordHeaderError
-		alert     tls.AlertError
 		netErr    net.Error
 	)
 	switch {
@@ -420,7 +428,9 @@ func explain(err error, timeout time.Duration) (reason string, unsure bool) {
 	case errors.As(err, &record), strings.Contains(err.Error(), "server gave HTTP response to HTTPS client"):
 		// net/http turns the record error into text when the answer is HTTP.
 		return "the server does not speak TLS", false
-	case errors.As(err, &alert):
+	case strings.Contains(err.Error(), "tls: "):
+		// crypto/tls has no type for these outside QUIC: an alert from the
+		// server, or no version or cipher in common. Either way it answered.
 		return "the TLS handshake failed", false
 	case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
 		return "the host name does not exist", false
@@ -439,7 +449,10 @@ func explain(err error, timeout time.Duration) (reason string, unsure bool) {
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return "the connection closed without an answer", false
 	}
-	return "the request failed", true
+	return requestFailed, true
 }
+
+// requestFailed is the reason of a failure explain knows nothing more about.
+const requestFailed = "the request failed"
 
 func seconds(d time.Duration) string { return strconv.Itoa(int(d.Seconds())) + " s" }

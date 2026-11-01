@@ -181,6 +181,8 @@ func TestExplain(t *testing.T) {
 		{&net.DNSError{Err: "i/o timeout", Name: "shop.example.com", IsTimeout: true}, "the host name could not be looked up", true},
 		{context.DeadlineExceeded, "no answer within 10 s", true},
 		{io.ErrUnexpectedEOF, "the connection closed without an answer", false},
+		{&net.OpError{Op: "remote error", Err: errors.New("tls: protocol version not supported")}, "the TLS handshake failed", false},
+		{errors.New("tls: server selected unsupported protocol version 301"), "the TLS handshake failed", false},
 		{fmt.Errorf("dial: %w", outbound.ErrOwn), "the address is the server's own, which checks never reach", false},
 		{fmt.Errorf("dial: %w: 10.0.0.5", outbound.ErrRefused), "the address is not on the public internet, and this server may not reach it", false},
 		{errors.New("something else at https://shop.example.com/" + token), "the request failed", true},

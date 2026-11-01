@@ -17,9 +17,10 @@ import (
 
 // A check Allstill runs itself (intent/http-checks/spec.md, R8): its page and
 // row show its attempts, their duration and reason, and the certificate's
-// days left. Its URL, and where it must redirect, are secrets: whole for the
-// project's editors and owners and for administrators, the scheme and host
-// for everyone else (R12).
+// days left. An HTTP check's URL, and where it must redirect, are secrets:
+// whole for the project's editors and owners and for administrators, the
+// scheme and host for everyone else (R12). A TCP check's host and port are no
+// more than that.
 
 // whole says whether the viewer may see a check's secrets whole: its ping
 // URL, the URL it fetches, and where that must redirect.
@@ -40,6 +41,8 @@ type activeData struct {
 	Chart    *chart
 	Runs     []attemptRow
 	Secret   bool // the viewer sees only the scheme and host
+	// HasStatus and HasCertificate say which columns its attempts have.
+	HasStatus, HasCertificate bool
 }
 
 type attemptRow struct {
@@ -54,10 +57,15 @@ func settingsOf(c store.CheckView) active.HTTP {
 	return h
 }
 
+// tcpOf reads a TCP check's settings, as settingsOf does.
+func tcpOf(c store.CheckView) active.TCP {
+	t, _ := active.ParseTCP(c.Settings)
+	return t
+}
+
 func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c store.CheckView, d checkData) {
 	now := s.Now()
-	h := settingsOf(c)
-	a := activeData{C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Updated: d.Updated, Kind: strings.ToUpper(c.Kind), Secret: !whole(v, c.ProjectID)}
+	a := activeData{C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Updated: d.Updated, Kind: strings.ToUpper(c.Kind)}
 
 	var last store.RunView
 	if len(c.Recent) > 0 {
@@ -70,7 +78,7 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 			t.Note = strings.TrimPrefix(t.Note+" · HTTP "+strconv.Itoa(int(code)), " · ")
 		}
 		if took := last.Duration(); took > 0 {
-			t.Note += " · took " + millis(took)
+			t.Note = strings.TrimPrefix(t.Note+" · took "+millis(took), " · ")
 		}
 		a.Tiles = append(a.Tiles, t)
 		if days, ok := last.Values["cert_days"]; ok {
@@ -86,26 +94,44 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 	}
 	a.Tiles = append(a.Tiles, next)
 
-	url, location := h.URL, h.Location
-	if a.Secret {
-		url, location = active.Shown(url), active.Shown(location)
-	}
-	method := h.Method
-	if method == "" {
-		method = "GET"
-	}
-	a.What = []pair{{"URL", url, true}, {"Request", method + " · timeout " + span(timeoutOf(h)), false}, {"Up when", expectsOf(h), false}}
-	if h.Location != "" {
-		a.What = append(a.What, pair{"Redirects to", location, true})
-	}
-	if h.Follow {
-		a.What = append(a.What, pair{"Redirects", fmt.Sprintf("followed, at most %d", outbound.MaxRedirects), false})
-	}
-	a.What = append(a.What,
-		pair{"Interval", every(c.Interval), false},
-		pair{"Down after", plural(failAfter(h), "failed attempt", "failed attempts in a row"), false})
-	if strings.HasPrefix(h.URL, "https:") {
-		a.What = append(a.What, pair{"Certificate", certificateOf(h), false})
+	if c.Kind == "tcp" {
+		t := tcpOf(c)
+		a.HasCertificate = t.TLS
+		up := "the port accepts a connection"
+		if t.TLS {
+			up += " and finishes a TLS handshake"
+		}
+		a.What = []pair{{"Address", t.Address(), true}, {"Connection", connectionOf(t), false}, {"Up when", up, false}}
+		a.What = append(a.What,
+			pair{"Interval", every(c.Interval), false},
+			pair{"Down after", plural(failAfterOr(t.FailAfter), "failed attempt", "failed attempts in a row"), false})
+		if t.TLS {
+			a.What = append(a.What, pair{"Certificate", certificateOf(t.WarnDays, t.FailDays, t.NoVerify, t.CA), false})
+		}
+	} else {
+		h := settingsOf(c)
+		a.Secret, a.HasStatus, a.HasCertificate = !whole(v, c.ProjectID), true, true
+		url, location := h.URL, h.Location
+		if a.Secret {
+			url, location = active.Shown(url), active.Shown(location)
+		}
+		method := h.Method
+		if method == "" {
+			method = "GET"
+		}
+		a.What = []pair{{"URL", url, true}, {"Request", method + " · timeout " + span(timeoutOf(h.Timeout)), false}, {"Up when", expectsOf(h), false}}
+		if h.Location != "" {
+			a.What = append(a.What, pair{"Redirects to", location, true})
+		}
+		if h.Follow {
+			a.What = append(a.What, pair{"Redirects", fmt.Sprintf("followed, at most %d", outbound.MaxRedirects), false})
+		}
+		a.What = append(a.What,
+			pair{"Interval", every(c.Interval), false},
+			pair{"Down after", plural(failAfterOr(h.FailAfter), "failed attempt", "failed attempts in a row"), false})
+		if strings.HasPrefix(h.URL, "https:") {
+			a.What = append(a.What, pair{"Certificate", certificateOf(h.WarnDays, h.FailDays, h.NoVerify, h.CA), false})
+		}
 	}
 	if len(c.Tags) > 0 {
 		a.What = append(a.What, pair{"Tags", strings.Join(c.Tags, ", "), false})
@@ -113,9 +139,13 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 	a.What = append(a.What, pair{"Created", clock(now, c.Created, v.Loc), false})
 
 	if ch := chartOf(c.Recent, now, v.Loc); ch != nil {
-		ch.Label = strings.Replace(ch.Label, "Run time of the last", "Response time of the last", 1)
+		title := "Response time"
+		if c.Kind == "tcp" {
+			title = "Connection time"
+		}
+		ch.Label = strings.Replace(ch.Label, "Run time of the last", title+" of the last", 1)
 		ch.Label = strings.Replace(ch.Label, " runs, ", " attempts, ", 1)
-		ch.Title, ch.Max, ch.Mid = "Response time", millis(ch.longest), millis(ch.longest/2)
+		ch.Title, ch.Max, ch.Mid = title, millis(ch.longest), millis(ch.longest/2)
 		a.Chart = ch
 	}
 	for i, run := range c.Recent {
@@ -145,9 +175,13 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 
 // activeRow fills in an overview row for a check Allstill runs itself.
 func activeRow(r row, c store.CheckView, now time.Time, loc *time.Location) row {
-	h := settingsOf(c)
-	host, _ := h.Host()
-	r.Sub = strings.ToUpper(c.Kind) + " · " + host
+	var where string
+	if c.Kind == "tcp" {
+		where = tcpOf(c).Address()
+	} else {
+		where, _ = settingsOf(c).Host()
+	}
+	r.Sub = strings.ToUpper(c.Kind) + " · " + where
 	// Its grace follows from its interval, so it is not shown.
 	r.Schedule, r.ScheduleNote = every(c.Interval), ""
 	var parts []string
@@ -192,18 +226,26 @@ func daysLeft(days float64) string {
 	return plural(int(days), "day", "days")
 }
 
-func timeoutOf(h active.HTTP) time.Duration {
-	if h.Timeout == 0 {
+func timeoutOf(seconds int) time.Duration {
+	if seconds == 0 {
 		return active.DefaultTimeout
 	}
-	return time.Duration(h.Timeout) * time.Second
+	return time.Duration(seconds) * time.Second
 }
 
-func failAfter(h active.HTTP) int {
-	if h.FailAfter == 0 {
+func failAfterOr(after int) int {
+	if after == 0 {
 		return store.DefaultFailAfter
 	}
-	return h.FailAfter
+	return after
+}
+
+func connectionOf(t active.TCP) string {
+	kind := "TCP"
+	if t.TLS {
+		kind = "TCP with TLS"
+	}
+	return kind + " · timeout " + span(timeoutOf(t.Timeout))
 }
 
 func expectsOf(h active.HTTP) string {
@@ -226,18 +268,18 @@ func expectsOf(h active.HTTP) string {
 	return s
 }
 
-func certificateOf(h active.HTTP) string {
+func certificateOf(warnDays, failDays *int, noVerify bool, ca string) string {
 	days := func(p *int, def int) int {
 		if p == nil {
 			return def
 		}
 		return *p
 	}
-	warn, fail := days(h.WarnDays, active.DefaultWarnDays), days(h.FailDays, active.DefaultFailDays)
+	warn, fail := days(warnDays, active.DefaultWarnDays), days(failDays, active.DefaultFailDays)
 	var parts []string
-	if h.NoVerify {
+	if noVerify {
 		parts = append(parts, "not verified")
-	} else if h.CA != "" {
+	} else if ca != "" {
 		parts = append(parts, "verified with its own CA")
 	}
 	if warn > 0 {

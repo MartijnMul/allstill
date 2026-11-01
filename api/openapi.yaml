@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.6.1
+  version: 0.7.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -1590,6 +1590,68 @@ components:
           $ref: '#/components/schemas/Id'
           description: Run from this probe instead of the server.
 
+    TcpCheck:
+      type: object
+      description: |
+        A connection Allstill makes itself, on its interval: each attempt is a run, with
+        how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+        has left (`cert_days`) in its `values`, and why it failed or warned in its
+        `reason`. Nothing is sent over the connection. The check is down after
+        `fail_after` failed attempts in a row, and up on the first that passes. Its host
+        and port are shown to everyone who can see the check.
+      required: [host, port]
+      properties:
+        host:
+          type: string
+          maxLength: 253
+          description: A host name or IP address, without a scheme or a port.
+        port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        tls:
+          type: boolean
+          default: false
+          description: |
+            Also finish a TLS handshake, and judge its certificate as `HttpCheck` does.
+            STARTTLS, as on mail ports 25 and 587, is not covered. `warn_days`,
+            `fail_days`, `ca` and `no_verify` need it.
+        timeout:
+          type: integer
+          minimum: 1
+          maximum: 60
+          default: 10
+          description: Seconds.
+        fail_after:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 2
+          description: How many failed attempts in a row make the check down.
+        warn_days:
+          type: integer
+          minimum: 0
+          maximum: 365
+          default: 14
+          description: As in `HttpCheck`.
+        fail_days:
+          type: integer
+          minimum: 0
+          maximum: 365
+          default: 3
+          description: As in `HttpCheck`.
+        ca:
+          type: string
+          maxLength: 65536
+          description: As in `HttpCheck`.
+        no_verify:
+          type: boolean
+          default: false
+          description: As in `HttpCheck`.
+        probe_id:
+          $ref: '#/components/schemas/Id'
+          description: Run from this probe instead of the server.
+
     Alerting:
       type: object
       description: How a problem with this check reaches people. The project's routing says who.
@@ -1609,9 +1671,9 @@ components:
     CheckKind:
       type: string
       description: |
-        `ping` for a check jobs ping, `http` for one Allstill runs itself. Clients show
-        kinds they do not know by name: more will come.
-      enum: [ping, http]
+        `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+        Clients show kinds they do not know by name: more will come.
+      enum: [ping, http, tcp]
 
     CheckSettings:
       type: object
@@ -1645,12 +1707,13 @@ components:
           description: Checks this one depends on, in any project of the workspace.
           items: {$ref: '#/components/schemas/Id'}
         http: {$ref: '#/components/schemas/HttpCheck'}
+        tcp: {$ref: '#/components/schemas/TcpCheck'}
         alerting: {$ref: '#/components/schemas/Alerting'}
 
     CheckInput:
       description: |
-        A new check. `http` is required for `kind: http`, whose schedule is an
-        interval of 60 seconds to a day.
+        A new check. `http` is required for `kind: http` and `tcp` for `kind: tcp`,
+        whose schedule is an interval of 60 seconds to a day.
       allOf:
         - $ref: '#/components/schemas/CheckSettings'
         - type: object
@@ -1727,7 +1790,7 @@ components:
         exit_status: {type: integer, minimum: 0, maximum: 255}
         values:
           type: object
-          description: The values a job sent, or what an attempt measured (see `HttpCheck`).
+          description: The values a job sent, or what an attempt measured (see `HttpCheck` and `TcpCheck`).
           additionalProperties: {type: number, format: double}
         reason:
           type: string

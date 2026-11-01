@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"net"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +37,7 @@ type Check struct {
 	ID, WorkspaceID string
 	Every           time.Duration
 	HTTP            HTTP
+	TCP             *TCP // a TCP check; otherwise it is an HTTP check
 }
 
 // offset is when within its interval a check's attempts start, from its id,
@@ -57,12 +60,27 @@ func (c Check) Slot(t time.Time) time.Time {
 
 // host is what an attempt waits its turn for: one attempt per host at a time.
 func (c Check) host() string {
-	h, _ := c.HTTP.Host()
+	h, _, _ := c.Certificate()
 	return h
 }
 
+// Certificate is the host and port a check connects to, in lower case, and
+// whether it watches the certificate there.
+func (c Check) Certificate() (host, port string, watched bool) {
+	if c.TCP != nil {
+		return strings.ToLower(c.TCP.Host), strconv.Itoa(c.TCP.Port), c.TCP.TLS && daysOr(c.TCP.WarnDays, DefaultWarnDays) > 0
+	}
+	host, port = c.HTTP.Host()
+	return host, port, strings.HasPrefix(c.HTTP.URL, "https:") && daysOr(c.HTTP.WarnDays, DefaultWarnDays) > 0
+}
+
 // Attempt makes one attempt of a check.
-func (r *Runner) Attempt(ctx context.Context, c Check) Result { return r.HTTP(ctx, c.HTTP) }
+func (r *Runner) Attempt(ctx context.Context, c Check) Result {
+	if c.TCP != nil {
+		return r.TCP(ctx, *c.TCP)
+	}
+	return r.HTTP(ctx, c.HTTP)
+}
 
 // Done is a finished attempt: its check, the slot it was due in, and how it
 // went.
@@ -81,7 +99,7 @@ type Loop struct {
 	Checks func(context.Context) ([]Check, error)
 	// Record keeps finished attempts, in one transaction.
 	Record func(context.Context, []Done) error
-	// Attempt makes one attempt; Runner.HTTP for an HTTP check.
+	// Attempt makes one attempt; Runner.Attempt in a server.
 	Attempt func(context.Context, Check) Result
 	// Canary says whether the server's own network works. Without one, a
 	// failure that could be the server's own counts against the target

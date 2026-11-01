@@ -250,6 +250,36 @@ func TestActiveChecks(t *testing.T) {
 	}
 }
 
+// A TCP check runs in the same loop, with its own settings.
+func TestActiveChecksReturnsTCP(t *testing.T) {
+	f := setup(t)
+	id, err := f.s.CreateCheck(t.Context(), f.editor, f.project, NewCheck{Name: "mail", Kind: "tcp", Interval: time.Minute,
+		Settings: map[string]any{"host": "mail.example.com", "port": 993, "tls": true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := f.get(t, id.ID); c.GraceSeconds != 120 {
+		t.Errorf("grace %d", c.GraceSeconds)
+	}
+	checks, err := f.s.ActiveChecks(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checks) != 1 || checks[0].TCP == nil || checks[0].TCP.Address() != "mail.example.com:993" || !checks[0].TCP.TLS {
+		t.Fatalf("%+v", checks)
+	}
+	// Judged as any active check is: down after two failures in a row.
+	f.attempt(t, id.ID, check.Failed, t0)
+	f.attempt(t, id.ID, check.Failed, t0.Add(time.Minute))
+	if c := f.get(t, id.ID); c.State != "down" {
+		t.Errorf("after two failures: %s", c.State)
+	}
+	// And a ping to it is refused.
+	if _, err := f.s.Ping(t.Context(), ping(id.PingUUID, check.Success, "", t0)); !errors.Is(err, check.ErrActive) {
+		t.Errorf("a ping: %v", err)
+	}
+}
+
 // An HTTP check's settings are checked as it is made and changed, so the
 // loop never gets one it cannot run.
 func TestActiveCheckSettings(t *testing.T) {
@@ -263,6 +293,9 @@ func TestActiveCheckSettings(t *testing.T) {
 		{NewCheck{Name: "x", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "ftp://example.com"}}, "url"},
 		{NewCheck{Name: "x", Kind: "http", Interval: 25 * time.Hour, Settings: map[string]any{"url": "https://example.com"}}, "schedule.every"},
 		{NewCheck{Name: "x", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "https://example.com", "timeout": 61}}, "timeout"},
+		{NewCheck{Name: "x", Kind: "tcp", Interval: time.Minute}, "host"},
+		{NewCheck{Name: "x", Kind: "tcp", Interval: time.Minute, Settings: map[string]any{"host": "mail.example.com"}}, "port"},
+		{NewCheck{Name: "x", Kind: "tcp", Interval: time.Minute, Settings: map[string]any{"host": "mail.example.com", "port": 25, "warn_days": 7}}, "warn_days"},
 	} {
 		var invalid *InvalidError
 		if _, err := f.s.CreateCheck(ctx, f.editor, f.project, c.n); !errors.As(err, &invalid) || invalid.Field != c.field {

@@ -94,6 +94,124 @@ func TestAddAndSetCheck(t *testing.T) {
 	}
 }
 
+func TestAddAndSetTCPCheck(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _ := st.Workspace(ctx)
+	st.CreateProject(ctx, ws, "Sites")
+	st.SetSetting(ctx, "allow_private", "192.0.2.0/24")
+	st.Close()
+	admin := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := run(ctx, append([]string{"admin"}, append(args, "-db", dbPath)...), &out, &bytes.Buffer{})
+		return out.String(), err
+	}
+	add := func(name string, args ...string) (string, error) {
+		return admin(append([]string{"add-check", "-project", "Sites", "-name", name, "-timeout", "1s"}, args...)...)
+	}
+	set := func(name string, args ...string) (string, error) {
+		return admin(append([]string{"set-check", "-project", "Sites", "-check", name}, args...)...)
+	}
+
+	for what, c := range map[string]struct {
+		args []string
+		want string
+	}{
+		"both kinds":        {[]string{"-tcp", "192.0.2.1:25", "-http", "https://192.0.2.1/"}, "one of -http and -tcp"},
+		"neither":           {nil, "one of -http and -tcp"},
+		"no port":           {[]string{"-tcp", "192.0.2.1"}, "give a host and a port"},
+		"a port in words":   {[]string{"-tcp", "192.0.2.1:smtp"}, "give a host and a port"},
+		"out of range":      {[]string{"-tcp", "192.0.2.1:70000"}, "port"},
+		"a flag for HTTP":   {[]string{"-tcp", "192.0.2.1:25", "-expect", "200"}, "-expect is for HTTP checks, and this is a TCP check"},
+		"certificate flags": {[]string{"-tcp", "192.0.2.1:25", "-warn-days", "7"}, "warn_days"},
+		"private":           {[]string{"-tcp", "10.0.0.5:5432"}, "-allow-private 10.0.0.0/8"},
+		"its own":           {[]string{"-tcp", "127.0.0.1:8000"}, "own address"},
+	} {
+		if _, err := add("bad", c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want %q", what, err, c.want)
+		}
+	}
+	if _, err := add("bad", "-http", "https://192.0.2.1/", "-tls"); err == nil || !strings.Contains(err.Error(), "-tls is for TCP checks, and this is an HTTP check") {
+		t.Errorf("-tls on an HTTP check: %v", err)
+	}
+
+	out, err := add("mail", "-tcp", "192.0.2.1:993", "-tls", "-warn-days", "7", "-no-verify", "-every", "5m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Added mail to Sites", "every 5m", "Tried it now: it fails", " ms)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("add-check said %q, without %q", out, want)
+		}
+	}
+	// A second check on that host and port reads the same certificate.
+	out, err = add("mail-too", "-tcp", "192.0.2.1:993", "-tls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Another check already watches the certificate of 192.0.2.1:993") {
+		t.Errorf("the second check: %q", out)
+	}
+	// A site on the same port reads it too.
+	out, err = add("site", "-http", "https://192.0.2.1:993/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Another check already watches the certificate") {
+		t.Errorf("the site: %q", out)
+	}
+
+	if _, err := set("mail", "-expect", "200"); err == nil || !strings.Contains(err.Error(), "for HTTP checks") {
+		t.Errorf("set-check -expect: %v", err)
+	}
+	if _, err := set("site", "-tcp", "192.0.2.1:25"); err == nil || !strings.Contains(err.Error(), "for TCP checks") {
+		t.Errorf("set-check -tcp on a site: %v", err)
+	}
+	if _, err := set("mail", "-tcp", "10.0.0.5:993"); err == nil || !strings.Contains(err.Error(), "-allow-private") {
+		t.Errorf("set-check to a private address: %v", err)
+	}
+	if _, err := set("mail", "-tcp", "192.0.2.2:995", "-timeout", "5s"); err != nil {
+		t.Fatal(err)
+	}
+	byName := func(address string) *active.TCP {
+		t.Helper()
+		st, err := store.Open(ctx, dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		checks, err := st.ActiveChecks(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range checks {
+			if c.TCP != nil && c.TCP.Address() == address {
+				return c.TCP
+			}
+		}
+		t.Fatalf("no check on %s among %d", address, len(checks))
+		return nil
+	}
+	if m := byName("192.0.2.2:995"); !m.TLS || !m.NoVerify || *m.WarnDays != 7 || m.Timeout != 5 {
+		t.Errorf("after set-check: %+v", m)
+	}
+	// Without TLS, what it knew of a certificate goes with it, and asking
+	// for it anyway is refused.
+	if _, err := set("mail", "-tls=false", "-warn-days", "3"); err == nil || !strings.Contains(err.Error(), "warn_days") {
+		t.Errorf("-tls=false with -warn-days: %v", err)
+	}
+	if _, err := set("mail", "-tls=false"); err != nil {
+		t.Fatal(err)
+	}
+	if m := byName("192.0.2.2:995"); m.TLS || m.NoVerify || m.WarnDays != nil {
+		t.Errorf("after -tls=false: %+v", m)
+	}
+}
+
 // A HEAD check against a site that refuses HEAD is pointed out.
 func TestTryOnceWarnsOfHEAD(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +224,7 @@ func TestTryOnceWarnsOfHEAD(t *testing.T) {
 		return &http.Transport{TLSClientConfig: c}
 	}}
 	var out bytes.Buffer
-	if err := tryOnce(t.Context(), runner, map[string]any{"url": srv.URL, "method": "HEAD"}, &out); err != nil {
+	if err := tryOnce(t.Context(), runner, "http", map[string]any{"url": srv.URL, "method": "HEAD"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "it fails, HTTP 405 (HTTP 405") || !strings.Contains(out.String(), "answers HEAD with 405") {
