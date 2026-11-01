@@ -21,11 +21,11 @@ ORDER BY name, id;
 INSERT INTO checks (
     id, workspace_id, project_id, ping_uuid, name, slug, description, tags, kind,
     schedule_kind, interval_seconds, cron_expression, time_zone, grace_seconds, settings,
-    state, state_since, created_at, updated_at
+    state, state_since, created_at, updated_at, probe_id
 ) VALUES (
     ?, ?, ?, ?, ?, ?, ?, ?, ?,
     ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?
+    ?, ?, ?, ?, ?
 );
 
 -- name: UpdateCheckStatus :exec
@@ -174,7 +174,7 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 -- The checks Allstill runs itself, for its loop; a paused one does not run.
 -- name: ActiveChecks :many
 SELECT id, workspace_id, kind, interval_seconds, settings FROM checks
-WHERE kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused'
+WHERE kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused' AND probe_id IS NULL
 ORDER BY id;
 
 -- name: UpdateActiveCheck :execrows

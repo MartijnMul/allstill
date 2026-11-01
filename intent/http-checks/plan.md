@@ -100,3 +100,12 @@ Step 4, probes:
 - In step 2 the server writes its `-allow-private` and `-canary` to the database when it starts, as it does `-base-url`, so `add-check` checks an address against what the server may reach; the loop reads its checks every 30 seconds, as the admin commands write from another process.
 - The server's own addresses, which step 2 refuses even within `-allow-private`, are loopback, the unspecified address and the addresses of the host's interfaces.
 - The digest lists checks in warning only when their urgency is not `none`, as for incidents. `/health` answers `offline` as well; adding it to its statuses is the second non-additive change `api/README.md` notes.
+- Step 4 has no `protocol version` or `last heard` on a probe: the version is sent with every request and only compared, and the probe's own check holds when it was last heard. A check's probe is a column, not a setting.
+- Step 4 judges a wrong clock on the server, from `sent_at` in each post, not on the probe: its runs count as not judged there, so one place decides, and the answer tells the probe to say so in its log.
+- Step 4 applies no run older than a day, and keeps the ids of runs for two days, so replays cannot pass after their ids are forgotten. A probe keeps at most 5000 runs waiting, in memory.
+- A probe stops on a wrong key or another protocol version instead of retrying: only a person can solve those, and its own check alerts them.
+- A check on a probe cannot be moved to a project the probe does not serve; the plan did not name `move-checks`, which would otherwise have been a way around C6.
+- There is no command yet to change which projects a probe serves after it is made, nor to remove a probe.
+- A run that is not valid is ignored, not the post it came in: the post is also the probe's sign of life, and holds the runs of other checks.
+- What a probe's late runs do to an incident is dated when they arrive, as `MoveCheck` does: its opening, due time and settling. The run and the check's own history keep when it happened. Dated by when they ended, an outage across a digest would never be told. When the check went down stays its own history. An outage that was over when Allstill heard of it sends no "down": the digest tells it.
+- `make generate` adds `//lint:file-ignore ST1005` to the generated `internal/api/api.gen.go`: oapi-codegen writes capitalised error messages, staticcheck has no exception for generated code in that rule, and the rule still holds everywhere else.

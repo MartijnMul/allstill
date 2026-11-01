@@ -51,6 +51,7 @@ type Check struct {
 	Urgency         string
 	Critical        int64
 	FailStreak      int64
+	ProbeID         sql.NullString
 }
 
 type Delivery struct {
@@ -170,6 +171,28 @@ type Ping struct {
 	UserAgent     string
 	BodyTruncated int64
 	Body          []byte
+}
+
+type Probe struct {
+	ID          string
+	WorkspaceID string
+	Name        string
+	KeyHash     []byte
+	CheckID     string
+	CreatedAt   int64
+}
+
+type ProbeProject struct {
+	WorkspaceID string
+	ProbeID     string
+	ProjectID   string
+}
+
+type ProbeRunsSeen struct {
+	WorkspaceID string
+	ProbeID     string
+	RunID       string
+	SeenAt      int64
 }
 
 type Project struct {

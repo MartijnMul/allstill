@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# oapi-codegen turns the Probe part of the API description into Go here. `make
+# generate` runs it; `make check` fails when the generated code is out of date.
+package: api
+generate:
+  std-http-server: true
+  strict-server: true
+  models: true
+output: api.gen.go
+output-options:
+  include-tags: [Probe]

@@ -40,7 +40,8 @@ type activeData struct {
 	What     []pair
 	Chart    *chart
 	Runs     []attemptRow
-	Secret   bool // the viewer sees only the scheme and host
+	Secret   bool   // the viewer sees only the scheme and host
+	Probe    string // the probe that runs it, if not the server
 	// HasStatus and HasCertificate say which columns its attempts have.
 	HasStatus, HasCertificate bool
 }
@@ -132,6 +133,15 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 		if strings.HasPrefix(h.URL, "https:") {
 			a.What = append(a.What, pair{"Certificate", certificateOf(h.WarnDays, h.FailDays, h.NoVerify, h.CA), false})
 		}
+	}
+	if c.ProbeID != "" {
+		name, err := s.Store.ProbeName(r.Context(), s.workspace, c.ProbeID)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		a.Probe = name
+		a.What = append(a.What, pair{"Runs on", "the probe " + name, false})
 	}
 	if len(c.Tags) > 0 {
 		a.What = append(a.What, pair{"Tags", strings.Join(c.Tags, ", "), false})

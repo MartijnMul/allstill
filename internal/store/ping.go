@@ -60,8 +60,15 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 		return PingOut{}, err
 	}
 	defer tx.Rollback()
-	q := db.New(tx)
+	out, err := s.applyPing(ctx, db.New(tx), in)
+	if err != nil {
+		return PingOut{}, err
+	}
+	return out, tx.Commit()
+}
 
+// applyPing is Ping, inside a transaction.
+func (s *Store) applyPing(ctx context.Context, q *db.Queries, in PingIn) (PingOut, error) {
 	var out PingOut
 	c, err := s.findCheck(ctx, q, in, &out)
 	if err != nil {
@@ -146,7 +153,7 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 		return PingOut{}, err
 	}
 	out.Deadline = after.Deadline
-	return out, tx.Commit()
+	return out, nil
 }
 
 // overtakeWithoutRid is how long after an end a start without a rid can still
@@ -452,6 +459,12 @@ func openRuns(ctx context.Context, q *db.Queries, checkID string) ([]check.OpenR
 // saveStatus writes a check's new status, and when its state changed, an
 // event and the change to its incident.
 func saveStatus(ctx context.Context, q *db.Queries, c db.Check, before, after check.Status) error {
+	return saveStatusAt(ctx, q, c, before, after, after.Since)
+}
+
+// saveStatusAt is saveStatus for a change Allstill learned of at a time of its
+// own, as with a probe's runs.
+func saveStatusAt(ctx context.Context, q *db.Queries, c db.Check, before, after check.Status, when time.Time) error {
 	if after == before {
 		return nil
 	}
@@ -463,7 +476,7 @@ func saveStatus(ctx context.Context, q *db.Queries, c db.Check, before, after ch
 	if err != nil || after.State == before.State {
 		return err
 	}
-	if err := incidentStep(ctx, q, c, after); err != nil {
+	if err := incidentStep(ctx, q, c, after, when); err != nil {
 		return err
 	}
 	return q.CreateEvent(ctx, db.CreateEventParams{

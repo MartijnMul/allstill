@@ -47,7 +47,7 @@ func (r *Runner) TCP(ctx context.Context, t TCP) Result {
 		return res
 	}
 	certs := &certificates{}
-	conf := certs.config(t.CA, t.NoVerify)
+	conf := certs.config(r.trust(t.CA), t.NoVerify)
 	conf.ServerName = t.Host
 	tc := tls.Client(conn, conf)
 	if err := tc.HandshakeContext(ctx); err != nil {

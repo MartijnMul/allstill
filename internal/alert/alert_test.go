@@ -94,6 +94,8 @@ func TestDecide(t *testing.T) {
 		want Decision
 	}{
 		{"down by day", open, day, Decision{Tell: Down}},
+		{"down, over when heard", with(open, func(s *Situation) { s.OverWhenHeard = true }), day, Decision{Again: day.Add(time.Minute)}},
+		{"down, over when heard, critical", with(open, func(s *Situation) { s.OverWhenHeard, s.Critical = true, true }), at3, Decision{Again: at3.Add(time.Minute)}},
 		{"down at night waits for the morning", open, at3, Decision{Again: at7}},
 		{"a critical check wakes you", with(open, func(s *Situation) { s.Critical = true }), at3, Decision{Tell: Down}},
 		{"told already", with(open, func(s *Situation) { s.Told = Down }), day, Decision{}},

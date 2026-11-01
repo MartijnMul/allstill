@@ -51,6 +51,9 @@ type Result struct {
 type Runner struct {
 	// Allow holds the private ranges the server may reach (-allow-private).
 	Allow []netip.Prefix
+	// CA holds certificates in PEM to trust for every check, beyond the
+	// system's and the check's own: a probe's -ca.
+	CA string
 	// UserAgent is sent with every request: Allstill/<version>, with a
 	// contact address when the administrator gives one.
 	UserAgent string
@@ -58,6 +61,14 @@ type Runner struct {
 	Transport func(*tls.Config, time.Duration) http.RoundTripper
 	// Dial, when set, replaces the outbound dialer of a TCP check, for tests.
 	Dial func(ctx context.Context, network, address string) (net.Conn, error)
+}
+
+// trust is what a check with this ca trusts beyond the system's.
+func (r *Runner) trust(ca string) string {
+	if r.CA == "" {
+		return ca
+	}
+	return ca + "\n" + r.CA
 }
 
 // CheckContact checks a contact address for the User-Agent: one line of
@@ -84,7 +95,7 @@ func (r *Runner) HTTP(ctx context.Context, h HTTP) Result {
 	res := Result{Started: time.Now(), Measured: map[string]float64{}}
 	timeout := h.timeout()
 	certs := &certificates{}
-	conf := certs.config(h.CA, h.NoVerify)
+	conf := certs.config(r.trust(h.CA), h.NoVerify)
 	var rt http.RoundTripper
 	if r.Transport != nil {
 		rt = r.Transport(conf, timeout)

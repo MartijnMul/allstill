@@ -24,8 +24,13 @@ import (
 //
 // Other states change nothing. The sender is told to look at every recipient
 // whose message may have changed.
-func incidentStep(ctx context.Context, q *db.Queries, c db.Check, after check.Status) error {
-	at := after.Since.UnixMilli()
+//
+// It dates the incident at the time given: when Allstill learned of the change,
+// which for a probe's run can be long after the run ended. Dated then, an outage
+// it hears of late is still told, and settles from now. When the check went down
+// stays its own history.
+func incidentStep(ctx context.Context, q *db.Queries, c db.Check, after check.Status, when time.Time) error {
+	at := when.UnixMilli()
 	open, err := q.OpenIncidentOfCheck(ctx, c.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -48,7 +53,7 @@ func incidentStep(ctx context.Context, q *db.Queries, c db.Check, after check.St
 			return err
 		}
 		err = q.AddIncidentCheck(ctx, db.AddIncidentCheckParams{
-			WorkspaceID: c.WorkspaceID, IncidentID: incidentID, CheckID: c.ID, CheckName: c.Name, ProjectID: c.ProjectID, JoinedAt: at,
+			WorkspaceID: c.WorkspaceID, IncidentID: incidentID, CheckID: c.ID, CheckName: c.Name, ProjectID: c.ProjectID, JoinedAt: after.Since.UnixMilli(),
 		})
 		if err != nil {
 			return err
@@ -119,6 +124,7 @@ func (s *Store) SettleIncidents(ctx context.Context, now time.Time, settle time.
 // Due is one recipient the sender must look at: the incident and the
 // person's settings as they are now, and what the person was told.
 type Due struct {
+	OverWhenHeard    bool // its check came back before Allstill heard it went down
 	WorkspaceID      string
 	IncidentID       string
 	PersonID         string
@@ -150,6 +156,7 @@ func (s *Store) DueRecipients(ctx context.Context, now time.Time, limit int) ([]
 			DueAt: msTime(r.DueAt), Open: r.State != "resolved", Title: r.Title, Urgency: r.Urgency, Critical: r.Critical == 1,
 			Reason: r.ResolveReason.String, TimeZone: r.TimeZone, QuietHours: []byte(r.QuietHours.String),
 			Follows: r.Follows == 1 && r.Disabled == 0, RecoveryMessages: r.RecoveryMessages == 1,
+			OverWhenHeard: r.OverWhenHeard == 1,
 		}
 	}
 	return due, nil

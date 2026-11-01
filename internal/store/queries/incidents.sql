@@ -53,6 +53,10 @@ SELECT r.workspace_id, r.incident_id, r.person_id, r.told, r.told_how,
        i.state, i.title, i.resolve_reason,
        CAST(COALESCE((SELECT c.urgency FROM checks c WHERE c.id = i.cause_check_id), i.urgency) AS TEXT) AS urgency,
        CAST(COALESCE((SELECT c.critical FROM checks c WHERE c.id = i.cause_check_id), i.critical) AS INTEGER) AS critical,
+       CAST(COALESCE((
+           SELECT c.state_since < i.opened_at FROM checks c
+           WHERE c.id = i.cause_check_id AND c.state IN ('up', 'warning')
+       ), 0) AS INTEGER) AS over_when_heard,
        p.time_zone, p.quiet_hours, CAST(p.disabled_at IS NOT NULL AS INTEGER) AS disabled,
        CAST(EXISTS (
            SELECT 1 FROM incident_checks ic

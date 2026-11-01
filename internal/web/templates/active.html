@@ -40,8 +40,8 @@
         <dl class="facts">{{range .What}}<div><dt>{{.K}}</dt><dd{{if .Mono}} class="mono"{{end}}>{{.V}}</dd></div>{{end}}</dl>
         <div class="panel-foot">
           {{if .Secret}}<p>Its full address is a secret; the project's editors see it here.</p>{{end}}
-          <p>Allstill runs this check itself, from the server, and keeps each attempt as a run. A ping to it is refused.</p>
-          <p>An attempt Allstill cannot judge, because its own network is down, makes the check unknown, not down.</p>
+          <p>Allstill runs this check itself, from {{if .Probe}}the probe {{.Probe}}{{else}}the server{{end}}, and keeps each attempt as a run. A ping to it is refused.</p>
+          <p>An attempt Allstill cannot judge, because {{if .Probe}}the probe's{{else}}its own{{end}} network is down, makes the check unknown, not down.</p>
         </div>
       </section>
     </aside>

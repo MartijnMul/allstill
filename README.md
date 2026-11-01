@@ -8,7 +8,7 @@ Is it all still running? Allstill watches your cron jobs, backups, scripts and w
 
 - **Dead man's switch.** Jobs ping Allstill when they run; when a ping does not arrive on time, you know. The ping URLs follow Healthchecks.io, so moving over means changing one base URL.
 - **Did it work, not only did it run.** A ping carries values, such as the size of a backup or the length of a queue, and rules decide: a threshold, compared with the previous run, or how fresh something is.
-- **Checks of its own.** HTTP checks on status codes and JSON fields, TCP checks on open ports, and TLS certificate expiry. Inside networks the server cannot reach, a probe runs them.
+- **Checks of its own.** HTTP checks on status codes and JSON fields, TCP checks on open ports, and TLS certificate expiry. Inside networks the server cannot reach, a probe runs them, with nothing to open in that network.
 - **Calendars.** Working hours, public holidays and maintenance windows decide whether a check counts and how urgent it is.
 - **Calm alerts.** One incident per cause, not ten alerts. A phone alert only for what blocks something now, everything else in the morning digest.
 - **Always in view.** A native macOS menu bar app, a dashboard and status pages.

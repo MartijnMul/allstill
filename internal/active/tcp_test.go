@@ -5,6 +5,8 @@ package active
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"net"
 	"net/netip"
@@ -316,5 +318,30 @@ func TestAttemptAndCertificateByKind(t *testing.T) {
 		if c.c.host() != c.host {
 			t.Errorf("%+v waits for %s", c.c, c.c.host())
 		}
+	}
+}
+
+// A probe's -ca and a check's own both count, also when one has no final newline.
+func TestTrustJoinsBoth(t *testing.T) {
+	now := time.Now()
+	_, one := certificateFor(t, now.Add(-time.Hour), now.Add(time.Hour), "a.example.com")
+	_, two := certificateFor(t, now.Add(-time.Hour), now.Add(time.Hour), "b.example.com")
+	r := &Runner{CA: two}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(r.trust(strings.TrimRight(one, "\n")))) {
+		t.Fatal("no certificate")
+	}
+	for name, raw := range map[string]string{"a.example.com": one, "b.example.com": two} {
+		block, _ := pem.Decode([]byte(raw))
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: name}); err != nil {
+			t.Errorf("%s is not trusted: %v", name, err)
+		}
+	}
+	if (&Runner{}).trust(one) != one {
+		t.Error("without a probe's -ca it changed the check's own")
 	}
 }

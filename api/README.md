@@ -20,7 +20,7 @@ A job that starts again within seconds of its end should add a `rid` to both pin
 
 Beyond Healthchecks, a ping can carry values for a check's rules: `v=name:number` in the query, repeatable (`/ping/5f3e…?v=size:18400000000&v=rows:312`), or an `Allstill-Values` header holding a Structured Field dictionary (RFC 9651), such as `size=18400000000, rows=312`.
 
-**The JSON API** lives under `/api/v1` and needs a bearer token: a project API key, or an OAuth access token from the menu bar app or the CLI. The token's scope (`read`, `manage`) and the caller's role in each project (viewer, editor, owner) decide what it may do.
+**The JSON API** lives under `/api/v1` and needs a bearer token: a project API key, or an OAuth access token from the menu bar app or the CLI (a probe has a key of its own, for its two endpoints). The token's scope (`read`, `manage`) and the caller's role in each project (viewer, editor, owner) decide what it may do.
 
 ## Conventions
 
@@ -55,6 +55,8 @@ output-options:
   skip-prune: true # keeps StreamEvent, which no path refers to
 ```
 
+For now it generates the `Probe` tag alone (`include-tags: [Probe]`, in [`internal/api`](../internal/api/oapi-codegen.yaml)), the only part of the JSON API that is served yet.
+
 The Swift client uses Apple's `swift-openapi-generator`:
 
 ```yaml
@@ -69,5 +71,5 @@ accessModifier: public
 ## Not in v1 yet
 
 - Managing projects, members, calendars, maintenance windows and keys through the API; the dashboard does that. A person's own devices and messages are in it (tag `Alerts`).
-- Status pages and probes.
+- Status pages.
 - The Healthchecks management API (`/api/v3`). Moving over uses `allstill import healthchecks`, which reads it.

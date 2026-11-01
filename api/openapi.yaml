@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.7.0
+  version: 0.8.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -37,6 +37,8 @@ servers:
 tags:
   - name: Ping
     description: Sent by jobs. Compatible with Healthchecks.io.
+  - name: Probe
+    description: Used by `allstill probe`, which runs checks inside a network the server cannot reach.
   - name: Account
     description: Who is asking.
   - name: Status
@@ -951,6 +953,75 @@ paths:
               schema: {$ref: '#/components/schemas/MaintenanceWindowPage'}
         '401': {$ref: '#/components/responses/Unauthorized'}
 
+  /probe/checks:
+    parameters:
+      - $ref: '#/components/parameters/ProbeProtocol'
+    get:
+      tags: [Probe]
+      operationId: getProbeChecks
+      summary: The checks this probe runs
+      description: |
+        A probe polls this every 30 seconds with its own key, and sends the `ETag` it
+        last got back in `If-None-Match`. Settings are returned whole, URLs with their
+        tokens too: the checks are the probe's to run.
+      security:
+        - probeKey: []
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema: {type: string}
+      responses:
+        '200':
+          description: Its checks.
+          headers:
+            ETag:
+              description: Changes when its checks do.
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProbeChecks'}
+        '304':
+          description: Its checks did not change.
+        '400': {$ref: '#/components/responses/ProbeProblem'}
+        '401': {$ref: '#/components/responses/ProbeProblem'}
+        '426': {$ref: '#/components/responses/ProbeProblem'}
+
+  /probe/runs:
+    parameters:
+      - $ref: '#/components/parameters/ProbeProtocol'
+    post:
+      tags: [Probe]
+      operationId: postProbeRuns
+      summary: Report attempts, and that the probe is alive
+      description: |
+        A probe posts at least every 30 seconds, with an empty list when it has no runs:
+        every post pings the probe's own check, which goes down after 3 minutes without
+        one, while the checks it runs become unknown. The server stamps each run with
+        its own clock, ignores an id it has seen, and ignores a run that is not valid,
+        for a check that is not this probe's, or older than the last it applied for
+        that check. A batch can be sent again safely after a lost answer.
+
+        A probe whose clock is more than a minute off the server's cannot be trusted
+        with certificates: its runs count as not judged, so its checks become unknown
+        until the clock is set right.
+      security:
+        - probeKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/ProbeRunBatch'}
+      responses:
+        '200':
+          description: What became of the batch.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProbeRunResult'}
+        '400': {$ref: '#/components/responses/ProbeProblem'}
+        '401': {$ref: '#/components/responses/ProbeProblem'}
+        '413': {$ref: '#/components/responses/ProbeProblem'}
+        '426': {$ref: '#/components/responses/ProbeProblem'}
+
   /events:
     get:
       tags: [Events]
@@ -997,6 +1068,10 @@ paths:
 components:
 
   securitySchemes:
+    probeKey:
+      type: http
+      scheme: bearer
+      description: A probe's own key, from `allstill admin create-probe`. It is good for the probe's two endpoints only.
     bearer:
       type: http
       scheme: bearer
@@ -1006,6 +1081,12 @@ components:
         `manage`. A ping-only key works on the ping endpoints alone.
 
   parameters:
+    ProbeProtocol:
+      name: Allstill-Probe-Protocol
+      in: header
+      required: true
+      description: The protocol version the probe speaks. Another than the server's is refused with what to update.
+      schema: {type: integer, minimum: 1}
     CheckUuid:
       name: check_uuid
       in: path
@@ -1150,6 +1231,11 @@ components:
           schema: {type: string}
 
   responses:
+    ProbeProblem:
+      description: Why the server refused the probe.
+      content:
+        application/problem+json:
+          schema: {$ref: '#/components/schemas/Problem'}
     PingOk:
       description: |
         Received. A check pinged far more than once a second has its extra
@@ -1589,6 +1675,90 @@ components:
         probe_id:
           $ref: '#/components/schemas/Id'
           description: Run from this probe instead of the server.
+
+    ProbeCheck:
+      type: object
+      description: A check for a probe to run. `http` or `tcp` holds its settings, by its `kind`.
+      required: [id, kind, interval]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        kind: {$ref: '#/components/schemas/CheckKind'}
+        interval:
+          type: integer
+          format: int64
+          description: Seconds between attempts.
+        http: {$ref: '#/components/schemas/HttpCheck'}
+        tcp: {$ref: '#/components/schemas/TcpCheck'}
+
+    ProbeChecks:
+      type: object
+      required: [protocol, server_time, checks]
+      properties:
+        protocol:
+          type: integer
+          description: The protocol version the server speaks.
+        server_time: {type: string, format: date-time}
+        checks:
+          type: array
+          items: {$ref: '#/components/schemas/ProbeCheck'}
+
+    ProbeRun:
+      type: object
+      description: One attempt of a check.
+      required: [id, check_id, outcome, ended_ago]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Unique to the probe, so a batch sent twice counts once.
+        check_id: {$ref: '#/components/schemas/Id'}
+        outcome:
+          type: string
+          description: '`unjudged` when the probe could not tell, as when its own network was down.'
+          enum: [passed, warned, failed, unjudged]
+        reason:
+          type: string
+          maxLength: 500
+        ended_ago:
+          type: integer
+          format: int64
+          minimum: 0
+          description: How many seconds before this post it ended, so the probe's clock does not matter. Older than a day is ignored.
+        values:
+          type: object
+          description: What it measured, as in `HttpCheck` and `TcpCheck`.
+          maxProperties: 10
+          additionalProperties: {type: number, format: double}
+
+    ProbeRunBatch:
+      type: object
+      required: [sent_at, runs]
+      properties:
+        sent_at:
+          type: string
+          format: date-time
+          description: The probe's clock, compared with the server's.
+        runs:
+          type: array
+          maxItems: 500
+          items: {$ref: '#/components/schemas/ProbeRun'}
+
+    ProbeRunResult:
+      type: object
+      required: [server_time, applied, ignored]
+      properties:
+        server_time: {type: string, format: date-time}
+        applied:
+          type: integer
+          description: Runs that counted.
+        ignored:
+          type: integer
+          description: Runs seen before, too old, not valid, or not for this probe's checks.
+        clock_off:
+          type: integer
+          format: int64
+          description: Seconds the probe's clock is ahead of the server's, or behind when negative, when that is more than a minute and its runs did not count for it.
 
     TcpCheck:
       type: object

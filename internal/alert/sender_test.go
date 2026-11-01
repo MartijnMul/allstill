@@ -267,3 +267,95 @@ func TestASettleWhileAllstillWasDownReachesTheDigest(t *testing.T) {
 	w.at("22 09:00", "", "")
 	w.want("digest shadow: resolved_unseen backup is down")
 }
+
+// probeOf is a probe with a check on it, in a project the world's person follows.
+func probeOf(t *testing.T, w *world, critical bool) (store.Probe, string) {
+	t.Helper()
+	ctx := t.Context()
+	w.check("Sites", "other")
+	project, err := w.st.ProjectByName(ctx, w.ws, "Sites")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, key, err := w.st.CreateProbe(ctx, w.access, "inside", project, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := w.st.ProbeByKey(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := w.st.CreateCheck(ctx, w.access, project, store.NewCheck{Name: "intranet", Kind: "http", Interval: time.Minute, ProbeID: p.ID,
+		Settings: map[string]any{"url": "http://10.0.0.5/", "fail_after": 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if critical {
+		if err := w.st.SetAlerting(ctx, w.ws, c.ID, "now", true, w.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return p, c.ID
+}
+
+// A probe that was cut off reports an outage that ended hours ago. It is untrue
+// to say it is down, so it wakes nobody, and the digest says it happened.
+func TestAnOutageOverWhenHeardSendsNoAlert(t *testing.T) {
+	for _, critical := range []bool{false, true} {
+		w := newWorld(t)
+		p, id := probeOf(t, w, critical)
+		post := func(runs ...store.ProbeRun) {
+			t.Helper()
+			if _, err := w.st.ApplyProbeRuns(t.Context(), p, runs, w.now, w.now); err != nil {
+				t.Fatal(err)
+			}
+			if err := w.sender.Pass(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run := func(rid string, o check.Outcome, ago time.Duration) store.ProbeRun {
+			return store.ProbeRun{ID: rid, CheckID: id, Outcome: o, Reason: "HTTP 503", EndedAgo: ago}
+		}
+		w.set("10:00")
+		post(run("up", check.Passed, 0))
+		w.set("22 03:00")
+		post(run("a", check.Failed, 6*time.Hour), run("b", check.Passed, 5*time.Hour))
+		w.want()
+		// Still none while it settles, and no "recovered" of what nobody heard.
+		w.set("22 03:30")
+		post()
+		w.want()
+		w.set("22 08:05")
+		post()
+		got := w.messages()
+		if len(got) == 0 || !strings.Contains(strings.Join(got, "\n"), "resolved_unseen intranet is down") {
+			t.Errorf("critical %v: the digest says %q", critical, got)
+		}
+	}
+}
+
+// Held back while it seemed over, it is told when it turns out not to be.
+func TestAnOutageOverWhenHeardThatReturnsIsTold(t *testing.T) {
+	w := newWorld(t)
+	p, id := probeOf(t, w, false)
+	post := func(runs ...store.ProbeRun) {
+		t.Helper()
+		if _, err := w.st.ApplyProbeRuns(t.Context(), p, runs, w.now, w.now); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.sender.Pass(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run := func(rid string, o check.Outcome, ago time.Duration) store.ProbeRun {
+		return store.ProbeRun{ID: rid, CheckID: id, Outcome: o, Reason: "HTTP 503", EndedAgo: ago}
+	}
+	w.set("10:00")
+	post(run("up", check.Passed, 0))
+	w.set("12:00")
+	post(run("a", check.Failed, time.Hour), run("b", check.Passed, 30*time.Minute))
+	w.want()
+	w.set("12:02")
+	post(run("c", check.Failed, 0))
+	w.want("alert shadow: down intranet is down")
+}

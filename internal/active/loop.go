@@ -105,7 +105,10 @@ type Loop struct {
 	// failure that could be the server's own counts against the target
 	// (C4).
 	Canary func(context.Context) bool
-	Log    *slog.Logger
+	// NotJudged is the reason of an attempt it could not judge; by default
+	// the const of that name.
+	NotJudged string
+	Log       *slog.Logger
 
 	// canaryTurn lets one attempt ask the canary at a time; a channel, as
 	// the others wait as long as the canary takes.
@@ -324,7 +327,7 @@ func (l *Loop) attempt(ctx context.Context, c Check) Result {
 		l.setOffline(r.Ended, false)
 	case r.Outcome == check.Failed && r.Unsure && l.Canary != nil:
 		if !l.canary(ctx, r.Started) {
-			r.Outcome, r.Reason = check.Unjudged, NotJudged
+			r.Outcome, r.Reason = check.Unjudged, cmp.Or(l.NotJudged, NotJudged)
 		}
 	}
 	return r

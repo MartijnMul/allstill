@@ -46,6 +46,7 @@ type NewCheck struct {
 	Grace       time.Duration
 	PingUUID    string
 	Paused      bool
+	ProbeID     string // the probe that runs it; by default the server
 	Settings    map[string]any
 	// Kind is ping (the default), or http or tcp for a check Allstill runs
 	// itself, on Interval, with a grace of at least the interval.
@@ -160,6 +161,20 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 	if err := n.validate(); err != nil {
 		return CreatedCheck{}, err
 	}
+	q := db.New(s.w)
+	if n.ProbeID != "" {
+		if !Active(n.Kind) {
+			return CreatedCheck{}, &InvalidError{"probe", "only a check Allstill runs itself runs on a probe"}
+		}
+		if err := probeServes(ctx, q, a.WorkspaceID, n.ProbeID, projectID); err != nil {
+			return CreatedCheck{}, err
+		}
+	}
+	return insertCheck(ctx, q, a.WorkspaceID, projectID, n)
+}
+
+// insertCheck writes a check that has been validated.
+func insertCheck(ctx context.Context, q *db.Queries, workspaceID, projectID string, n NewCheck) (CreatedCheck, error) {
 	c := CreatedCheck{ID: id.New(id.Check), PingUUID: n.PingUUID}
 	if c.PingUUID == "" {
 		c.PingUUID = id.UUID()
@@ -180,10 +195,10 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 		state = check.Paused
 	}
 	p := db.CreateCheckParams{
-		ID: c.ID, WorkspaceID: a.WorkspaceID, ProjectID: projectID, PingUuid: c.PingUUID, Name: n.Name,
+		ID: c.ID, WorkspaceID: workspaceID, ProjectID: projectID, PingUuid: c.PingUUID, Name: n.Name,
 		Slug: nullString(n.Slug), Description: n.Description, Tags: string(tags), Kind: cmp.Or(n.Kind, "ping"),
 		GraceSeconds: int64(n.Grace / time.Second), Settings: string(settings),
-		State: string(state), StateSince: at, CreatedAt: at, UpdatedAt: at,
+		State: string(state), StateSince: at, CreatedAt: at, UpdatedAt: at, ProbeID: nullString(n.ProbeID),
 	}
 	if n.Cron != "" {
 		p.ScheduleKind = "cron"
@@ -192,7 +207,7 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 		p.ScheduleKind = "interval"
 		p.IntervalSeconds = sql.NullInt64{Int64: int64(n.Interval / time.Second), Valid: true}
 	}
-	if err := db.New(s.w).CreateCheck(ctx, p); err != nil {
+	if err := q.CreateCheck(ctx, p); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed: checks.project_id, checks.slug") {
 			return CreatedCheck{}, &InvalidError{"slug", fmt.Sprintf("%q is already used in this project", n.Slug)}
 		}
@@ -225,6 +240,23 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 	if _, err := q.ProjectInWorkspace(ctx, db.ProjectInWorkspaceParams{WorkspaceID: workspaceID, ID: toProjectID}); errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
+		return err
+	}
+	// A probe keeps to the projects it serves, also when a check moves (C6).
+	moved, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: workspaceID, ID: checkID})
+	if err != nil {
+		return err
+	}
+	if moved.ProbeID.Valid {
+		if err := probeServes(ctx, q, workspaceID, moved.ProbeID.String, toProjectID); err != nil {
+			return err
+		}
+	}
+	if own, err := q.ProbeOfOwnCheck(ctx, db.ProbeOfOwnCheckParams{WorkspaceID: workspaceID, CheckID: checkID}); err == nil {
+		if err := probeServes(ctx, q, workspaceID, own, toProjectID); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	ms := at.UnixMilli()
@@ -266,6 +298,10 @@ type Attempt struct {
 	check.Attempt
 	Started  time.Time
 	Measured map[string]float64 // such as status, ms and cert_days
+	// ProbeID is the probe that made it: only who runs the check can judge it.
+	ProbeID string
+	// Arrived is when Allstill learned of it, when that is later than it ended.
+	Arrived time.Time
 }
 
 // RecordAttempt keeps an attempt of an active check as a run, and applies it
@@ -334,6 +370,11 @@ func recordAttempt(ctx context.Context, q *db.Queries, workspaceID, checkID stri
 		// Paused while the attempt ran: it is not judged, nor kept.
 		return before, nil
 	}
+	if c.ProbeID.String != a.ProbeID {
+		// Given to someone else while the attempt ran, or before the loop
+		// heard: a check is run by the server, or by one probe.
+		return before, nil
+	}
 	after, err := check.OnAttempt(cfg, before, a.Attempt)
 	if err != nil {
 		return check.Status{}, err
@@ -354,7 +395,7 @@ func recordAttempt(ctx context.Context, q *db.Queries, workspaceID, checkID stri
 			return check.Status{}, err
 		}
 	}
-	if err := saveStatus(ctx, q, c, before, after); err != nil {
+	if err := saveStatusAt(ctx, q, c, before, after, cmp.Or(a.Arrived, after.Since)); err != nil {
 		return check.Status{}, err
 	}
 	return after, nil
@@ -397,6 +438,17 @@ func (s *Store) ActiveChecks(ctx context.Context) ([]active.Check, error) {
 // most one new interval for it, so a longer one does not make it unknown.
 // at is when it changes.
 func (s *Store) SetActiveCheck(ctx context.Context, a Access, checkID string, interval time.Duration, settings map[string]any, at time.Time) error {
+	return s.setActiveCheck(ctx, a, checkID, interval, settings, nil, at)
+}
+
+// SetActiveCheckOn is SetActiveCheck that also has a probe run it, or with "" the
+// server, as one change: the probe must serve its project (C6). Failures from one
+// runner do not count towards the next.
+func (s *Store) SetActiveCheckOn(ctx context.Context, a Access, checkID string, interval time.Duration, settings map[string]any, probeID string, at time.Time) error {
+	return s.setActiveCheck(ctx, a, checkID, interval, settings, &probeID, at)
+}
+
+func (s *Store) setActiveCheck(ctx context.Context, a Access, checkID string, interval time.Duration, settings map[string]any, probeID *string, at time.Time) error {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -424,6 +476,11 @@ func (s *Store) SetActiveCheck(ctx context.Context, a Access, checkID string, in
 	if err := validateActive(c.Kind, interval, settings); err != nil {
 		return err
 	}
+	if probeID != nil && *probeID != "" {
+		if err := probeServes(ctx, q, a.WorkspaceID, *probeID, c.ProjectID); err != nil {
+			return err
+		}
+	}
 	raw, err := json.Marshal(settings)
 	if err != nil {
 		return err
@@ -443,6 +500,13 @@ func (s *Store) SetActiveCheck(ctx context.Context, a Access, checkID string, in
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	if probeID != nil {
+		if err := q.SetCheckProbe(ctx, db.SetCheckProbeParams{
+			ProbeID: nullString(*probeID), Deadline: deadline, UpdatedAt: at.UnixMilli(), WorkspaceID: a.WorkspaceID, ID: checkID,
+		}); err != nil {
+			return err
+		}
 	}
 	if err := q.CreateEvent(ctx, db.CreateEventParams{
 		WorkspaceID: a.WorkspaceID, ProjectID: sql.NullString{String: c.ProjectID, Valid: true},

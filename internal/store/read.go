@@ -23,6 +23,7 @@ type CheckView struct {
 	Description string
 	Tags        []string
 	PingUUID    string
+	ProbeID     string // the probe that runs it, if any
 	// Kind is ping, or http or tcp for a check Allstill runs itself, whose
 	// Settings say what it fetches. They hold its URL, a secret (R12).
 	Kind     string
@@ -159,7 +160,7 @@ func (s *Store) RunLog(ctx context.Context, a Access, checkID, runID string) ([]
 func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) (CheckView, error) {
 	v := CheckView{
 		ID: c.ID, ProjectID: c.ProjectID, ProjectName: projectName, Name: c.Name, Slug: c.Slug.String,
-		Description: c.Description, PingUUID: c.PingUuid, Kind: c.Kind, Settings: []byte(c.Settings),
+		Description: c.Description, PingUUID: c.PingUuid, ProbeID: c.ProbeID.String, Kind: c.Kind, Settings: []byte(c.Settings),
 		Interval: time.Duration(c.IntervalSeconds.Int64) * time.Second,
 		Cron:     c.CronExpression.String, TimeZone: c.TimeZone.String,
 		Grace:  time.Duration(c.GraceSeconds) * time.Second,

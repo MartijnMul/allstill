@@ -29,6 +29,7 @@ type Situation struct {
 	Critical         bool
 	Follows          bool // the person gets alerts for a project of the incident
 	RecoveryMessages bool // the project of its cause wants them
+	OverWhenHeard    bool // its check came back before Allstill heard it went down, as with a probe's late runs
 	Told             Told
 	ToldHow          string // Now or Digest
 	ToldInShadow     bool   // what they were told was only recorded
@@ -48,7 +49,9 @@ type Decision struct {
 // for them with what they were told, so a message that waited is still right:
 // a down that recovered before it was sent is never sent, settings changed
 // while it waited are followed, and nobody hears "recovered" about a down
-// they never heard.
+// they never heard. Nor does anyone hear "down" of an outage that was over when
+// Allstill heard of it: if it settles, the digest says it happened; if the check
+// goes down again, that is told.
 func Decide(s Situation, now time.Time) Decision {
 	if !s.Follows {
 		return Decision{}
@@ -61,6 +64,9 @@ func Decide(s Situation, now time.Time) Decision {
 	if s.Open {
 		if s.Told != Nothing || s.Urgency != Now {
 			return Decision{}
+		}
+		if s.OverWhenHeard {
+			return Decision{Again: now.Add(time.Minute)}
 		}
 		if end, quiet := s.Quiet.Until(now); quiet && !s.Critical {
 			return Decision{Again: end}

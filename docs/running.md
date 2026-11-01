@@ -116,6 +116,27 @@ allstill admin add-check -project Sites -name database -tcp db.example.com:5432
 - **Who sees the address.** A check's URL may hold a token: owners and editors of its project and administrators see it whole; viewers see only its scheme and host. It is never in a reason, a message or a log. A TCP check's host and port are shown to everyone who can see the check.
 - **Pings.** A ping to such a check is answered `409`: a script that pings with `curl -f` notices that Allstill runs this one itself.
 
+## Probes
+
+A probe watches what the server cannot reach: a service inside a customer's network, a database in a private range. `allstill probe` runs inside that network, connects out to the server, fetches its checks, runs them and sends the runs back. It opens no port, and the same binary is the probe.
+
+```sh
+# On the server: make it, and give it checks. The key is shown once.
+allstill admin create-probe office -project Customer
+allstill admin add-check -project Customer -name intranet -http http://intranet.example.com/health -probe office
+allstill admin set-check -project Customer -check database -probe office
+
+# Inside the network:
+ALLSTILL_PROBE_KEY=... allstill probe -server https://allstill.example.com -allow 10.0.0.0/8
+```
+
+- **What it may reach.** Public addresses, and the private ranges given to it with `-allow` (`ALLSTILL_PROBE_ALLOW`), for every check on it; never its own machine's addresses. The server's `-allow-private` means nothing to it. `-ca` trusts an internal CA's certificates for every check on it.
+- **Who may use it.** A probe serves the project it is made in and those in `-serves`. Only their checks can run on it, as anyone who can edit them can make it fetch from its network and read the answers. `set-check -probe ""` brings a check back to the server.
+- **When it goes quiet.** It posts at least every 30 seconds. Each post pings a check of its own, in the project it was made in, so its people are alerted once when it has been quiet for 3 minutes. The checks it runs become unknown, not down, and an open incident stays open with no recovery message, until a run judges them.
+- **When its own network goes down.** A check that times out asks whether the server can be reached; when it cannot, the attempt judges nothing. Runs wait in memory, at most 5000, until the server can be reached again, and are lost when the probe restarts. Each has an id, so a retry cannot count twice, and says how long ago it ended, so its time is right whatever the clock says. An outage that was already over when Allstill hears of it sends no alert: the next digest lists it. One still going alerts as any other.
+- **Its clock.** Certificates are checked against the probe's clock. More than a minute off the server's, its log says so and its checks become unknown until the clock is set right.
+- **Versions and keys.** A probe of another protocol version than the server's, or with a key that no longer works, stops with what to do. `allstill admin rekey-probe office` gives a new key and the old one stops working. A probe's key and the settings it fetches, tokens in URLs included, travel to it: use https, and `-key-file` where an environment variable will not do.
+
 ## Keep it
 
 - **Backups.** Copy the database while it runs with `sudo -u allstill allstill backup -db /var/lib/allstill/allstill.db /var/lib/allstill/backup-$(date +%F).db` (in the container: `docker exec allstill allstill backup /home/nonroot/backup.db`), then move the copy somewhere else. Copying the file alone is not enough while Allstill runs.

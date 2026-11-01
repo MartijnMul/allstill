@@ -51,6 +51,8 @@ type Server struct {
 	// Offline says whether the server is offline for the checks it runs,
 	// and since when (intent/http-checks/spec.md, R7).
 	Offline func() (time.Time, bool)
+	// Nudge tells the scheduler of a new deadline, from a probe's post.
+	Nudge func(time.Time)
 
 	base       *url.URL
 	workspace  string
@@ -147,6 +149,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 		http.ServeFileFS(w, r, static, "sw.js")
 	})))
 	mux.Handle("GET /static/", s.headers(http.StripPrefix("/static/", noListing(http.FileServerFS(static)))))
+	s.registerProbe(mux)
 }
 
 // headers sets what every dashboard response carries: no inline script or

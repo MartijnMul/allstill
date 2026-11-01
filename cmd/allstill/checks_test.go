@@ -212,6 +212,99 @@ func TestAddAndSetTCPCheck(t *testing.T) {
 	}
 }
 
+func TestProbeCommands(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _ := st.Workspace(ctx)
+	st.CreateProject(ctx, ws, "Customer")
+	st.CreateProject(ctx, ws, "Other")
+	st.Close()
+	admin := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := run(ctx, append([]string{"admin"}, append(args, "-db", dbPath)...), &out, &bytes.Buffer{})
+		return out.String(), err
+	}
+	if _, err := admin("create-probe", "-project", "Customer"); err == nil {
+		t.Error("a probe without a name")
+	}
+	if _, err := admin("create-probe", "inside"); err == nil {
+		t.Error("a probe without a project")
+	}
+	if _, err := admin("create-probe", "inside", "-project", "None"); err == nil || !strings.Contains(err.Error(), `no project is named "None"`) {
+		t.Errorf("no such project: %v", err)
+	}
+	out, err := admin("create-probe", "inside", "-project", "Customer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := ""
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "alp_") {
+			key = f
+		}
+	}
+	if key == "" {
+		t.Fatalf("no key in %q", out)
+	}
+
+	// On a probe, a private address is the point: the server does not judge it,
+	// and cannot try it.
+	out, err = admin("add-check", "-project", "Customer", "-name", "intranet", "-http", "http://10.0.0.5/", "-probe", "inside")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "The probe inside starts it") || strings.Contains(out, "Tried it now") {
+		t.Errorf("add-check said %q", out)
+	}
+	if _, err := admin("add-check", "-project", "Customer", "-name", "x", "-http", "http://10.0.0.5/", "-probe", "none"); err == nil || !strings.Contains(err.Error(), `no probe is named "none"`) {
+		t.Errorf("no such probe: %v", err)
+	}
+	if _, err := admin("add-check", "-project", "Other", "-name", "x", "-http", "http://10.0.0.5/", "-probe", "inside"); err == nil || !strings.Contains(err.Error(), "does not serve") {
+		t.Errorf("a project it does not serve: %v", err)
+	}
+	// Back to the server, its address is the server's to refuse.
+	if _, err := admin("set-check", "-project", "Customer", "-check", "intranet", "-probe", ""); err == nil || !strings.Contains(err.Error(), "-allow-private") {
+		t.Errorf("a private address back on the server: %v", err)
+	}
+	// While on the probe its address can change to another private one.
+	if _, err := admin("set-check", "-project", "Customer", "-check", "intranet", "-http", "http://10.0.0.6/"); err != nil {
+		t.Errorf("another address on the probe: %v", err)
+	}
+	if _, err := admin("add-check", "-project", "Customer", "-name", "site", "-http", "https://192.0.2.1/", "-timeout", "1s"); err == nil {
+		t.Error("a documentation address was taken without being allowed")
+	}
+	if out, err := admin("rekey-probe", "inside"); err != nil || !strings.Contains(out, "alp_") || strings.Contains(out, key) {
+		t.Errorf("rekey: %q, %v", out, err)
+	}
+	if _, err := admin("rekey-probe", "none"); err == nil {
+		t.Error("rekeyed a probe that does not exist")
+	}
+
+	// The probe itself refuses what it cannot run with.
+	probe := func(args ...string) error {
+		return run(ctx, append([]string{"probe"}, args...), &bytes.Buffer{}, &bytes.Buffer{})
+	}
+	t.Setenv("ALLSTILL_PROBE_KEY", "")
+	t.Setenv("ALLSTILL_SERVER", "")
+	if err := probe(); err == nil || !strings.Contains(err.Error(), "-server") {
+		t.Errorf("no server: %v", err)
+	}
+	if err := probe("-server", "https://allstill.example.com"); err == nil || !strings.Contains(err.Error(), "ALLSTILL_PROBE_KEY") {
+		t.Errorf("no key: %v", err)
+	}
+	if err := probe("-server", "ftp://allstill.example.com"); err == nil || !strings.Contains(err.Error(), "give an address") {
+		t.Errorf("a bad server: %v", err)
+	}
+	t.Setenv("ALLSTILL_PROBE_KEY", "alp_x")
+	if err := probe("-server", "https://allstill.example.com", "-allow", "nonsense"); err == nil || !strings.Contains(err.Error(), "-allow") {
+		t.Errorf("a bad range: %v", err)
+	}
+}
+
 // A HEAD check against a site that refuses HEAD is pointed out.
 func TestTryOnceWarnsOfHEAD(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

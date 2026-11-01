@@ -50,6 +50,8 @@ For both:
   -fail-days 3       fail under this many days (or a tenth of its life); 0 off
   -ca FILE           certificates to trust beyond the system's, in PEM
   -no-verify         do not verify the certificate; its expiry is still read
+  -probe NAME        run it on this probe, inside its network, instead of on
+                     the server; set-check -probe "" brings it back
 `
 
 // certificateSettings are the settings about a certificate, which a TCP check
@@ -221,6 +223,16 @@ func reachable(ctx context.Context, host string, allow []netip.Prefix, stdout io
 	return nil
 }
 
+// hostIn is the host a check's settings connect to.
+func hostIn(kind string, settings map[string]any) string {
+	if kind == "tcp" {
+		host, _ := settings["host"].(string)
+		return host
+	}
+	u, _ := settings["url"].(string)
+	return hostOf(u)
+}
+
 // hostOf is the host of a URL, or "" when it cannot be read.
 func hostOf(raw string) string {
 	u, err := url.Parse(raw)
@@ -299,6 +311,7 @@ Flags:
 	project := fs.String("project", "", "the project to add it to")
 	name := fs.String("name", "", "the check's name")
 	description := fs.String("description", "", "what it watches, for people")
+	probeName := fs.String("probe", "", "the probe to run it on, instead of the server")
 	var tags []string
 	fs.Func("tag", "a tag; repeat it for several", func(v string) error {
 		tags = append(tags, v)
@@ -340,24 +353,32 @@ Flags:
 	if err != nil {
 		return err
 	}
-	host := hostOf(rawURL)
-	if kind == "tcp" {
-		host, _ = settings["host"].(string)
-	}
-	if err := reachable(ctx, host, allow, stdout); err != nil {
-		return err
-	}
 	admin, err := st.AdminAccess(ctx, ws)
 	if err != nil {
 		return err
 	}
+	var probeID string
+	if *probeName != "" {
+		// What the server may reach says nothing of a probe's network.
+		if probeID, err = st.ProbeIDByName(ctx, ws, *probeName); errors.Is(err, store.ErrNotFound) {
+			return fmt.Errorf("no probe is named %q", *probeName)
+		} else if err != nil {
+			return err
+		}
+	} else if err := reachable(ctx, hostIn(kind, settings), allow, stdout); err != nil {
+		return err
+	}
 	created, err := st.CreateCheck(ctx, admin, projectID, store.NewCheck{
-		Name: *name, Description: *description, Tags: tags, Kind: kind, Interval: interval, Settings: settings,
+		Name: *name, Description: *description, Tags: tags, Kind: kind, Interval: interval, Settings: settings, ProbeID: probeID,
 	})
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Added %s to %s (%s), every %s.\n", *name, *project, created.ID, short(interval))
+	if probeID != "" {
+		fmt.Fprintf(stdout, "The probe %s starts it within a minute; only it can try the address.\n", *probeName)
+		return nil
+	}
 	if err := sameCertificate(ctx, st, created.ID, *project, *name, stdout); err != nil {
 		return err
 	}
@@ -449,6 +470,7 @@ Flags:
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
 	project := fs.String("project", "", "the project of the check")
 	name := fs.String("check", "", "the check's name")
+	probeName := fs.String("probe", "", `the probe to run it on; "" for the server`)
 	apply := checkFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -508,19 +530,38 @@ Flags:
 	if err != nil {
 		return err
 	}
-	if u, ok := settings["url"].(string); ok && fs.Lookup("http").Value.String() != "" {
-		if err := reachable(ctx, hostOf(u), allow, stdout); err != nil {
+	// Where it will run decides what it may reach: only the server's ranges are
+	// the server's to check, whenever it comes to the server or its address
+	// changes there.
+	probeID, moving := c.ProbeID, visited(fs, "probe")
+	if moving {
+		probeID = ""
+		if *probeName != "" {
+			if probeID, err = st.ProbeIDByName(ctx, ws, *probeName); errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("no probe is named %q", *probeName)
+			} else if err != nil {
+				return err
+			}
+		}
+	}
+	if probeID == "" && (moving || visited(fs, "http") || visited(fs, "tcp")) {
+		if err := reachable(ctx, hostIn(c.Kind, settings), allow, stdout); err != nil {
 			return err
 		}
 	}
-	if h, ok := settings["host"].(string); ok && fs.Lookup("tcp").Value.String() != "" {
-		if err := reachable(ctx, h, allow, stdout); err != nil {
-			return err
-		}
+	if moving {
+		err = st.SetActiveCheckOn(ctx, admin, c.ID, interval, settings, probeID, time.Now())
+	} else {
+		err = st.SetActiveCheck(ctx, admin, c.ID, interval, settings, time.Now())
 	}
-	if err := st.SetActiveCheck(ctx, admin, c.ID, interval, settings, time.Now()); err != nil {
+	if err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Changed %s in %s, every %s.\n", *name, *project, short(interval))
+	if moving && *probeName != "" {
+		fmt.Fprintf(stdout, "The probe %s runs it from now on.\n", *probeName)
+	} else if moving {
+		fmt.Fprintln(stdout, "The server runs it from now on.")
+	}
 	return nil
 }

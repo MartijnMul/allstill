@@ -1,0 +1,41 @@
+-- SPDX-License-Identifier: AGPL-3.0-only
+
+-- name: CreateProbe :exec
+INSERT INTO probes (id, workspace_id, name, key_hash, check_id, created_at) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: AddProbeProject :exec
+INSERT OR IGNORE INTO probe_projects (workspace_id, probe_id, project_id) VALUES (?, ?, ?);
+
+-- name: ProbeByKeyHash :one
+SELECT p.id, p.workspace_id, p.name, p.check_id, c.ping_uuid FROM probes p
+JOIN checks c ON c.id = p.check_id
+WHERE p.key_hash = ?;
+
+-- name: ProbeByName :one
+SELECT id, name FROM probes WHERE workspace_id = ? AND name = ?;
+
+-- name: ProbeNameByID :one
+SELECT name FROM probes WHERE workspace_id = ? AND id = ?;
+
+-- name: UpdateProbeKey :execrows
+UPDATE probes SET key_hash = ? WHERE workspace_id = ? AND name = ?;
+
+-- name: ProbeServes :one
+SELECT count(*) FROM probe_projects WHERE workspace_id = ? AND probe_id = ? AND project_id = ?;
+
+-- name: ChecksOfProbe :many
+SELECT id, kind, interval_seconds, settings FROM checks
+WHERE probe_id = ? AND kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused'
+ORDER BY id;
+
+-- name: SetCheckProbe :exec
+UPDATE checks SET probe_id = ?, deadline = ?, fail_streak = 0, updated_at = ? WHERE workspace_id = ? AND id = ?;
+
+-- name: MarkProbeRunSeen :execrows
+INSERT OR IGNORE INTO probe_runs_seen (workspace_id, probe_id, run_id, seen_at) VALUES (?, ?, ?, ?);
+
+-- name: DeleteOldProbeRunsSeen :exec
+DELETE FROM probe_runs_seen WHERE seen_at < ?;
+
+-- name: ProbeOfOwnCheck :one
+SELECT id FROM probes WHERE workspace_id = ? AND check_id = ?;

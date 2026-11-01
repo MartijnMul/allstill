@@ -25,6 +25,7 @@ const (
 	Session   = "ses"
 	Incident  = "inc"
 	Channel   = "chn"
+	Probe     = "prb"
 	Delivery  = "dlv"
 )
 

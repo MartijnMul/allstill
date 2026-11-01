@@ -276,7 +276,10 @@ func prune(ctx context.Context, q *db.Queries, at time.Time) error {
 	if err := q.DeleteExpiredSessions(ctx, at.UnixMilli()); err != nil {
 		return err
 	}
-	return q.DeleteExpiredLinks(ctx, at.UnixMilli())
+	if err := q.DeleteExpiredLinks(ctx, at.UnixMilli()); err != nil {
+		return err
+	}
+	return q.DeleteOldProbeRunsSeen(ctx, at.Add(-keepProbeRunsSeen).UnixMilli())
 }
 
 func hash(secret string) []byte {

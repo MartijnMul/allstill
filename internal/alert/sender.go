@@ -212,7 +212,7 @@ func (s *Sender) alert(ctx context.Context, due []store.Due, shadow bool, now ti
 		}
 		dec := Decide(Situation{
 			Open: d.Open, Reason: d.Reason, Urgency: d.Urgency, Critical: d.Critical,
-			Follows: d.Follows, RecoveryMessages: d.RecoveryMessages,
+			Follows: d.Follows, RecoveryMessages: d.RecoveryMessages, OverWhenHeard: d.OverWhenHeard,
 			Told: Told(d.Told), ToldHow: d.ToldHow, ToldInShadow: d.ToldInShadow, Shadow: shadow, Quiet: quiet,
 		}, now)
 		if dec.Tell == Recovered {

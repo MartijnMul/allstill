@@ -32,6 +32,8 @@ const adminUsage = `Usage:
   allstill admin set-alerting -project PROJECT -check NAME -urgency now|digest|none [-critical] [-db file]
   allstill admin add-check -project PROJECT -name NAME (-http URL | -tcp HOST:PORT) [flags]
   allstill admin set-check -project PROJECT -check NAME [flags]
+  allstill admin create-probe NAME -project PROJECT [-serves Q,R] [-db file]
+  allstill admin rekey-probe NAME [-db file]
   allstill admin test-email -to ADDRESS [smtp flags]
   allstill admin set-alerts [-db file] on|shadow
 `
@@ -58,6 +60,10 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return addCheck(ctx, args[1:], stdout, stderr)
 	case "set-check":
 		return setCheck(ctx, args[1:], stdout, stderr)
+	case "create-probe":
+		return createProbe(ctx, args[1:], stdout, stderr)
+	case "rekey-probe":
+		return rekeyProbe(ctx, args[1:], stdout, stderr)
 	case "test-email":
 		return testEmail(ctx, args[1:], stdout, stderr)
 	case "set-alerts":

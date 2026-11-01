@@ -38,6 +38,7 @@ const usage = `Allstill watches your jobs, backups and sites.
 Usage:
   allstill serve [flags]                 run the server
   allstill run [flags] -- command [args] run a job and report it
+  allstill probe [flags]                 run checks inside a network the server cannot reach
   allstill import healthchecks [flags]   copy checks from Healthchecks
   allstill compare healthchecks [flags]  where Allstill saw checks differently
   allstill admin create-user [flags]     add a person, with a link to make a passkey
@@ -48,6 +49,8 @@ Usage:
   allstill admin set-alerting [flags]    how fast a check's problems reach people
   allstill admin add-check [flags]       add a check Allstill runs itself, such as a site
   allstill admin set-check [flags]       change one
+  allstill admin create-probe NAME       make a probe, and print its key once
+  allstill admin rekey-probe NAME        give a probe a new key
   allstill admin test-email -to ADDRESS  send a test email with the SMTP settings
   allstill admin set-alerts on|shadow    switch alerts on, or back to shadow mode
   allstill backup [flags] FILE           copy the database while it runs
@@ -83,6 +86,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "serve":
 		return serve(ctx, args[1:], stderr)
+	case "probe":
+		return probeCommand(ctx, args[1:], stdout, stderr)
 	case "run":
 		return runJob(ctx, args[1:], stdout, stderr)
 	case "import":
@@ -272,6 +277,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		log.Warn("checks may reach these private ranges, for every project", "allow_private", *allowPrivate)
 	}
 	dashboard.Offline = checks.Offline
+	dashboard.Nudge = sched.Nudge
 
 	errs := make(chan error, 4)
 	go func() { errs <- sched.Run(ctx) }()
