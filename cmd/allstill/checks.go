@@ -13,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -54,10 +55,6 @@ For both:
                      the server; set-check -probe "" brings it back
 `
 
-// certificateSettings are the settings about a certificate, which a TCP check
-// without TLS does not have.
-var certificateSettings = []string{"warn_days", "fail_days", "ca", "no_verify"}
-
 // checkFlags adds the flags of a check Allstill runs itself to fs. apply writes
 // the ones given into settings for a check of this kind, refuses those of
 // another kind, and returns the interval when -every was given.
@@ -81,6 +78,8 @@ func checkFlags(fs *flag.FlagSet) (apply func(kind string, settings map[string]a
 		"http": "http", "method": "http", "expect": "http", "location": "http", "json": "http", "follow": "http",
 		"tcp": "tcp", "tls": "tcp",
 	}
+	// What all checks Allstill runs itself have, and a check that jobs ping has not.
+	notForPing := []string{"timeout", "fail-after", "warn-days", "fail-days", "ca", "no-verify", "probe"}
 	return func(kind string, settings map[string]any) (time.Duration, error) {
 		var interval time.Duration
 		var err error
@@ -97,6 +96,10 @@ func checkFlags(fs *flag.FlagSet) (apply func(kind string, settings map[string]a
 			}
 			if k, ok := flagKind[f.Name]; ok && k != kind {
 				err = fmt.Errorf("-%s is for %s checks, and this is %s check", f.Name, strings.ToUpper(k), an(kind))
+				return
+			}
+			if kind == "ping" && slices.Contains(notForPing, f.Name) {
+				err = fmt.Errorf("-%s is for checks Allstill runs itself, and jobs ping this one", f.Name)
 				return
 			}
 			switch f.Name {
@@ -169,10 +172,15 @@ func checkFlags(fs *flag.FlagSet) (apply func(kind string, settings map[string]a
 		// Without TLS there is no certificate, so what is known of one goes,
 		// unless it was just given: then the store says it needs TLS.
 		if err == nil && kind == "tcp" && !*useTLS && visited(fs, "tls") {
-			for _, key := range certificateSettings {
-				if !visited(fs, strings.ReplaceAll(key, "_", "-")) {
-					delete(settings, key)
+			given := map[string]any{}
+			for _, key := range active.CertificateSettings {
+				if v, ok := settings[key]; ok && visited(fs, strings.ReplaceAll(key, "_", "-")) {
+					given[key] = v
 				}
+			}
+			active.WithoutTLS(settings)
+			for key, v := range given {
+				settings[key] = v
 			}
 		}
 		return interval, err
@@ -188,39 +196,31 @@ func visited(fs *flag.FlagSet, name string) bool {
 
 // an names a kind of check as a sentence does.
 func an(kind string) string {
-	if kind == "http" {
+	switch kind {
+	case "http":
 		return "an HTTP"
+	case "ping":
+		return "a ping"
 	}
 	return "a " + strings.ToUpper(kind)
 }
 
-// reachable refuses an address the server may not reach, saying what to do
-// (ADR 0004). A host name that does not resolve now is only a warning: the
-// check reports it.
+// reachable refuses an address the server may not reach, saying what to do: this
+// is the server's own shell, so it names what the address resolved to (ADR 0004). A
+// host name that does not resolve now is only a warning: the check reports it.
 func reachable(ctx context.Context, host string, allow []netip.Prefix, stdout io.Writer) error {
-	if host == "" {
-		return nil // the store says what is wrong with it
+	err := outbound.CheckHost(ctx, host, allow)
+	if errors.Is(err, outbound.ErrNoSuchHost) {
+		fmt.Fprintf(stdout, "Note: %s does not resolve now; the check will say so until it does.\n", host)
+		return nil
 	}
-	addrs := []netip.Addr{}
-	if a, err := netip.ParseAddr(host); err == nil {
-		addrs = append(addrs, a)
-	} else {
-		lookup, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-		if addrs, err = net.DefaultResolver.LookupNetIP(lookup, "ip", host); err != nil {
-			fmt.Fprintf(stdout, "Note: %s does not resolve now; the check will say so until it does.\n", host)
-			return nil
+	if u, ok := errors.AsType[*outbound.Unreachable](err); ok {
+		if u.Own {
+			return fmt.Errorf("%s is %s, this server's own address, which checks never reach", u.Host, u.Addr)
 		}
+		return fmt.Errorf("%s is %s, which is not on the public internet; to let the server reach it, allow its range when it starts, such as `allstill serve -allow-private %s` (ALLSTILL_ALLOW_PRIVATE). That opens the range to every project's checks", u.Host, u.Addr, rangeOf(u.Addr))
 	}
-	for _, a := range addrs {
-		if outbound.Own(a) {
-			return fmt.Errorf("%s is %s, this server's own address, which checks never reach", host, a)
-		}
-		if !outbound.Allowed(a, allow) {
-			return fmt.Errorf("%s is %s, which is not on the public internet; to let the server reach it, allow its range when it starts, such as `allstill serve -allow-private %s` (ALLSTILL_ALLOW_PRIVATE). That opens the range to every project's checks", host, a, rangeOf(a))
-		}
-	}
-	return nil
+	return err
 }
 
 // hostIn is the host a check's settings connect to.
@@ -401,13 +401,16 @@ func sameCertificate(ctx context.Context, st *store.Store, checkID, project, nam
 			this = c
 		}
 	}
+	if this.ID == "" {
+		return nil
+	}
 	host, port, watched := this.Certificate()
 	if !watched {
 		return nil
 	}
 	for _, c := range checks {
 		h, p, on := c.Certificate()
-		if c.ID != checkID && h == host && p == port && on {
+		if c.ID != checkID && c.ProjectID == this.ProjectID && h == host && p == port && on {
 			fmt.Fprintf(stdout, "Another check already watches the certificate of %s:%s. To have it warn once, turn its warnings off on one of them: allstill admin set-check -project %q -check %q -warn-days 0\n", host, port, project, name)
 			return nil
 		}
@@ -458,10 +461,15 @@ func setCheck(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 	fs.Usage = func() {
 		fmt.Fprint(stderr, `Usage: allstill admin set-check -project PROJECT -check NAME [flags]
 
-Changes a check that Allstill runs itself: only the settings given change.
+Changes a check: only the settings given change. A new schedule counts from now.
 An empty -expect, -location, -json or -ca removes that setting; -follow=false
 and -no-verify=false turn those off. The running server follows within a
 minute.
+
+For a check that jobs ping:
+  -every 1h          how often it is expected
+  -cron "0 3 * * *"  or when, with -time-zone Europe/Amsterdam
+  -grace 30m         how long after that before it is down
 `+checkFlagsHelp+`
 Flags:
 `)
@@ -471,6 +479,9 @@ Flags:
 	project := fs.String("project", "", "the project of the check")
 	name := fs.String("check", "", "the check's name")
 	probeName := fs.String("probe", "", `the probe to run it on; "" for the server`)
+	cron := fs.String("cron", "", "for a check that jobs ping: when it is expected, as a cron expression")
+	timeZone := fs.String("time-zone", "", "for a check that jobs ping: the time zone of -cron")
+	grace := fs.Duration("grace", 0, "for a check that jobs ping: how long after the expected time before it is down")
 	apply := checkFlags(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -512,8 +523,11 @@ Flags:
 		return fmt.Errorf("%s has %d checks named %q", *project, len(found), *name)
 	}
 	c := found[0]
-	if !store.Active(c.Kind) {
-		return fmt.Errorf("%s is pinged by a job; set-check changes checks Allstill runs itself", *name)
+	if c.Kind == "ping" {
+		return setPingCheck(ctx, fs, st, admin, c, apply, *project, *cron, *timeZone, *grace, stdout)
+	}
+	if visited(fs, "cron") || visited(fs, "time-zone") || visited(fs, "grace") {
+		return errors.New("-cron, -time-zone and -grace are for checks that jobs ping; this one runs on an interval, and its grace follows from that")
 	}
 	settings := map[string]any{}
 	if err := json.Unmarshal(c.Settings, &settings); err != nil {
@@ -564,4 +578,142 @@ Flags:
 		fmt.Fprintln(stdout, "The server runs it from now on.")
 	}
 	return nil
+}
+
+// setPingCheck changes the schedule of a check that jobs ping.
+func setPingCheck(ctx context.Context, fs *flag.FlagSet, st *store.Store, admin store.Access, c store.CheckView, apply func(string, map[string]any) (time.Duration, error), project, cron, timeZone string, grace time.Duration, stdout io.Writer) error {
+	interval, err := apply("ping", map[string]any{})
+	if err != nil {
+		return err
+	}
+	var ch store.Change
+	switch {
+	case interval != 0 && cron != "":
+		return errors.New("give -every or -cron, not both")
+	case interval != 0:
+		ch.Interval = &interval
+	case cron != "":
+		if timeZone == "" {
+			return errors.New("give -time-zone with -cron, such as Europe/Amsterdam")
+		}
+		ch.Cron, ch.TimeZone = &cron, &timeZone
+	case timeZone != "":
+		if c.Cron == "" {
+			return errors.New("-time-zone goes with a cron schedule, and this check runs on an interval")
+		}
+		ch.TimeZone = &timeZone
+	}
+	if interval != 0 && timeZone != "" {
+		return errors.New("-time-zone goes with -cron, not -every")
+	}
+	if visited(fs, "grace") {
+		ch.Grace = &grace
+	}
+	if ch.Interval == nil && ch.Cron == nil && ch.TimeZone == nil && ch.Grace == nil {
+		return errors.New("give -every, -cron or -grace")
+	}
+	if _, err := st.UpdateCheck(ctx, admin, c.ID, ch, time.Now()); err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Changed %s in %s. It counts from now.\n", c.Name, project)
+	return nil
+}
+
+// oneCheck finds a check by project and name, for the commands.
+func oneCheck(ctx context.Context, st *store.Store, ws, project, name string) (store.Access, store.CheckView, error) {
+	projectID, err := st.ProjectByName(ctx, ws, project)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Access{}, store.CheckView{}, fmt.Errorf("no project is named %q", project)
+	} else if err != nil {
+		return store.Access{}, store.CheckView{}, err
+	}
+	admin, err := st.AdminAccess(ctx, ws)
+	if err != nil {
+		return store.Access{}, store.CheckView{}, err
+	}
+	checks, err := st.Checks(ctx, admin)
+	if err != nil {
+		return store.Access{}, store.CheckView{}, err
+	}
+	var found []store.CheckView
+	for _, c := range checks {
+		if c.ProjectID == projectID && c.Name == name {
+			found = append(found, c)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return store.Access{}, store.CheckView{}, fmt.Errorf("%s has no check named %q", project, name)
+	case 1:
+		return admin, found[0], nil
+	}
+	return store.Access{}, store.CheckView{}, fmt.Errorf("%s has %d checks named %q", project, len(found), name)
+}
+
+// checkCommand is a command that does one thing to one check.
+func checkCommand(ctx context.Context, name, help string, args []string, stdout, stderr io.Writer, do func(*store.Store, store.Access, store.CheckView) (string, error)) error {
+	fs := flag.NewFlagSet("admin "+name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprintf(stderr, "Usage: allstill admin %s -project PROJECT -check NAME [-db file]\n\n%s\n\nFlags:\n", name, help)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	project := fs.String("project", "", "the project of the check")
+	check := fs.String("check", "", "the check's name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *project == "" || *check == "" || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -project and -check")
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	admin, c, err := oneCheck(ctx, st, ws, *project, *check)
+	if err != nil {
+		return err
+	}
+	said, err := do(st, admin, c)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(stdout, said)
+	return nil
+}
+
+func pauseCheck(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	return checkCommand(ctx, "pause-check", "Pauses a check: nothing is expected of it, and an open incident closes without\na recovery message. A job's next ping resumes it, and a failure then alerts.", args, stdout, stderr,
+		func(st *store.Store, admin store.Access, c store.CheckView) (string, error) {
+			if err := st.PauseCheck(ctx, admin, c.ID, time.Now()); err != nil {
+				return "", err
+			}
+			return "Paused " + c.Name + ".", nil
+		})
+}
+
+func resumeCheck(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	return checkCommand(ctx, "resume-check", "Resumes a paused check, which starts over as new.", args, stdout, stderr,
+		func(st *store.Store, admin store.Access, c store.CheckView) (string, error) {
+			if c.Status.State != "paused" {
+				return c.Name + " is not paused.", nil
+			}
+			if err := st.ResumeCheck(ctx, admin, c.ID, time.Now()); err != nil {
+				return "", err
+			}
+			return "Resumed " + c.Name + ".", nil
+		})
+}
+
+func deleteCheck(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	return checkCommand(ctx, "delete-check", "Deletes a check with its runs, pings and output, for good. Its ping URL stops\nworking. A job that pings its slug with create=1 makes a new check.", args, stdout, stderr,
+		func(st *store.Store, admin store.Access, c store.CheckView) (string, error) {
+			if err := st.DeleteCheck(ctx, admin, c.ID, time.Now()); err != nil {
+				return "", err
+			}
+			return "Deleted " + c.Name + ". Its history goes with the next tidy.", nil
+		})
 }

@@ -902,13 +902,13 @@ func (q *Queries) SettledIncidents(ctx context.Context, arg SettledIncidentsPara
 }
 
 const silentChecks = `-- name: SilentChecks :many
-SELECT c.name, c.state, pr.name AS project_name
+SELECT c.name, c.state, c.state_reason, pr.name AS project_name
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = ?1
 LEFT JOIN memberships m ON m.project_id = c.project_id AND m.person_id = p.id
 WHERE c.workspace_id = p.workspace_id AND c.deleted_at IS NULL
-  AND (c.state = 'new'
+  AND (c.state = 'new' OR (c.state = 'paused' AND c.urgency <> 'none')
        OR (c.state = 'unknown' AND c.deadline IS NULL AND c.kind NOT IN ('http', 'tcp')))
   AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
 ORDER BY pr.name, c.name
@@ -917,11 +917,12 @@ ORDER BY pr.name, c.name
 type SilentChecksRow struct {
 	Name        string
 	State       string
+	StateReason string
 	ProjectName string
 }
 
-// Checks a person follows that can never alert: never pinged or never run, or
-// with a schedule Allstill cannot read. For a check Allstill runs itself,
+// Checks a person follows that cannot alert: never pinged or never worked, paused,
+// or with a schedule Allstill cannot read. For a check Allstill runs itself,
 // unknown without a deadline is its normal state while it cannot be judged
 // (intent/http-checks/spec.md); its settings are checked when it is made.
 func (q *Queries) SilentChecks(ctx context.Context, personID string) ([]SilentChecksRow, error) {
@@ -933,7 +934,12 @@ func (q *Queries) SilentChecks(ctx context.Context, personID string) ([]SilentCh
 	items := []SilentChecksRow{}
 	for rows.Next() {
 		var i SilentChecksRow
-		if err := rows.Scan(&i.Name, &i.State, &i.ProjectName); err != nil {
+		if err := rows.Scan(
+			&i.Name,
+			&i.State,
+			&i.StateReason,
+			&i.ProjectName,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

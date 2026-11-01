@@ -126,18 +126,18 @@ WHERE r.person_id = sqlc.arg(person_id)
   AND (i.state <> 'resolved' OR i.resolved_at > sqlc.arg(since))
 ORDER BY i.opened_at, i.id;
 
--- Checks a person follows that can never alert: never pinged or never run, or
--- with a schedule Allstill cannot read. For a check Allstill runs itself,
+-- Checks a person follows that cannot alert: never pinged or never worked, paused,
+-- or with a schedule Allstill cannot read. For a check Allstill runs itself,
 -- unknown without a deadline is its normal state while it cannot be judged
 -- (intent/http-checks/spec.md); its settings are checked when it is made.
 -- name: SilentChecks :many
-SELECT c.name, c.state, pr.name AS project_name
+SELECT c.name, c.state, c.state_reason, pr.name AS project_name
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = sqlc.arg(person_id)
 LEFT JOIN memberships m ON m.project_id = c.project_id AND m.person_id = p.id
 WHERE c.workspace_id = p.workspace_id AND c.deleted_at IS NULL
-  AND (c.state = 'new'
+  AND (c.state = 'new' OR (c.state = 'paused' AND c.urgency <> 'none')
        OR (c.state = 'unknown' AND c.deadline IS NULL AND c.kind NOT IN ('http', 'tcp')))
   AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
 ORDER BY pr.name, c.name;

@@ -119,7 +119,8 @@ func (a probeAPI) GetProbeChecks(ctx context.Context, req api.GetProbeChecksRequ
 	}
 	body := api.ProbeChecks{Protocol: api.ProbeProtocolVersion, ServerTime: a.s.Now().UTC(), Checks: []api.ProbeCheck{}}
 	for _, c := range checks {
-		out := api.ProbeCheck{Id: c.ID, Kind: api.CheckKind(c.Kind), Interval: int64(c.Interval / time.Second)}
+		revision := c.Revision
+		out := api.ProbeCheck{Id: c.ID, Kind: api.CheckKind(c.Kind), Interval: int64(c.Interval / time.Second), Revision: &revision}
 		switch c.Kind {
 		case "http":
 			err = json.Unmarshal(c.Settings, &out.Http)
@@ -186,7 +187,11 @@ func (a probeAPI) PostProbeRuns(ctx context.Context, req api.PostProbeRunsReques
 			continue
 		}
 		ago := time.Duration(min(r.EndedAgo, int64(time.Duration(1<<62)/time.Second))) * time.Second
-		runs = append(runs, store.ProbeRun{ID: r.Id, CheckID: r.CheckId, Outcome: check.Outcome(r.Outcome), Reason: reason, EndedAgo: ago, Values: values})
+		var revision string
+		if r.Revision != nil {
+			revision = *r.Revision
+		}
+		runs = append(runs, store.ProbeRun{ID: r.Id, CheckID: r.CheckId, Revision: revision, Outcome: check.Outcome(r.Outcome), Reason: reason, EndedAgo: ago, Values: values})
 	}
 	if notValid > 0 {
 		a.s.Log.Warn("a probe sent runs that are not valid", "probe", probe.Name, "runs", notValid, "first_problem", firstWhy)

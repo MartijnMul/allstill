@@ -50,7 +50,9 @@ Usage:
   allstill admin move-checks [flags]     move checks to another project
   allstill admin set-alerting [flags]    how fast a check's problems reach people
   allstill admin add-check [flags]       add a check Allstill runs itself, such as a site
-  allstill admin set-check [flags]       change one
+  allstill admin set-check [flags]       change a check
+  allstill admin pause-check [flags]     pause a check; resume-check starts it again
+  allstill admin delete-check [flags]    delete a check with its history
   allstill admin create-probe NAME       make a probe, and print its key once
   allstill admin rekey-probe NAME        give a probe a new key
   allstill admin test-email -to ADDRESS  send a test email with the SMTP settings
@@ -263,6 +265,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 					Attempt:  check.Attempt{Outcome: d.Result.Outcome, Reason: d.Result.Reason, At: d.Result.Ended},
 					Started:  d.Result.Started,
 					Measured: d.Result.Measured,
+					Revision: d.Check.Revision,
 				}}
 			}
 			deadline, err := st.RecordAttempts(ctx, attempts)

@@ -21,6 +21,13 @@ type fakeStore struct {
 	recovered bool
 	fail      int // fail this many passes
 	tidied    []time.Time
+	earliest  time.Time // a deadline a command brought closer
+}
+
+func (f *fakeStore) EarliestDeadline(context.Context) (time.Time, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.earliest, nil
 }
 
 // Tidy needs three calls for a round.
@@ -34,6 +41,9 @@ func (f *fakeStore) Tidy(_ context.Context, now time.Time) (bool, error) {
 func (f *fakeStore) ProcessDue(_ context.Context, now time.Time) (time.Time, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if !f.earliest.IsZero() && !now.Before(f.earliest) {
+		f.earliest = time.Time{}
+	}
 	f.passes = append(f.passes, now)
 	if f.fail > 0 {
 		f.fail--
@@ -92,6 +102,26 @@ func start(t *testing.T, f *fakeStore) (*Scheduler, context.CancelFunc, chan err
 	go func() { done <- s.Run(ctx) }()
 	synctest.Wait()
 	return s, cancel, done
+}
+
+// A command run beside the server cannot nudge it, so the heartbeat looks.
+func TestItNoticesADeadlineACommandBroughtCloser(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		begin := time.Now()
+		f := &fakeStore{deadlines: []time.Time{begin.Add(time.Hour)}}
+		_, cancel, done := start(t, f)
+		closer := begin.Add(2 * time.Minute)
+		f.mu.Lock()
+		f.earliest = closer
+		f.mu.Unlock()
+		time.Sleep(2*time.Minute + time.Second)
+		synctest.Wait()
+		if passes, _, _ := f.snapshot(); len(passes) != 2 || !passes[1].Equal(closer) {
+			t.Errorf("passes %v", passes)
+		}
+		cancel()
+		<-done
+	})
 }
 
 func TestWakesAtTheEarliestDeadline(t *testing.T) {

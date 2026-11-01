@@ -72,8 +72,8 @@ func TestAddAndSetCheck(t *testing.T) {
 	if out, err = admin2("set-check", "-project", "Sites", "-check", "apex", "-warn-days", "0", "-json", "", "-expect", "200,204", "-every", "2m"); err != nil || out != "Changed apex in Sites, every 2m.\n" {
 		t.Fatalf("set-check: %q %v", out, err)
 	}
-	if _, err := admin2("set-check", "-project", "Sites", "-check", "backup", "-every", "2m"); err == nil || !strings.Contains(err.Error(), "pinged by a job") {
-		t.Errorf("set-check on a ping check: %v", err)
+	if _, err := admin2("set-check", "-project", "Sites", "-check", "backup", "-every", "2m", "-timeout", "5s"); err == nil || !strings.Contains(err.Error(), "jobs ping this one") {
+		t.Errorf("a setting of checks Allstill runs, on a ping check: %v", err)
 	}
 	if _, err := admin2("set-check", "-project", "Sites", "-check", "apex", "-http", "http://10.0.0.5/"); err == nil {
 		t.Error("set-check took an address the server may not reach")
@@ -209,6 +209,95 @@ func TestAddAndSetTCPCheck(t *testing.T) {
 	}
 	if m := byName("192.0.2.2:995"); m.TLS || m.NoVerify || m.WarnDays != nil {
 		t.Errorf("after -tls=false: %+v", m)
+	}
+}
+
+func TestChangingAPingCheck(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _ := st.Workspace(ctx)
+	project, _, _ := st.CreateProject(ctx, ws, "Backups")
+	admin, _ := st.AdminAccess(ctx, ws)
+	c, err := st.CreateCheck(ctx, admin, project, store.NewCheck{Name: "nightly", Interval: time.Hour, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	run2 := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := run(ctx, append([]string{"admin"}, append(args, "-db", dbPath)...), &out, &bytes.Buffer{})
+		return out.String(), err
+	}
+	view := func() store.CheckView {
+		t.Helper()
+		st, err := store.Open(ctx, dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		a, _ := st.AdminAccess(ctx, ws)
+		v, err := st.Check(ctx, a, c.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	on := []string{"-project", "Backups", "-check", "nightly"}
+	set := func(args ...string) (string, error) {
+		return run2(append(append([]string{"set-check"}, on...), args...)...)
+	}
+
+	if out, err := set("-every", "2h", "-grace", "30m"); err != nil || !strings.Contains(out, "counts from now") {
+		t.Fatalf("%q, %v", out, err)
+	}
+	if v := view(); v.Interval != 2*time.Hour || v.Grace != 30*time.Minute {
+		t.Errorf("%+v", v)
+	}
+	if _, err := set("-cron", "0 3 * * *", "-time-zone", "Europe/Amsterdam"); err != nil {
+		t.Fatal(err)
+	}
+	if v := view(); v.Cron != "0 3 * * *" || v.TimeZone != "Europe/Amsterdam" || v.Interval != 0 {
+		t.Errorf("%+v", v)
+	}
+	for what, c := range map[string]struct {
+		args []string
+		want string
+	}{
+		"nothing to change": {nil, "give -every, -cron or -grace"},
+		"both schedules":    {[]string{"-every", "1h", "-cron", "0 3 * * *"}, "not both"},
+		"cron without zone": {[]string{"-cron", "0 4 * * *"}, "-time-zone"},
+		"a bad cron":        {[]string{"-cron", "nonsense", "-time-zone", "UTC"}, "schedule"},
+		"an HTTP setting":   {[]string{"-expect", "200"}, "for HTTP checks, and this is a ping check"},
+		"an active setting": {[]string{"-timeout", "5s"}, "jobs ping this one"},
+	} {
+		if _, err := set(c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	if out, err := run2(append([]string{"pause-check"}, on...)...); err != nil || !strings.Contains(out, "Paused nightly") {
+		t.Fatalf("%q, %v", out, err)
+	}
+	if v := view(); v.Status.State != "paused" {
+		t.Errorf("%s", v.Status.State)
+	}
+	if _, err := run2(append([]string{"resume-check"}, on...)...); err != nil {
+		t.Fatal(err)
+	}
+	if v := view(); v.Status.State != "new" {
+		t.Errorf("%s", v.Status.State)
+	}
+	if out, err := run2(append([]string{"delete-check"}, on...)...); err != nil || !strings.Contains(out, "Deleted nightly") {
+		t.Fatalf("%q, %v", out, err)
+	}
+	if _, err := run2(append([]string{"delete-check"}, on...)...); err == nil || !strings.Contains(err.Error(), "no check named") {
+		t.Errorf("deleted twice: %v", err)
+	}
+	if _, err := run2("delete-check", "-project", "Backups"); err == nil {
+		t.Error("no check named")
 	}
 }
 

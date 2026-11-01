@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.8.0
+  version: 0.9.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
     Two surfaces in one document.
@@ -998,8 +998,8 @@ paths:
         every post pings the probe's own check, which goes down after 3 minutes without
         one, while the checks it runs become unknown. The server stamps each run with
         its own clock, ignores an id it has seen, and ignores a run that is not valid,
-        for a check that is not this probe's, or older than the last it applied for
-        that check. A batch can be sent again safely after a lost answer.
+        for a check that is not this probe's, made under settings the check no longer
+        has, or older than the last it applied for that check. A batch can be sent again safely after a lost answer.
 
         A probe whose clock is more than a minute off the server's cannot be trusted
         with certificates: its runs count as not judged, so its checks become unknown
@@ -1687,6 +1687,9 @@ components:
           type: integer
           format: int64
           description: Seconds between attempts.
+        revision:
+          type: string
+          description: Names its settings. Send it back with each run, so a run made under older settings does not count.
         http: {$ref: '#/components/schemas/HttpCheck'}
         tcp: {$ref: '#/components/schemas/TcpCheck'}
 
@@ -1713,6 +1716,9 @@ components:
           maxLength: 64
           description: Unique to the probe, so a batch sent twice counts once.
         check_id: {$ref: '#/components/schemas/Id'}
+        revision:
+          type: string
+          description: The check's `revision` the attempt was made under. A run under other settings is ignored.
         outcome:
           type: string
           description: '`unjudged` when the probe could not tell, as when its own network was down.'
@@ -1754,7 +1760,7 @@ components:
           description: Runs that counted.
         ignored:
           type: integer
-          description: Runs seen before, too old, not valid, or not for this probe's checks.
+          description: Runs seen before, too old, not valid, under older settings, or not for this probe's checks.
         clock_off:
           type: integer
           format: int64

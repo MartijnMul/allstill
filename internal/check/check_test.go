@@ -436,3 +436,166 @@ func TestAnActiveCheckIsNeverLate(t *testing.T) {
 		t.Errorf("a ping to an active check: %v", err)
 	}
 }
+
+func activeConfig() Config {
+	return Config{Schedule: Interval(time.Minute), Grace: 2 * time.Minute, Active: true, FailAfter: 2}
+}
+
+// R35 of intent/manage-checks/spec.md: a check that has never passed opens no
+// incident, so a typo costs nobody their sleep. It keeps saying why.
+func TestAnActiveCheckThatHasNeverPassed(t *testing.T) {
+	c := activeConfig()
+	s := Status{State: New}
+	var err error
+	failed := Attempt{Outcome: Failed, Reason: "the host name does not exist", At: at(0)}
+	for i := range 5 {
+		failed.At = at(time.Duration(i) * time.Minute)
+		if s, err = OnAttempt(c, s, failed); err != nil {
+			t.Fatal(err)
+		}
+		if s.State != New || s.Reason != "the host name does not exist" {
+			t.Fatalf("after %d failures: %s, %q", i+1, s.State, s.Reason)
+		}
+	}
+	// Unknown does not change that: it has still never worked.
+	s, _ = OnAttempt(c, s, Attempt{Outcome: Unjudged, Reason: "not judged", At: at(6 * time.Minute)})
+	if s.State != Unknown {
+		t.Fatalf("not judged: %s", s.State)
+	}
+	s, _ = OnAttempt(c, s, Attempt{Outcome: Failed, Reason: "HTTP 503", At: at(7 * time.Minute)})
+	if s.State != New || s.Reason != "HTTP 503" {
+		t.Fatalf("after unknown: %s, %q", s.State, s.Reason)
+	}
+	// Once it has passed, it behaves as any check, also after a resume.
+	s, _ = OnAttempt(c, s, Attempt{Outcome: Passed, At: at(8 * time.Minute)})
+	if s.State != Up || !s.EverPassed || s.Reason != "" {
+		t.Fatalf("passed: %+v", s)
+	}
+	s = OnPause(s, at(9*time.Minute))
+	s = OnResume(s, at(10*time.Minute))
+	if s.State != New || !s.EverPassed {
+		t.Fatalf("resumed: %+v", s)
+	}
+	s, _ = OnAttempt(c, s, Attempt{Outcome: Failed, Reason: "HTTP 503", At: at(11 * time.Minute)})
+	s, _ = OnAttempt(c, s, Attempt{Outcome: Failed, Reason: "HTTP 503", At: at(12 * time.Minute)})
+	if s.State != Down {
+		t.Fatalf("a check that worked before, after two failures: %s", s.State)
+	}
+}
+
+func TestPauseAndResume(t *testing.T) {
+	s := Status{State: Down, Reason: "HTTP 503", Since: at(0), LastPing: at(0), NextExpected: at(time.Hour), Deadline: at(2 * time.Hour), FailStreak: 3, EverPassed: true}
+	p := OnPause(s, at(time.Minute))
+	if p.State != Paused || p.Reason != "" || !p.Deadline.IsZero() || p.FailStreak != 0 || !p.Since.Equal(at(time.Minute)) || !p.LastPing.Equal(at(0)) {
+		t.Fatalf("paused: %+v", p)
+	}
+	if again := OnPause(p, at(2*time.Minute)); !again.Since.Equal(at(time.Minute)) {
+		t.Errorf("paused twice: %+v", again)
+	}
+	r := OnResume(p, at(3*time.Minute))
+	if r.State != New || !r.Deadline.IsZero() || !r.NextExpected.IsZero() || !r.Since.Equal(at(3*time.Minute)) || !r.EverPassed {
+		t.Fatalf("resumed: %+v", r)
+	}
+	// Only a paused check resumes.
+	up := Status{State: Up, Since: at(0)}
+	if got := OnResume(up, at(time.Minute)); got != up {
+		t.Errorf("resuming one that is not paused: %+v", got)
+	}
+}
+
+// The table of intent/manage-checks/spec.md: a change of schedule or grace never
+// itself moves a check to late or down.
+func TestAScheduleChange(t *testing.T) {
+	now := at(10 * time.Hour)
+	hourly := Config{Schedule: Interval(time.Hour), Grace: 30 * time.Minute}
+	next := now.Add(time.Hour)
+	for _, c := range []struct {
+		name   string
+		s      Status
+		state  State
+		reason string
+		next   time.Time
+		dl     time.Time
+	}{
+		{name: "new", s: Status{State: New}, state: New},
+		{name: "paused", s: Status{State: Paused, LastPing: at(0)}, state: Paused},
+		{name: "up", s: Status{State: Up, LastPing: at(9 * time.Hour), NextExpected: at(10 * time.Hour), Deadline: at(10 * time.Hour)}, state: Up, next: next, dl: next},
+		{name: "warning", s: Status{State: Warning, Reason: "low", LastPing: at(9 * time.Hour), Deadline: at(10 * time.Hour)}, state: Warning, reason: "low", next: next, dl: next},
+		{name: "late", s: Status{State: Late, Reason: "The ping is overdue.", LastPing: at(8 * time.Hour), NextExpected: at(9 * time.Hour), Deadline: at(10 * time.Hour)}, state: Up, reason: ScheduleChanged, next: next, dl: next},
+		{name: "down", s: Status{State: Down, Reason: "No ping.", LastPing: at(5 * time.Hour), NextExpected: at(6 * time.Hour)}, state: Down, reason: "No ping.", next: at(6 * time.Hour)},
+		{name: "unknown after a restart", s: Status{State: Unknown, Reason: "Allstill was not running.", LastPing: at(8 * time.Hour), Deadline: at(10 * time.Hour)}, state: Unknown, reason: "Allstill was not running.", dl: now.Add(30 * time.Minute)},
+		{name: "unreadable, never pinged", s: Status{State: Unknown, Reason: "cannot read"}, state: New},
+		{name: "unreadable, pinged", s: Status{State: Unknown, Reason: "cannot read", LastPing: at(8 * time.Hour)}, state: Up, reason: ScheduleChanged, next: next, dl: next},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, letGo, err := OnSchedule(hourly, c.s, nil, false, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.State != c.state || got.Reason != c.reason || !got.NextExpected.Equal(c.next) || !got.Deadline.Equal(c.dl) || len(letGo) != 0 {
+				t.Errorf("%+v, let go %v", got, letGo)
+			}
+			if got.State == Down && c.s.State != Down || got.State == Late {
+				t.Errorf("the change itself made it %s", got.State)
+			}
+			// Nothing is due at once, so the scheduler has nothing to do.
+			after, _ := OnDeadline(hourly, got, nil, now)
+			if after.State != got.State {
+				t.Errorf("at the same moment it goes %s", after.State)
+			}
+		})
+	}
+}
+
+// A shorter grace must not time a run out at once, which would alert; a run within
+// it goes on guarding the check.
+func TestAScheduleChangeWithARunOpen(t *testing.T) {
+	now := at(10 * time.Hour)
+	c := Config{Schedule: Interval(time.Hour), Grace: 30 * time.Minute}
+	s := Status{State: Up, LastPing: at(9 * time.Hour), NextExpected: at(10 * time.Hour), Deadline: at(10 * time.Hour)}
+	open := []OpenRun{
+		{ID: "old", Started: now.Add(-40 * time.Minute)},
+		{ID: "recent", Started: now.Add(-10 * time.Minute)},
+		{ID: "gone", Started: now.Add(-5 * time.Hour), TimedOut: true},
+	}
+	got, letGo, err := OnSchedule(c, s, open, false, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != Up || len(letGo) != 1 || letGo[0] != "old" {
+		t.Fatalf("%+v, let go %v", got, letGo)
+	}
+	// With an incident open, a fixed schedule is no recovery.
+	if got, _, _ := OnSchedule(c, Status{State: Unknown, Reason: "cannot read", LastPing: at(time.Hour)}, nil, true, now); got.State != Down || got.Reason != StillDown || !got.Deadline.IsZero() {
+		t.Errorf("unreadable, with an incident: %+v", got)
+	}
+	// The run within the new grace still times out, at its own time.
+	if want := now.Add(20 * time.Minute); !got.Deadline.Equal(want) {
+		t.Errorf("deadline %v, want the recent run's %v", got.Deadline, want)
+	}
+	after, timedOut := OnDeadline(c, got, []OpenRun{{ID: "old", Started: open[0].Started, TimedOut: true}, open[1], open[2]}, got.Deadline)
+	if after.State != Down || len(timedOut) != 1 || timedOut[0] != "recent" {
+		t.Errorf("%+v, timed out %v", after, timedOut)
+	}
+}
+
+func TestAScheduleChangeOfAnActiveCheck(t *testing.T) {
+	now := at(10 * time.Hour)
+	c := Config{Schedule: Interval(5 * time.Minute), Grace: 5 * time.Minute, Active: true, FailAfter: 2}
+	for _, st := range []State{Up, Warning, Down} {
+		got, letGo, err := OnSchedule(c, Status{State: st, Deadline: at(9 * time.Hour), FailStreak: 1}, nil, false, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.State != st || !got.Deadline.Equal(now.Add(10*time.Minute)) || len(letGo) != 0 {
+			t.Errorf("%s: %+v", st, got)
+		}
+	}
+	// Unknown without a deadline waits for an attempt, however the schedule goes.
+	if got, _, _ := OnSchedule(c, Status{State: Unknown}, nil, false, now); got.State != Unknown || !got.Deadline.IsZero() {
+		t.Errorf("unknown: %+v", got)
+	}
+	if got, _, _ := OnSchedule(c, Status{State: New}, nil, false, now); got.State != New || !got.Deadline.IsZero() {
+		t.Errorf("new: %+v", got)
+	}
+}

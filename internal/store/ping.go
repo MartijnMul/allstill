@@ -257,6 +257,12 @@ func (s *Store) ProcessDue(ctx context.Context, now time.Time) (time.Time, error
 			break
 		}
 	}
+	return s.EarliestDeadline(ctx)
+}
+
+// EarliestDeadline returns the earliest deadline of any check, zero when there is
+// none.
+func (s *Store) EarliestDeadline(ctx context.Context) (time.Time, error) {
 	next, err := db.New(s.r).EarliestDeadline(ctx)
 	if err != nil {
 		return time.Time{}, err
@@ -418,6 +424,7 @@ func statusOf(c db.Check) check.Status {
 		NextExpected: msTime(c.NextExpectedAt),
 		Deadline:     msTime(c.Deadline),
 		FailStreak:   int(c.FailStreak),
+		EverPassed:   c.EverPassed == 1,
 	}
 }
 
@@ -471,7 +478,7 @@ func saveStatusAt(ctx context.Context, q *db.Queries, c db.Check, before, after 
 	err := q.UpdateCheckStatus(ctx, db.UpdateCheckStatusParams{
 		State: string(after.State), StateSince: after.Since.UnixMilli(), StateReason: after.Reason,
 		LastPingAt: nullMs(after.LastPing), NextExpectedAt: nullMs(after.NextExpected), Deadline: nullMs(after.Deadline),
-		FailStreak: int64(after.FailStreak), ID: c.ID,
+		FailStreak: int64(after.FailStreak), EverPassed: boolInt(after.EverPassed), ID: c.ID,
 	})
 	if err != nil || after.State == before.State {
 		return err

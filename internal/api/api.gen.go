@@ -169,6 +169,9 @@ type ProbeCheck struct {
 	// Clients show kinds they do not know by name: more will come.
 	Kind CheckKind `json:"kind"`
 
+	// Revision Names its settings. Send it back with each run, so a run made under older settings does not count.
+	Revision *string `json:"revision,omitempty"`
+
 	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
 	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
 	// has left (`cert_days`) in its `values`, and why it failed or warned in its
@@ -202,6 +205,9 @@ type ProbeRun struct {
 	Outcome ProbeRunOutcome `json:"outcome"`
 	Reason  *string         `json:"reason,omitempty"`
 
+	// Revision The check's `revision` the attempt was made under. A run under other settings is ignored.
+	Revision *string `json:"revision,omitempty"`
+
 	// Values What it measured, as in `HttpCheck` and `TcpCheck`.
 	Values *map[string]float64 `json:"values,omitempty"`
 }
@@ -225,7 +231,7 @@ type ProbeRunResult struct {
 	// ClockOff Seconds the probe's clock is ahead of the server's, or behind when negative, when that is more than a minute and its runs did not count for it.
 	ClockOff *int64 `json:"clock_off,omitempty"`
 
-	// Ignored Runs seen before, too old, not valid, or not for this probe's checks.
+	// Ignored Runs seen before, too old, not valid, under older settings, or not for this probe's checks.
 	Ignored    int       `json:"ignored"`
 	ServerTime time.Time `json:"server_time"`
 }

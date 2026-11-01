@@ -95,7 +95,10 @@ func digestLine(items []store.Item) string {
 		{"still_open", "%d still open", "%d still open"},
 		{"recovered", "%d back up", "%d back up"},
 		{"resolved_unseen", "%d resolved before you heard", "%d resolved before you heard"},
+		{"closed_deleted", "%d closed: its check was deleted", "%d closed: their checks were deleted"},
+		{"closed_paused", "%d closed: its check was paused", "%d closed: their checks were paused"},
 		{"silent_check", "%d check that cannot alert", "%d checks that cannot alert"},
+		{"paused_check", "%d check paused", "%d checks paused"},
 		{"warning", "%d warning", "%d warnings"},
 	} {
 		switch n := count[c.what]; {

@@ -220,6 +220,7 @@ func TestGettingAlertsDuringAnIncident(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
 	id := f.httpCheck(t)
+	f.attempt(t, id, check.Passed, t0.Add(-time.Minute))
 	f.attempt(t, id, check.Failed, t0)
 	f.attempt(t, id, check.Failed, t0.Add(time.Minute))
 	if c := f.get(t, id); c.State != "down" {

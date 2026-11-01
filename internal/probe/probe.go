@@ -176,6 +176,10 @@ func (p *Probe) record(_ context.Context, done []active.Done) error {
 	defer p.mu.Unlock()
 	for _, d := range done {
 		run := api.ProbeRun{Id: id.UUID(), CheckId: d.Check.ID, Outcome: api.ProbeRunOutcome(d.Result.Outcome)}
+		if d.Check.Revision != "" {
+			revision := d.Check.Revision
+			run.Revision = &revision
+		}
 		if d.Result.Reason != "" {
 			reason := limited(d.Result.Reason)
 			run.Reason = &reason
@@ -255,7 +259,7 @@ func (p *Probe) post(ctx context.Context, runs []waitingRun) (api.ProbeRunResult
 		return res, fmt.Errorf("the server's answer cannot be read: %w", err)
 	}
 	if res.Ignored > 0 {
-		p.Log.Warn("the server ignored runs, as seen before, too old, or not valid", "runs", res.Ignored)
+		p.Log.Warn("the server ignored runs, as seen before, too old, not valid, or under older settings", "runs", res.Ignored)
 	}
 	p.mu.Lock()
 	p.lastPost = time.Now()
@@ -356,6 +360,9 @@ func (p *Probe) fetch(ctx context.Context) error {
 // holds it to.
 func checkOf(c api.ProbeCheck) (active.Check, error) {
 	ac := active.Check{ID: c.Id, Every: time.Duration(c.Interval) * time.Second}
+	if c.Revision != nil {
+		ac.Revision = *c.Revision
+	}
 	if ac.Every < time.Minute {
 		return ac, errors.New("its interval is under a minute")
 	}

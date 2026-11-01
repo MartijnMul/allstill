@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -338,7 +339,11 @@ func (s *Sender) digest(ctx context.Context, p store.DigestPerson, shadow bool, 
 //   - recovered, for one heard of in a digest that recovered;
 //   - still_open, for one open the person knows of or will hear of at once;
 //   - resolved_unseen, for one resolved before they heard of it;
-//   - silent_check, for a check that can never alert;
+//   - closed_deleted and closed_paused, for one they were told of that was closed
+//     by deleting or pausing its check;
+//   - silent_check, for a check that cannot alert;
+//   - paused_check, for a check that is paused, so a forgotten pause gets noticed,
+//     only alongside something else;
 //   - warning, for a check in warning, such as a certificate running out
 //     (intent/http-checks/spec.md, R9).
 //
@@ -371,6 +376,10 @@ func DigestItems(entries []store.DigestEntry, checks []store.ListedCheck, shadow
 			told = append(told, store.Told{IncidentID: e.IncidentID, Told: string(Recovered), How: Digest, Shadow: shadow})
 		case e.Told == string(Nothing):
 			item.What = "resolved_unseen"
+		case e.Told == string(Down) && (e.Reason == "deleted" || e.Reason == "paused"):
+			// Someone was told it was down, and there is no other way to learn
+			// that a colleague closed it this way.
+			item.What = "closed_" + e.Reason
 		default:
 			continue
 		}
@@ -381,7 +390,19 @@ func DigestItems(entries []store.DigestEntry, checks []store.ListedCheck, shadow
 			items = append(items, store.Item{What: "warning", Title: c.Project + ": " + c.Name + " (" + c.Reason + ")"})
 			continue
 		}
-		items = append(items, store.Item{What: "silent_check", Title: c.Project + ": " + c.Name})
+		if c.State == "paused" {
+			items = append(items, store.Item{What: "paused_check", Title: c.Project + ": " + c.Name})
+			continue
+		}
+		title := c.Project + ": " + c.Name
+		if c.Reason != "" {
+			title += " (" + c.Reason + ")"
+		}
+		items = append(items, store.Item{What: "silent_check", Title: title})
+	}
+	// Reminding of a pause is worth a line, not a message of its own every day.
+	if !slices.ContainsFunc(items, func(it store.Item) bool { return it.What != "paused_check" }) {
+		return nil, told
 	}
 	return items, told
 }

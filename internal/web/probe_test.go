@@ -87,6 +87,11 @@ func TestAProbeFetchesItsChecks(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	for _, c := range got.Checks {
+		if c.Revision == nil || *c.Revision == "" {
+			t.Errorf("%s has no revision", c.Id)
+		}
+	}
+	for _, c := range got.Checks {
 		switch c.Id {
 		case httpID:
 			if c.Kind != "http" || c.Interval != 60 || c.Http == nil || c.Http.Url != "http://10.0.0.5/health?token=s3cr3t" {
@@ -186,6 +191,7 @@ func TestAProbePostsRuns(t *testing.T) {
 		}
 		return res
 	}
+	post(runsBody(t, time.Now(), map[string]any{"id": "worked", "check_id": httpID, "outcome": "passed", "ended_ago": 60}))
 	res := post(runsBody(t, time.Now(), run))
 	if res.Applied != 1 || res.Ignored != 0 || res.ClockOff != nil || res.ServerTime.IsZero() {
 		t.Fatalf("%+v", res)
@@ -194,7 +200,7 @@ func TestAProbePostsRuns(t *testing.T) {
 		t.Error("the scheduler was not told")
 	}
 	c := state()
-	if c.Status.State != "down" || c.Status.Reason != "HTTP 503" || len(c.Recent) != 1 || c.Recent[0].Values["status"] != 503 || c.Recent[0].Duration() != 120*time.Millisecond {
+	if c.Status.State != "down" || c.Status.Reason != "HTTP 503" || len(c.Recent) != 2 || c.Recent[0].Values["status"] != 503 || c.Recent[0].Duration() != 120*time.Millisecond {
 		t.Errorf("%+v", c)
 	}
 	// Spec case 11: sent again, it does not count again.

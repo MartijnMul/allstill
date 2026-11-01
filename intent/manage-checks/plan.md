@@ -35,7 +35,7 @@ Step 4, the API, when something is about to use it:
 - `internal/store/migrations/0011_api_keys.sql` (new), `internal/store/keys.go` (new): keys as an `Access` holding one project.
 - `internal/web/api.go` (new), `internal/web/templates/project.html` (new): the handlers, and a small project page for owners.
 - `internal/api/` (changed): the `Checks` and `Projects` tags, with authentication per operation.
-- `api/openapi.yaml` (changed, 0.9.0), `api/README.md` (changed): `Idempotency-Key` and the fields of features not built leave, noted as allowed while there are no clients.
+- `api/openapi.yaml` (changed, its next version), `api/README.md` (changed): `Idempotency-Key` and the fields of features not built leave, noted as allowed while there are no clients.
 
 ## Order of work
 
@@ -83,3 +83,13 @@ Step 4, the API, when something is about to use it:
 - Every step: `make check` clean, and the reviewer agent on the staged diff before each commit.
 
 ## Departures
+
+- Step 2 keeps `SetActiveCheck` and `SetActiveCheckOn` for existing callers, on the new `UpdateCheck`. Before, any `set-check` of a check Allstill runs moved its deadline; now a change of schedule, of who runs it or of what it fetches does, and a rename does not (R10).
+- R11 uses a revision named after a check's settings, not its `version`: a rename must not drop the attempt in flight, which could make a check briefly unknown. It travels with a probe's checks and runs too (API 0.9.0), as a probe reads its checks every 30 seconds. A change of settings also gives a check Allstill runs until its next attempt.
+- The spec says pausing, resuming and replacing a ping URL bump `version`. They do not: it names the settings, and a form need not be out of date for them.
+- The address check moved to `outbound` rather than the store, as a shared function that R24 allows: it needs the server's ranges and the network.
+- R18, decided by the maintainer on 2026-11-02: a digest going out anyway lists paused checks, except those that never alert, but a pause alone sends no message. As first written, one paused check meant a message every day, forever. A forgotten pause on a quiet installation shows only in the dashboard.
+- Fixing an unreadable schedule of a check with an open incident makes it down, not up: it was down, and no ping has said otherwise.
+- Tests of checks Allstill runs that went down from new now pass once first, for C5. "Every earlier test unchanged" in the Proof holds otherwise.
+- The scheduler now looks at deadlines on its heartbeat too, as a command run beside the server can bring one closer and cannot wake it.
+- Step 2 adds `pause-check`, `resume-check` and `delete-check`, which the plan left implicit, so the rules can be used on a real installation before the forms exist.

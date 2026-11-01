@@ -40,6 +40,7 @@ type Store interface {
 	Alive(ctx context.Context, now time.Time) error
 	Recover(ctx context.Context, now time.Time) error
 	Tidy(ctx context.Context, now time.Time) (more bool, err error)
+	EarliestDeadline(ctx context.Context) (time.Time, error)
 }
 
 // Scheduler applies deadlines as they pass.
@@ -115,6 +116,11 @@ func (s *Scheduler) Run(ctx context.Context) error {
 			now := s.look(ctx)
 			if err := s.store.Alive(ctx, now); err != nil && ctx.Err() == nil {
 				s.log.Error("recording the heartbeat", "error", err)
+			}
+			// A command run beside the server can have brought a deadline
+			// closer, and it has no way to wake this.
+			if d, err := s.store.EarliestDeadline(ctx); err == nil && !d.IsZero() && (next.IsZero() || d.Before(next)) {
+				next = d
 			}
 		}
 	}

@@ -30,7 +30,8 @@
 // FailAfter failed attempts in a row, up on the first that passes. It is never
 // late: when no attempt comes in time, or none could judge it, the one who
 // runs it could not, so it is unknown, without a deadline, until an attempt
-// judges it again.
+// judges it again. Until it has passed once it does not go down: it stays new,
+// saying why (intent/manage-checks/spec.md, R35).
 package check
 
 import (
@@ -85,6 +86,8 @@ type Status struct {
 	Deadline     time.Time
 	// FailStreak is an active check's failed attempts in a row.
 	FailStreak int
+	// EverPassed says an active check has passed at least once.
+	EverPassed bool
 }
 
 // OpenRun is a run that has started and not ended. A run that timed out stays
@@ -245,14 +248,17 @@ func OnAttempt(c Config, s Status, a Attempt) (Status, error) {
 	s.LastPing, s.NextExpected = a.At, next
 	switch a.Outcome {
 	case Passed:
-		s.FailStreak = 0
+		s.FailStreak, s.EverPassed = 0, true
 		s = become(s, Up, "", a.At)
 	case Warned:
-		s.FailStreak = 0
+		s.FailStreak, s.EverPassed = 0, true
 		s = become(s, Warning, a.Reason, a.At)
 	case Failed:
 		s.FailStreak++
-		if s.FailStreak >= max(c.FailAfter, 1) {
+		switch {
+		case !s.EverPassed && (s.State == New || s.FailStreak >= max(c.FailAfter, 1)):
+			s = become(s, New, a.Reason, a.At)
+		case s.FailStreak >= max(c.FailAfter, 1):
 			s = become(s, Down, a.Reason, a.At)
 		}
 	default:
@@ -317,6 +323,91 @@ func OnRestart(c Config, s Status, lastAlive, now time.Time) Status {
 	}
 	s = become(s, Unknown, "Allstill was not running when a ping was due.", now)
 	s.Deadline = now.Add(c.Grace)
+	return s
+}
+
+// ScheduleChanged is why a check is up without a ping: its schedule changed while
+// it was late, or could not be read.
+const ScheduleChanged = "The schedule changed; waiting for the next ping."
+
+// StillDown is why a check is down again once its schedule can be read: it was
+// down with an open incident when it could not, and no ping has said otherwise.
+const StillDown = "It was down when its schedule could not be read, and has not been judged since."
+
+// OnSchedule applies a change of a check's schedule or grace at now, c being what
+// they are now (intent/manage-checks/spec.md). The change itself never moves a
+// check to late or down: what is expected counts from now. It returns the new
+// status and the ids of open runs past the new grace, which are let go without an
+// alert, as runs from a time that did not count are. incident says an incident of
+// this check is open, which a fixed schedule must not read as a recovery.
+func OnSchedule(c Config, s Status, open []OpenRun, incident bool, now time.Time) (Status, []string, error) {
+	next, err := c.Schedule.Next(now)
+	if err != nil {
+		return s, nil, err
+	}
+	if c.Active {
+		// Waiting for an attempt, it waits at most one new interval and its
+		// grace; without a deadline it waits for an attempt to judge it.
+		if !s.Deadline.IsZero() {
+			s.NextExpected, s.Deadline = next, next.Add(c.Grace)
+		}
+		return s, nil, nil
+	}
+	switch s.State {
+	case Up, Warning:
+		s.NextExpected = next
+	case Late:
+		s.NextExpected = next
+		s = become(s, Up, ScheduleChanged, now)
+	case Unknown:
+		if !s.Deadline.IsZero() {
+			// After a restart: a new grace period to report in.
+			s.Deadline = now.Add(c.Grace)
+			return s, nil, nil
+		}
+		// Its schedule could not be read, and now it can.
+		if incident {
+			s = become(s, Down, StillDown, now)
+			return s, nil, nil
+		}
+		if s.LastPing.IsZero() {
+			s = become(s, New, "", now)
+			return s, nil, nil
+		}
+		s.NextExpected = next
+		s = become(s, Up, ScheduleChanged, now)
+	default:
+		// New, paused and down wait for a ping, without a deadline.
+		s.Deadline = time.Time{}
+		return s, nil, nil
+	}
+	open = append([]OpenRun(nil), open...)
+	var letGo []string
+	for i, r := range open {
+		if !r.TimedOut && !now.Before(r.Started.Add(c.Grace)) {
+			letGo = append(letGo, r.ID)
+			open[i].TimedOut = true
+		}
+	}
+	s.Deadline = deadline(c, s, open)
+	return s, letGo, nil
+}
+
+// OnPause pauses a check at now: nothing is expected of it until it resumes.
+func OnPause(s Status, now time.Time) Status {
+	s = become(s, Paused, "", now)
+	s.Deadline, s.FailStreak = time.Time{}, 0
+	return s
+}
+
+// OnResume resumes a paused check at now. It starts over, as new, and an active
+// check that passed before goes down as usual if it fails.
+func OnResume(s Status, now time.Time) Status {
+	if s.State != Paused {
+		return s
+	}
+	s = become(s, New, "", now)
+	s.NextExpected, s.Deadline, s.FailStreak = time.Time{}, time.Time{}, 0
 	return s
 }
 

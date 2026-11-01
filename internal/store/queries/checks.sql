@@ -30,7 +30,7 @@ INSERT INTO checks (
 
 -- name: UpdateCheckStatus :exec
 UPDATE checks
-SET state = ?, state_since = ?, state_reason = ?, last_ping_at = ?, next_expected_at = ?, deadline = ?, fail_streak = ?
+SET state = ?, state_since = ?, state_reason = ?, last_ping_at = ?, next_expected_at = ?, deadline = ?, fail_streak = ?, ever_passed = ?
 WHERE id = ?;
 
 -- name: OpenRuns :many
@@ -173,11 +173,34 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- The checks Allstill runs itself, for its loop; a paused one does not run.
 -- name: ActiveChecks :many
-SELECT id, workspace_id, kind, interval_seconds, settings FROM checks
+SELECT id, workspace_id, project_id, version, kind, interval_seconds, settings FROM checks
 WHERE kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused' AND probe_id IS NULL
 ORDER BY id;
 
--- name: UpdateActiveCheck :execrows
+-- name: UpdateCheckSettings :exec
 UPDATE checks
-SET interval_seconds = ?, grace_seconds = ?, settings = ?, deadline = ?, version = version + 1, updated_at = ?
+SET name = ?, slug = ?, description = ?, tags = ?, schedule_kind = ?, interval_seconds = ?, cron_expression = ?,
+    time_zone = ?, grace_seconds = ?, settings = ?, probe_id = ?, version = version + 1, updated_at = ?
 WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
+
+-- name: MarkCheckDeleted :exec
+UPDATE checks SET deleted_at = ?, settings = '{}', deadline = NULL, version = version + 1, updated_at = ?
+WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
+
+-- name: SetPingUUID :exec
+UPDATE checks SET ping_uuid = ?, updated_at = ? WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;
+
+-- name: CountActiveChecksOfProject :one
+SELECT count(*) FROM checks WHERE project_id = ? AND kind IN ('http', 'tcp') AND deleted_at IS NULL;
+
+-- name: CheckIsDeleted :one
+SELECT CAST(deleted_at IS NOT NULL AS INTEGER) FROM checks WHERE id = ?;
+
+-- name: DeletePingsOfCheck :execrows
+DELETE FROM pings WHERE id IN (SELECT p.id FROM pings p WHERE p.check_id = sqlc.arg(of_check) LIMIT sqlc.arg(batch));
+
+-- name: DeleteRunsOfCheck :execrows
+DELETE FROM runs WHERE id IN (SELECT r.id FROM runs r WHERE r.check_id = sqlc.arg(of_check) LIMIT sqlc.arg(batch));
+
+-- name: RemoveDeletedCheck :exec
+DELETE FROM checks WHERE id = ? AND deleted_at IS NOT NULL;

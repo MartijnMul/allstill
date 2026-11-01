@@ -5,6 +5,8 @@ package alert
 import (
 	"testing"
 	"time"
+
+	"github.com/MartijnMul/allstill/internal/store"
 )
 
 var ams, _ = time.LoadLocation("Europe/Amsterdam")
@@ -114,5 +116,33 @@ func TestDecide(t *testing.T) {
 		if got := Decide(c.s, c.at); got.Tell != c.want.Tell || !got.Again.Equal(c.want.Again) {
 			t.Errorf("%s: %+v, want %+v", c.name, got, c.want)
 		}
+	}
+}
+
+// R17 and R18 of intent/manage-checks/spec.md.
+func TestDigestItemsOfClosedAndPausedChecks(t *testing.T) {
+	told := store.DigestEntry{Follows: true, Title: "x is down", Told: string(Down), ToldHow: Now, RecoveryMessages: true}
+	for reason, want := range map[string]string{"deleted": "closed_deleted", "paused": "closed_paused"} {
+		e := told
+		e.Reason = reason
+		items, _ := DigestItems([]store.DigestEntry{e}, nil, false)
+		if len(items) != 1 || items[0].What != want {
+			t.Errorf("%s: %+v", reason, items)
+		}
+	}
+	paused := store.ListedCheck{Name: "y", Project: "P", State: "paused"}
+	// A pause alone makes no message of its own every day.
+	if items, _ := DigestItems(nil, []store.ListedCheck{paused}, false); len(items) != 0 {
+		t.Errorf("paused alone: %+v", items)
+	}
+	e := told
+	e.Reason = "deleted"
+	items, _ := DigestItems([]store.DigestEntry{e}, []store.ListedCheck{paused}, false)
+	if len(items) != 2 || items[1].What != "paused_check" || items[1].Title != "P: y" {
+		t.Errorf("paused alongside: %+v", items)
+	}
+	never := store.ListedCheck{Name: "z", Project: "P", State: "new", Reason: "HTTP 503"}
+	if items, _ := DigestItems(nil, []store.ListedCheck{never}, false); len(items) != 1 || items[0].Title != "P: z (HTTP 503)" {
+		t.Errorf("never worked: %+v", items)
 	}
 }

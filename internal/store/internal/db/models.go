@@ -52,6 +52,7 @@ type Check struct {
 	Critical        int64
 	FailStreak      int64
 	ProbeID         sql.NullString
+	EverPassed      int64
 }
 
 type Delivery struct {

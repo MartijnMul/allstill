@@ -30,7 +30,10 @@ var whatLabel = map[string]string{
 	"recovered":       "Resolved",
 	"still_open":      "Still open",
 	"resolved_unseen": "Resolved before you heard of it",
-	"silent_check":    "Cannot alert, never pinged or its schedule unreadable",
+	"closed_deleted":  "Closed, its check was deleted",
+	"closed_paused":   "Closed, its check was paused",
+	"silent_check":    "Cannot alert, never pinged or never worked, or its schedule unreadable",
+	"paused_check":    "Paused",
 	"warning":         "Warning",
 }
 

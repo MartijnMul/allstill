@@ -268,7 +268,9 @@ func TestActiveChecksReturnsTCP(t *testing.T) {
 	if len(checks) != 1 || checks[0].TCP == nil || checks[0].TCP.Address() != "mail.example.com:993" || !checks[0].TCP.TLS {
 		t.Fatalf("%+v", checks)
 	}
-	// Judged as any active check is: down after two failures in a row.
+	// Judged as any active check is, once it has worked: down after two failures
+	// in a row.
+	f.attempt(t, id.ID, check.Passed, t0.Add(-time.Minute))
 	f.attempt(t, id.ID, check.Failed, t0)
 	f.attempt(t, id.ID, check.Failed, t0.Add(time.Minute))
 	if c := f.get(t, id.ID); c.State != "down" {

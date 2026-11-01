@@ -174,6 +174,7 @@ type ProbeCheck struct {
 	ID, Kind string
 	Interval time.Duration
 	Settings []byte
+	Revision string
 }
 
 // ChecksOfProbe returns the checks a probe runs: not paused ones.
@@ -185,7 +186,7 @@ func (s *Store) ChecksOfProbe(ctx context.Context, probeID string) ([]ProbeCheck
 	checks := make([]ProbeCheck, len(rows))
 	for i, r := range rows {
 		checks[i] = ProbeCheck{
-			ID: r.ID, Kind: r.Kind, Interval: time.Duration(r.IntervalSeconds.Int64) * time.Second, Settings: []byte(r.Settings),
+			ID: r.ID, Kind: r.Kind, Interval: time.Duration(r.IntervalSeconds.Int64) * time.Second, Settings: []byte(r.Settings), Revision: revisionOf(r.Settings),
 		}
 	}
 	return checks, nil
@@ -196,6 +197,7 @@ func (s *Store) ChecksOfProbe(ctx context.Context, probeID string) ([]ProbeCheck
 type ProbeRun struct {
 	ID       string
 	CheckID  string
+	Revision string
 	Outcome  check.Outcome
 	Reason   string
 	EndedAgo time.Duration
@@ -273,6 +275,10 @@ func applyProbeRun(ctx context.Context, q *db.Queries, p Probe, r ProbeRun, cloc
 	}
 	ended := at.Add(-r.EndedAgo)
 	if c.ProbeID.String != p.ID || !c.ProbeID.Valid || ended.Before(statusOf(c).LastPing) {
+		return false, nil
+	}
+	if r.Revision != "" && r.Revision != revisionOf(c.Settings) {
+		// Made under other settings, it says nothing of the check as it is now.
 		return false, nil
 	}
 	a := Attempt{

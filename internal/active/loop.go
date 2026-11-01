@@ -21,6 +21,10 @@ import (
 const (
 	// MaxRunning is how many attempts run at once.
 	MaxRunning = 20
+	// MaxPerProject is how many of those belong to one project, so that one
+	// project's dead hosts cannot blind everyone else's checks
+	// (intent/manage-checks/spec.md, R30).
+	MaxPerProject = 5
 	// Reload is how often the loop reads its checks again, to learn of
 	// checks added or changed by the admin commands.
 	Reload = 30 * time.Second
@@ -35,6 +39,8 @@ const NotJudged = "not judged: the server's network was down"
 // Check is an active check as the loop runs it.
 type Check struct {
 	ID, WorkspaceID string
+	ProjectID       string // its share of the running attempts; a probe's have none
+	Revision        string // names its settings, so an attempt under older ones does not count
 	Every           time.Duration
 	HTTP            HTTP
 	TCP             *TCP // a TCP check; otherwise it is an HTTP check
@@ -160,6 +166,7 @@ func (l *Loop) Run(ctx context.Context) error {
 	entries := map[string]*entry{}
 	var queue []*entry
 	busy := map[string]bool{}
+	perProject := map[string]int{}
 	running := 0
 	results := make(chan finished, MaxRunning)
 	var pending []Done
@@ -232,9 +239,13 @@ func (l *Loop) Run(ctx context.Context) error {
 			case running >= MaxRunning || busy[host]:
 				kept = append(kept, e)
 				continue
+			case e.c.ProjectID != "" && perProject[e.c.ProjectID] >= MaxPerProject:
+				kept = append(kept, e)
+				continue
 			}
 			e.waiting, e.running = false, true
 			busy[host] = true
+			perProject[e.c.ProjectID]++
 			running++
 			c, slot := e.c, e.slot
 			wg.Go(func() {
@@ -298,6 +309,9 @@ func (l *Loop) Run(ctx context.Context) error {
 		case f := <-results:
 			running--
 			delete(busy, f.host)
+			if perProject[f.Check.ProjectID]--; perProject[f.Check.ProjectID] == 0 {
+				delete(perProject, f.Check.ProjectID)
+			}
 			if e, ok := entries[f.Check.ID]; ok {
 				e.running = false
 			}

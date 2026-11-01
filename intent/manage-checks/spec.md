@@ -40,7 +40,7 @@ It flags that today everyone is an administrator, so no editor exists yet (C12),
 - R15. An editor or owner can delete a check, after a page saying what goes: its runs, pings and output, with the number of runs. (Proposed outcome)
 - R16. A deleted check is gone from every list at once, its ping URL answers 404, its open incident closes without a recovery message, and its settings, with any token in them, are cleared at once. Its runs, pings and row are removed in the background. Past incidents keep its name. (Proposed outcome)
 - R17. Someone told a check was down hears in the next digest that it was closed by being deleted or paused, as there is no other way to learn it. (Proposed outcome; alerts spec)
-- R18. The digest lists checks that are paused, so a forgotten pause does not stay unnoticed. (Constraints: calm must not hide a problem; alerts spec)
+- R18. A digest that goes out anyway lists checks that are paused, except those that never alert; a pause alone sends no message, which the maintainer decided on 2026-11-02 over a weekly reminder. (Constraints: calm; alerts spec)
 
 **A probe's own check**
 - R19. A probe's own check can be renamed, but not deleted, paused or rescheduled, and only an administrator can move it within the projects the probe serves or set it to anything but alerting now. That would silence the sign of life of a probe other projects may rely on. (Constraints; http-checks R7)

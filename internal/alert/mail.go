@@ -104,7 +104,10 @@ func (s *Sender) compose(d store.Pending, token string) (subject, body string) {
 			{"still_open", "Still open"},
 			{"recovered", "Resolved"},
 			{"resolved_unseen", "Resolved before you heard of it"},
-			{"silent_check", "Cannot alert: never pinged, or its schedule cannot be read"},
+			{"closed_deleted", "Closed: its check was deleted"},
+			{"closed_paused", "Closed: its check was paused"},
+			{"silent_check", "Cannot alert: never pinged or never worked, or its schedule cannot be read"},
+			{"paused_check", "Paused"},
 			{"warning", "Warnings"},
 		} {
 			var lines []string

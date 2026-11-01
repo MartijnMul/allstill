@@ -156,12 +156,20 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 		return CreatedCheck{}, ErrForbidden
 	}
 	if Active(n.Kind) {
-		n.Grace = max(n.Grace, activeGrace(n.Interval))
+		n.Grace = activeGrace(n.Interval)
 	}
 	if err := n.validate(); err != nil {
 		return CreatedCheck{}, err
 	}
 	q := db.New(s.w)
+	if viaPerson(a) {
+		if len(n.Description) > MaxDescription {
+			return CreatedCheck{}, &InvalidError{"description", fmt.Sprintf("at most %d characters", MaxDescription)}
+		}
+		if err := checkRoom(ctx, q, projectID, n.Kind); err != nil {
+			return CreatedCheck{}, err
+		}
+	}
 	if n.ProbeID != "" {
 		if !Active(n.Kind) {
 			return CreatedCheck{}, &InvalidError{"probe", "only a check Allstill runs itself runs on a probe"}
@@ -229,7 +237,13 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 		return err
 	}
 	defer tx.Rollback()
-	q := db.New(tx)
+	if err := moveCheck(ctx, db.New(tx), workspaceID, checkID, toProjectID, at); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func moveCheck(ctx context.Context, q *db.Queries, workspaceID, checkID, toProjectID string, at time.Time) error {
 	from, err := q.ProjectOfCheck(ctx, db.ProjectOfCheckParams{WorkspaceID: workspaceID, ID: checkID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -290,7 +304,7 @@ func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // Attempt is one attempt of an active check, as its runner saw it.
@@ -302,6 +316,9 @@ type Attempt struct {
 	ProbeID string
 	// Arrived is when Allstill learned of it, when that is later than it ended.
 	Arrived time.Time
+	// Revision, when set, names the settings it was made under: under others, it
+	// says nothing about the check as it is now.
+	Revision string
 }
 
 // RecordAttempt keeps an attempt of an active check as a run, and applies it
@@ -375,6 +392,9 @@ func recordAttempt(ctx context.Context, q *db.Queries, workspaceID, checkID stri
 		// heard: a check is run by the server, or by one probe.
 		return before, nil
 	}
+	if a.Revision != "" && a.Revision != revisionOf(c.Settings) {
+		return before, nil
+	}
 	after, err := check.OnAttempt(cfg, before, a.Attempt)
 	if err != nil {
 		return check.Status{}, err
@@ -412,7 +432,7 @@ func (s *Store) ActiveChecks(ctx context.Context) ([]active.Check, error) {
 	}
 	var checks []active.Check
 	for _, r := range rows {
-		c := active.Check{ID: r.ID, WorkspaceID: r.WorkspaceID, Every: time.Duration(r.IntervalSeconds.Int64) * time.Second}
+		c := active.Check{ID: r.ID, WorkspaceID: r.WorkspaceID, ProjectID: r.ProjectID, Revision: revisionOf(r.Settings), Every: time.Duration(r.IntervalSeconds.Int64) * time.Second}
 		switch r.Kind {
 		case "http":
 			if c.HTTP, err = active.ParseHTTP([]byte(r.Settings)); err != nil {
@@ -449,70 +469,6 @@ func (s *Store) SetActiveCheckOn(ctx context.Context, a Access, checkID string, 
 }
 
 func (s *Store) setActiveCheck(ctx context.Context, a Access, checkID string, interval time.Duration, settings map[string]any, probeID *string, at time.Time) error {
-	tx, err := s.w.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	q := db.New(tx)
-	c, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: a.WorkspaceID, ID: checkID})
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	role, ok := a.Role(c.ProjectID)
-	switch {
-	case !ok:
-		return ErrNotFound
-	case role == Viewer:
-		return ErrForbidden
-	case !Active(c.Kind):
-		return &InvalidError{"kind", "only a check Allstill runs itself has these settings"}
-	case interval < time.Minute:
-		return &InvalidError{"schedule.every", "must be at least 60 seconds"}
-	}
-	if err := validateActive(c.Kind, interval, settings); err != nil {
-		return err
-	}
-	if probeID != nil && *probeID != "" {
-		if err := probeServes(ctx, q, a.WorkspaceID, *probeID, c.ProjectID); err != nil {
-			return err
-		}
-	}
-	raw, err := json.Marshal(settings)
-	if err != nil {
-		return err
-	}
-	grace := activeGrace(interval)
-	deadline := c.Deadline
-	if deadline.Valid {
-		deadline.Int64 = at.Add(interval + grace).UnixMilli()
-	}
-	n, err := q.UpdateActiveCheck(ctx, db.UpdateActiveCheckParams{
-		IntervalSeconds: sql.NullInt64{Int64: int64(interval / time.Second), Valid: true},
-		GraceSeconds:    int64(grace / time.Second), Settings: string(raw), Deadline: deadline,
-		UpdatedAt: at.UnixMilli(), WorkspaceID: a.WorkspaceID, ID: checkID,
-	})
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return ErrNotFound
-	}
-	if probeID != nil {
-		if err := q.SetCheckProbe(ctx, db.SetCheckProbeParams{
-			ProbeID: nullString(*probeID), Deadline: deadline, UpdatedAt: at.UnixMilli(), WorkspaceID: a.WorkspaceID, ID: checkID,
-		}); err != nil {
-			return err
-		}
-	}
-	if err := q.CreateEvent(ctx, db.CreateEventParams{
-		WorkspaceID: a.WorkspaceID, ProjectID: sql.NullString{String: c.ProjectID, Valid: true},
-		Type: "check.updated", SubjectID: checkID, CreatedAt: at.UnixMilli(),
-	}); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err := s.UpdateCheck(ctx, a, checkID, Change{Interval: &interval, Settings: settings, Probe: probeID}, at)
+	return err
 }

@@ -115,7 +115,13 @@ func (s *sink) record(_ context.Context, done []Done) error {
 	s.batches++
 	for _, d := range done {
 		cfg := check.Config{Active: true, FailAfter: 2, Schedule: check.Interval(d.Check.Every), Grace: max(2*time.Minute, d.Check.Every)}
-		st, err := check.OnAttempt(cfg, s.status[d.Check.ID], check.Attempt{Outcome: d.Result.Outcome, Reason: d.Result.Reason, At: d.Result.Ended})
+		// These cases are about sites that have worked; one that never has stays
+		// new, which internal/check tests.
+		before, seen := s.status[d.Check.ID]
+		if !seen {
+			before.EverPassed = true
+		}
+		st, err := check.OnAttempt(cfg, before, check.Attempt{Outcome: d.Result.Outcome, Reason: d.Result.Reason, At: d.Result.Ended})
 		if err != nil {
 			return err
 		}
@@ -570,5 +576,74 @@ func TestLoopEnds(t *testing.T) {
 		if s.count("chk_fast") == 0 || s.count("chk_slow") != 0 {
 			t.Errorf("recorded %d fast and %d cut short", s.count("chk_fast"), s.count("chk_slow"))
 		}
+	})
+}
+
+// R30 of intent/manage-checks/spec.md: one project's dead hosts wait on each other,
+// and do not take every running slot from the others.
+func TestAProjectHasItsShareOfTheAttempts(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, stop := context.WithCancel(t.Context())
+		defer stop()
+		var mu sync.Mutex
+		running, most := map[string]int{}, map[string]int{}
+		done := map[string]int{}
+		attempt := func(ctx context.Context, c Check) Result {
+			mu.Lock()
+			running[c.ProjectID]++
+			most[c.ProjectID] = max(most[c.ProjectID], running[c.ProjectID])
+			mu.Unlock()
+			// The dead hosts of a project time out; the others answer at once.
+			if c.ProjectID == "dead" {
+				select {
+				case <-time.After(30 * time.Second):
+				case <-ctx.Done():
+				}
+			}
+			mu.Lock()
+			running[c.ProjectID]--
+			done[c.ProjectID]++
+			mu.Unlock()
+			return Result{Outcome: check.Passed, Started: time.Now(), Ended: time.Now()}
+		}
+		var checks []Check
+		for i := range 30 {
+			checks = append(checks, Check{ID: fmt.Sprintf("chk_dead%02d", i), ProjectID: "dead", Every: time.Minute,
+				HTTP: HTTP{URL: fmt.Sprintf("https://dead%d.example.com/", i)}})
+		}
+		for i := range 10 {
+			checks = append(checks, Check{ID: fmt.Sprintf("chk_live%02d", i), ProjectID: "live", Every: time.Minute,
+				HTTP: HTTP{URL: fmt.Sprintf("https://live%d.example.com/", i)}})
+		}
+		// A probe's checks have no project, and no share to keep to.
+		for i := range 8 {
+			checks = append(checks, Check{ID: fmt.Sprintf("chk_prob%02d", i), Every: time.Minute,
+				HTTP: HTTP{URL: fmt.Sprintf("https://probe%d.example.com/", i)}})
+		}
+		l := &Loop{
+			Checks:  func(context.Context) ([]Check, error) { return checks, nil },
+			Attempt: attempt,
+			Record:  func(context.Context, []Done) error { return nil },
+			Log:     slog.New(slog.DiscardHandler),
+		}
+		end := make(chan error)
+		go func() { end <- l.Run(ctx) }()
+		time.Sleep(5 * time.Minute)
+		synctest.Wait()
+		mu.Lock()
+		if most["dead"] > MaxPerProject {
+			t.Errorf("a project ran %d at once", most["dead"])
+		}
+		if most["dead"] < MaxPerProject {
+			t.Errorf("a project with many checks ran at most %d at once", most["dead"])
+		}
+		// 10 checks a minute for 5 minutes, about one slot each may be lost at the
+		// edges.
+		if done["live"] < 40 {
+			t.Errorf("the other project's checks made %d attempts in 5 minutes", done["live"])
+		}
+		mu.Unlock()
+		stop()
+		<-end
 	})
 }

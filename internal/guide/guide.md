@@ -34,14 +34,14 @@ ALLSTILL_URL="$BACKUP_PING_URL" allstill run -- ./backup.sh
 
 This reports the start, the end, the exit status and the tail of the output, which goes to the server, so the job should not print secrets. The exit status of `allstill run` is the job's own. Each job needs its own URL. Prefer the variable to `allstill run -url`, which shows the secret to anyone who can list processes.
 
-To have the first ping create a check that does not exist yet, end a URL of the second form with `?create=1`. Get the slug right: a check cannot be removed yet.
+To have the first ping create a check that does not exist yet, end a URL of the second form with `?create=1`. If the slug comes out wrong, `allstill admin delete-check` removes the check.
 
-**Check the job against the schedule first.** A check made with `create=1` gets one schedule, and no command changes it yet. It goes down in two cases:
+**Check the job against the schedule first.** A check made with `create=1` gets one schedule until someone changes it on the server, with `allstill admin set-check -project Backups -check nightly -every 1h -grace 30m`, or `-cron "0 3 * * *" -time-zone Europe/Amsterdam` in place of `-every`. A new schedule counts from now. As made, it goes down in two cases:
 
 - No ping has arrived for a day and an hour. That suits a daily job. An hourly job would be missed for a day, and a weekly job would show as down between its runs.
 - A run started and did not end within an hour. A job that takes longer would go down every time, although not on its first run, so this is easy to miss when you test it. Such a job should ping only when it ends, with curl as below, without the `/start` line. That line then no longer creates the check, so the last ping has to: `"$BACKUP_PING_URL/$??create=1"`.
 
-Tell the person before setting up a job that does not fit. Checks imported from Healthchecks keep their schedules.
+Tell the person before setting up a job that does not fit, and what to change. Checks imported from Healthchecks keep their schedules.
 
 ### With curl
 
@@ -87,9 +87,12 @@ allstill admin add-check -project Sites -name shop -http https://shop.example.co
 allstill admin add-check -project Sites -name www -http https://www.example.com -expect 301 -location https://example.com/
 allstill admin add-check -project Sites -name mail -tcp mail.example.com:993 -tls
 allstill admin set-check -project Sites -check shop -every 5m
+allstill admin pause-check -project Sites -check shop
+allstill admin resume-check -project Sites -check shop
+allstill admin delete-check -project Sites -check shop
 ```
 
-Run from the server, `add-check` tries the address once and says what the check will see. A check over TLS also watches its certificate. Use `allstill admin add-check -no-verify` only for a self-signed certificate.
+Run from the server, `add-check` tries the address once and says what the check will see. Until a check has passed once it stays new and alerts nobody, saying why on its page and in the digest, so a site that is already down when you add it does not alert until it has been up. A check over TLS also watches its certificate. Use `allstill admin add-check -no-verify` only for a self-signed certificate.
 
 ## Watch inside another network
 
@@ -122,8 +125,8 @@ A new installation starts in shadow mode: it records what it would have sent und
 
 - Seeing a check's status from outside the dashboard. The JSON API described in the project's `api/` directory is not served yet, apart from what probes use.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
-- Choosing or changing a pinged check's schedule or grace period, and changing a project's defaults for them.
-- Removing or pausing a check.
+- Changing a project's default schedule and grace period.
+- Adding and changing checks in the dashboard: for now they are commands, run on the server.
 - Alerts other than by push and email, and changing quiet hours or the digest's time.
 - Calendars, maintenance windows and status pages.
 - The macOS menu bar app.

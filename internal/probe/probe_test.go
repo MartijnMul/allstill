@@ -212,6 +212,20 @@ func TestALostAnswerSendsTheSameRunsAgain(t *testing.T) {
 	}
 }
 
+// A run says which settings it was made under, so the server can tell.
+func TestARunCarriesItsChecksRevision(t *testing.T) {
+	revision := "abc123"
+	c, err := checkOf(api.ProbeCheck{Id: "chk_1", Kind: "http", Interval: 60, Revision: &revision, Http: &api.HttpCheck{Url: "https://example.com/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &Probe{Log: slog.New(slog.DiscardHandler)}
+	p.record(t.Context(), []active.Done{{Check: c, Result: active.Result{Outcome: check.Passed, Ended: time.Now()}}})
+	if got := p.waiting[0].run.Revision; got == nil || *got != revision {
+		t.Errorf("%v", got)
+	}
+}
+
 // With the server out of reach, runs wait, and say their age when it is back.
 func TestRunsWaitUntilTheServerHasThem(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {

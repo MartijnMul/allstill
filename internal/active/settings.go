@@ -191,6 +191,18 @@ type TCP struct {
 	FailAfter int `json:"fail_after,omitempty"`
 }
 
+// CertificateSettings are the settings about a certificate, which a TCP check
+// without TLS does not have.
+var CertificateSettings = []string{"warn_days", "fail_days", "ca", "no_verify"}
+
+// WithoutTLS clears what a TCP check's settings say about a certificate, which
+// has no meaning once TLS is off.
+func WithoutTLS(settings map[string]any) {
+	for _, key := range CertificateSettings {
+		delete(settings, key)
+	}
+}
+
 // ParseTCP reads and checks a TCP check's settings.
 func ParseTCP(raw []byte) (TCP, error) {
 	var t TCP

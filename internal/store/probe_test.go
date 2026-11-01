@@ -287,6 +287,9 @@ func TestAnOutageHeardOfLateIsStillTold(t *testing.T) {
 	run := func(rid string, o check.Outcome, ago time.Duration) ProbeRun {
 		return ProbeRun{ID: rid, CheckID: id, Outcome: o, Reason: "HTTP 503", EndedAgo: ago}
 	}
+	if _, err := f.s.ApplyProbeRuns(ctx, p, []ProbeRun{run("worked", check.Passed, 0)}, t0, t0); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := f.s.ApplyProbeRuns(ctx, p, []ProbeRun{
 		run("a", check.Failed, 5*time.Hour),
 		run("b", check.Failed, 5*time.Hour-time.Minute),
@@ -430,7 +433,11 @@ func TestOverWhenHeard(t *testing.T) {
 			ctx := t.Context()
 			p, id := aProbe(t, f)
 			admin, _ := f.s.AdminAccess(ctx, f.ws)
-			if err := f.s.SetActiveCheckOn(ctx, admin, id, time.Minute, map[string]any{"url": "http://10.0.0.5/", "fail_after": 1}, p.ID, t0); err != nil {
+			start := t0.Add(-3 * time.Hour)
+			if err := f.s.SetActiveCheckOn(ctx, admin, id, time.Minute, map[string]any{"url": "http://10.0.0.5/", "fail_after": 1}, p.ID, start); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := f.s.ApplyProbeRuns(ctx, p, []ProbeRun{{ID: "worked", CheckID: id, Outcome: check.Passed}}, start, start); err != nil {
 				t.Fatal(err)
 			}
 			post := func(at time.Time, r ProbeRun) {

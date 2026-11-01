@@ -3,6 +3,7 @@
 package outbound
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -66,6 +67,49 @@ func Dialer(timeout time.Duration, allow []netip.Prefix) *net.Dialer {
 			return nil
 		},
 	}
+}
+
+// Unreachable is an address a check may not reach. Its message is for anyone:
+// what the name resolved to, and why, is for someone at the server's own shell.
+type Unreachable struct {
+	Host string
+	Addr netip.Addr
+	Own  bool // one of the server's own addresses, rather than a private one
+}
+
+func (u *Unreachable) Error() string {
+	return "this address is not on the public internet, and this server may not reach it"
+}
+
+// ErrNoSuchHost means a host name does not resolve now, which a check can report
+// for itself.
+var ErrNoSuchHost = errors.New("the host name does not resolve now")
+
+// CheckHost says whether a check may reach a host as it resolves now. The dialer
+// decides for each connection; this is to refuse a mistake when a check is saved.
+func CheckHost(ctx context.Context, host string, allow []netip.Prefix) error {
+	if host == "" {
+		return nil // what is wrong with it is for the check's own rules to say
+	}
+	var addrs []netip.Addr
+	if a, err := netip.ParseAddr(host); err == nil {
+		addrs = []netip.Addr{a}
+	} else {
+		lookup, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if addrs, err = net.DefaultResolver.LookupNetIP(lookup, "ip", host); err != nil {
+			return ErrNoSuchHost
+		}
+	}
+	for _, a := range addrs {
+		if Own(a) {
+			return &Unreachable{Host: host, Addr: a, Own: true}
+		}
+		if !Allowed(a, allow) {
+			return &Unreachable{Host: host, Addr: a}
+		}
+	}
+	return nil
 }
 
 // Redirects is a check's redirect policy for http.Client: none are followed
