@@ -6,6 +6,12 @@ name: Release
 # version only. A release candidate is vX.Y.Z-rcN, without a dot: apk refuses
 # rc.N. To run a tag again, delete its draft first, or a second one is made.
 #
+# A release candidate is there to try on a real installation, so it is built with
+# .goreleaser-rc.yaml: one image for amd64, no draft. It must be on main, where CI
+# runs the same checks and builds what a release would. This workflow does not
+# wait for CI, which takes longer. Another network, or a look at a real draft,
+# takes a tag such as vX.Y.Z-beta1, which is built in full.
+#
 # While the repository is private, nothing is signed or attested: keyless
 # signing writes the repository's name to the public transparency log for
 # good, and GitHub attests private repositories only on Enterprise Cloud.
@@ -25,6 +31,7 @@ jobs:
     name: make check
     # Apart from the release, with no right to write or sign: the tests and
     # the tools they run never see the release's identity.
+    if: ${{ !contains(github.ref_name, '-rc') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,6 +46,9 @@ jobs:
   release:
     name: GoReleaser
     needs: check
+    # Skipped for a release candidate, which must not stop this; anything but
+    # passed, for a release, must.
+    if: ${{ !cancelled() && (needs.check.result == 'success' || needs.check.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write     # the draft release
@@ -50,6 +60,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: A release candidate is on main
+        if: ${{ contains(github.ref_name, '-rc') }}
+        # The checkout fetched every branch, and has given up its token since.
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main || {
+            echo "::error::A release candidate must be a commit on main, where CI checks it."
+            exit 1
+          }
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -69,16 +87,19 @@ jobs:
       - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: v2.18.2
-          args: ${{ github.event.repository.private && 'release --clean --skip=sign' || 'release --clean' }}
+          args: ${{ contains(github.ref_name, '-rc') && 'release --clean --config .goreleaser-rc.yaml' || github.event.repository.private && 'release --clean --skip=sign' || 'release --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The tag that started this: on a commit that also has a release
+          # candidate's tag, GoReleaser would pick that one.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
       - name: Attest the archives and packages
-        if: ${{ !github.event.repository.private }}
+        if: ${{ !github.event.repository.private && !contains(github.ref_name, '-rc') }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: ./dist/checksums.txt
       - name: Attest the images
-        if: ${{ !github.event.repository.private }}
+        if: ${{ !github.event.repository.private && !contains(github.ref_name, '-rc') }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: ./dist/digests.txt

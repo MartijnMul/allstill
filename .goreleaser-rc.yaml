@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# How a release candidate is built: one container image, to try on a real
+# installation before a release. A tag vX.Y.Z-rcN uses this file;
+# .github/workflows/release.yml says why that is enough. .goreleaser.yaml builds
+# everything else, and CI still builds that on every push to main. Its builds and
+# dockers_v2 are copied from there: change them in both.
+version: 2
+project_name: allstill
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: allstill
+    main: ./cmd/allstill
+    binary: allstill
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.buildVersion={{ .Version }}"]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    goos: [linux]
+    goarch: [amd64]
+
+# No draft release: a candidate is its image.
+release:
+  disable: true
+
+dockers_v2:
+  - images: [ghcr.io/martijnmul/allstill]
+    # The version only, as in a release.
+    tags: ["{{ .Version }}"]
+    dockerfile: packaging/Dockerfile
+    platforms: [linux/amd64]
+    annotations:
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.description": Watches cron jobs, backups, scripts and websites.
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.source": https://github.com/MartijnMul/allstill
+      "org.opencontainers.image.licenses": AGPL-3.0-only
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
