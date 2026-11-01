@@ -20,4 +20,7 @@ if [ -s "$denylist" ]; then
     echo "$hits" >&2
     exit 1
   fi
+else
+  # Here and not in pre-commit too, so a commit says it once.
+  echo "commit-msg: warning: $denylist is missing or empty, so this commit is not checked for private terms." >&2
 fi
