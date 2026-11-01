@@ -43,6 +43,7 @@ Usage:
   allstill import healthchecks [flags]   copy checks from Healthchecks
   allstill compare healthchecks [flags]  where Allstill saw checks differently
   allstill admin create-user [flags]     add a person, with a link to make a passkey
+  allstill admin set-member [flags]      what someone may do in a project
   allstill admin passkey-link [flags]    a new passkey link for someone
   allstill admin create-project NAME     create a project
   allstill admin rename-project NAME NEW rename a project

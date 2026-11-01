@@ -73,11 +73,15 @@ func DefaultQuietHours(timeZone string) string {
 // CreatePerson adds a person to the workspace and returns their id. They get
 // the default quiet hours.
 func (s *Store) CreatePerson(ctx context.Context, workspaceID string, p NewPerson) (string, error) {
+	return createPerson(ctx, db.New(s.w), workspaceID, p)
+}
+
+func createPerson(ctx context.Context, q *db.Queries, workspaceID string, p NewPerson) (string, error) {
 	personID := id.New(id.Person)
 	if p.TimeZone == "" {
 		p.TimeZone = "UTC"
 	}
-	err := db.New(s.w).CreatePerson(ctx, db.CreatePersonParams{
+	err := q.CreatePerson(ctx, db.CreatePersonParams{
 		ID:             personID,
 		WorkspaceID:    workspaceID,
 		Name:           p.Name,
@@ -101,13 +105,90 @@ func (s *Store) CreateProject(ctx context.Context, workspaceID, name string) (pr
 	return projectID, pingKey, err
 }
 
-// SetMember gives a person a role in a project. A new member who is no viewer
-// gets alerts for it.
+// SetMember gives a person a role in a project. Someone who becomes more than a
+// viewer gets alerts for it, and someone who becomes a viewer stops getting them.
 func (s *Store) SetMember(ctx context.Context, workspaceID, projectID, personID string, role Role) error {
-	return db.New(s.w).AddMember(ctx, db.AddMemberParams{
-		WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID, Role: string(role), CreatedAt: now(),
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := setMember(ctx, db.New(tx), workspaceID, projectID, personID, role); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// setMember also has the sender look at what is open in the project for someone
+// who gets alerts for it: they should have known since it opened, as when a check
+// moves to a project.
+func setMember(ctx context.Context, q *db.Queries, workspaceID, projectID, personID string, role Role) error {
+	at := now()
+	err := q.AddMember(ctx, db.AddMemberParams{
+		WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID, Role: string(role), CreatedAt: at,
 		Alerts: boolInt(role != Viewer),
 	})
+	if err != nil || role == Viewer {
+		return err
+	}
+	open, err := q.OpenIncidentsOfProject(ctx, db.OpenIncidentsOfProjectParams{WorkspaceID: workspaceID, ProjectID: projectID})
+	if err != nil {
+		return err
+	}
+	due := sql.NullInt64{Int64: at, Valid: true}
+	for _, incidentID := range open {
+		if err := q.AddFollowers(ctx, db.AddFollowersParams{IncidentID: incidentID, DueAt: due, ProjectID: projectID, WorkspaceID: workspaceID}); err != nil {
+			return err
+		}
+		if err := q.LookAgainAtUntoldPerson(ctx, db.LookAgainAtUntoldPersonParams{DueAt: due, IncidentID: incidentID, PersonID: personID}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RemoveMember takes a person out of a project, or returns ErrNotFound when they
+// were not in it.
+func (s *Store) RemoveMember(ctx context.Context, workspaceID, projectID, personID string) error {
+	n, err := db.New(s.w).RemoveMember(ctx, db.RemoveMemberParams{WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// ParseRole reads a role a person can have in a project.
+func ParseRole(s string) (Role, error) {
+	switch r := Role(s); r {
+	case Viewer, Editor, Owner:
+		return r, nil
+	}
+	return "", fmt.Errorf("%q is not a role: give viewer, editor or owner", s)
+}
+
+// CreateMember adds a person who is not an administrator, with a role in these
+// projects and no others, in one change, and returns their id.
+func (s *Store) CreateMember(ctx context.Context, workspaceID string, p NewPerson, projects []string, role Role) (string, error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	p.WorkspaceAdmin = false
+	personID, err := createPerson(ctx, q, workspaceID, p)
+	if err != nil {
+		return "", err
+	}
+	for _, projectID := range projects {
+		if err := setMember(ctx, q, workspaceID, projectID, personID, role); err != nil {
+			return "", err
+		}
+	}
+	return personID, tx.Commit()
 }
 
 // ProjectAccess is a project a caller may see, and their role in it.

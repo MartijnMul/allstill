@@ -72,12 +72,12 @@ func (s *Server) messagesPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		case "pending":
 			row.State, row.Class = "Sending", "warn"
 		case "failed":
-			row.State, row.Class = "Failed: "+m.Error, "bad"
+			row.State, row.Class = failedState(v, m.Error), "bad"
 			if m.Error == store.NoLongerTrue {
 				row.State, row.Class = "Left out: no longer true when it could go", "quiet"
 			}
 		default:
-			row.State, row.Class = "Failed: "+m.Error, "bad"
+			row.State, row.Class = failedState(v, m.Error), "bad"
 		}
 		for _, it := range m.Items {
 			row.Lines = append(row.Lines, whatLabel[it.What]+": "+it.Title)
@@ -91,4 +91,14 @@ func (s *Server) messagesPage(w http.ResponseWriter, r *http.Request, v viewer) 
 	}
 	crumbs := []crumb{{"Messages", ""}}
 	s.render(w, r, http.StatusOK, "messages", page{Title: "Messages", Person: v.Name, Crumbs: crumbs, Here: "messages", Nav: nav, Data: d})
+}
+
+// failedState says a message could not go. Why is for an administrator: the error
+// can hold what an address resolves to and how a server answers, and anyone
+// signed in can have a test sent to an address of their choosing.
+func failedState(v viewer, why string) string {
+	if v.Access.Admin {
+		return "Failed: " + why
+	}
+	return "Failed: it could not be delivered. Your administrator can see why in the server's log."
 }

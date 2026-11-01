@@ -84,3 +84,33 @@ func TestRedirectsFollowedOnlyWhenAsked(t *testing.T) {
 		t.Errorf("a redirect to ftp: %v", err)
 	}
 }
+
+// A check's URL may hold a token, so where a redirect leads must not be told
+// where it came from (ADR 0004). Go's client says so in Referer by itself.
+func TestARedirectDoesNotTellWhereItCameFrom(t *testing.T) {
+	withoutOwn(t)
+	var referers []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		referers = append(referers, r.Header.Get("Referer"))
+		switch r.URL.Path {
+		case "/health":
+			http.Redirect(w, r, "/next?token=s3cr3t", http.StatusFound)
+		case "/next":
+			http.Redirect(w, r, "/end", http.StatusFound)
+		}
+	}))
+	defer srv.Close()
+	resp, err := client(true, netip.MustParsePrefix("127.0.0.0/8")).Get(srv.URL + "/health?token=s3cr3t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(referers) != 3 {
+		t.Fatalf("%d requests", len(referers))
+	}
+	for _, r := range referers {
+		if r != "" {
+			t.Errorf("Referer %q", r)
+		}
+	}
+}

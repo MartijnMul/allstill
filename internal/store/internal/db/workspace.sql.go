@@ -17,7 +17,11 @@ INSERT INTO memberships (workspace_id, project_id, person_id, role, created_at, 
 VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (project_id, person_id) DO UPDATE SET
     role = excluded.role,
-    alerts = CASE WHEN memberships.role = 'viewer' AND excluded.role <> 'viewer' THEN 1 ELSE memberships.alerts END
+    alerts = CASE
+        WHEN memberships.role = 'viewer' AND excluded.role <> 'viewer' THEN 1
+        WHEN memberships.role <> 'viewer' AND excluded.role = 'viewer' THEN 0
+        ELSE memberships.alerts
+    END
 `
 
 type AddMemberParams struct {
@@ -30,7 +34,8 @@ type AddMemberParams struct {
 }
 
 // A new member gets alerts unless they are a viewer; so does a viewer who
-// becomes an editor or owner. Other changes of role keep the setting.
+// becomes an editor or owner, and someone who becomes a viewer stops getting
+// them. Other changes of role keep the setting.
 func (q *Queries) AddMember(ctx context.Context, arg AddMemberParams) error {
 	_, err := q.db.ExecContext(ctx, addMember,
 		arg.WorkspaceID,
@@ -265,6 +270,24 @@ func (q *Queries) ProjectsOfPerson(ctx context.Context, arg ProjectsOfPersonPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const removeMember = `-- name: RemoveMember :execrows
+DELETE FROM memberships WHERE workspace_id = ? AND project_id = ? AND person_id = ?
+`
+
+type RemoveMemberParams struct {
+	WorkspaceID string
+	ProjectID   string
+	PersonID    string
+}
+
+func (q *Queries) RemoveMember(ctx context.Context, arg RemoveMemberParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, removeMember, arg.WorkspaceID, arg.ProjectID, arg.PersonID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const renameProject = `-- name: RenameProject :execrows

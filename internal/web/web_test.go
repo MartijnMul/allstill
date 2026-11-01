@@ -4,6 +4,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -475,6 +476,65 @@ func TestMessagesShowWhatWouldHaveBeenSent(t *testing.T) {
 
 // Every signed-in page renders with its sidebar, for every kind of check:
 // one whose runs sent values, one whose runs did not, and one Allstill runs.
+// Someone limited to a project is not told how the sending is doing, as they may
+// get no alerts at all, nor why a message failed, which can hold what an address
+// resolves to.
+func TestWhatALimitedPersonIsNotTold(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	const secret = "dial tcp 10.0.0.5:443: refused"
+	for _, person := range []string{f.bob, f.ada} {
+		chn, err := f.st.SaveEmail(ctx, f.ws, person, person+"@example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.st.Record(ctx, &store.Delivery{WorkspaceID: f.ws, PersonID: person, ChannelID: chn.ID, Kind: "test", State: "failed", Error: secret, At: time.Now(), Items: []store.Item{{What: "test", Title: "Test"}}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.srv.Behind = func(context.Context) (time.Duration, error) { return time.Hour, nil }
+
+	bob := f.browser(t)
+	f.register(t, bob, f.bob)
+	messages := string(bob.ok("GET", "/messages", nil))
+	if strings.Contains(messages, "10.0.0.5") || !strings.Contains(messages, "could not be delivered") {
+		t.Errorf("a limited person's messages: %s", messages)
+	}
+	if overview := string(bob.ok("GET", "/", nil)); strings.Contains(overview, "behind") {
+		t.Error("a limited person is told alerts are behind")
+	}
+	if devices := string(bob.ok("GET", "/channels", nil)); !strings.Contains(devices, "You get no alerts for now") {
+		t.Error("a viewer's devices page does not say they get no alerts")
+	}
+
+	ada := f.browser(t)
+	f.register(t, ada, f.ada)
+	if messages := string(ada.ok("GET", "/messages", nil)); !strings.Contains(messages, "10.0.0.5") {
+		t.Error("an administrator does not see why it failed")
+	}
+	if overview := string(ada.ok("GET", "/", nil)); !strings.Contains(overview, "behind") {
+		t.Error("an administrator is not told alerts are behind")
+	}
+	if devices := string(ada.ok("GET", "/channels", nil)); strings.Contains(devices, "You get no alerts for now") {
+		t.Error("an administrator is told they get no alerts")
+	}
+}
+
+// Someone with nothing to see yet is not told to run a command.
+func TestAnEmptyOverviewByRole(t *testing.T) {
+	f := setup(t)
+	alone, err := f.st.CreateMember(t.Context(), f.ws, store.NewPerson{Name: "Alone"}, nil, store.Viewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := f.browser(t)
+	f.register(t, b, alone)
+	page := string(b.ok("GET", "/", nil))
+	if strings.Contains(page, "allstill import") || !strings.Contains(page, "Your administrator adds them") {
+		t.Errorf("%s", page)
+	}
+}
+
 // A TCP check shows its address and only the columns its attempts can fill.
 func TestATCPCheckHasItsOwnPage(t *testing.T) {
 	f := setup(t)

@@ -154,6 +154,8 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	}
 	if len(d.Groups) == 0 {
 		switch {
+		case len(checks) == 0 && !v.Access.Admin:
+			d.Empty = "There are no checks here for you yet. Your administrator adds them, or gives you access to a project."
 		case len(checks) == 0:
 			d.Empty = "Import your checks from Healthchecks with allstill import healthchecks, or ping a new slug with ?create=1 to create it."
 		case query != "":

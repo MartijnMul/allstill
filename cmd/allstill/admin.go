@@ -24,7 +24,8 @@ import (
 // the workspace administrator.
 
 const adminUsage = `Usage:
-  allstill admin create-user -name NAME [-email EMAIL] [flags]
+  allstill admin create-user -name NAME [-email EMAIL] [-project PROJECT -role ROLE] [flags]
+  allstill admin set-member (-email EMAIL | -person ID) -project PROJECT -role ROLE [flags]
   allstill admin passkey-link (-email EMAIL | -person ID) [flags]
   allstill admin create-project [-db file] NAME
   allstill admin rename-project [-db file] NAME NEW-NAME
@@ -48,6 +49,8 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return createProject(ctx, args[1:], stdout, stderr)
 	case "create-user":
 		return createUser(ctx, args[1:], stdout, stderr)
+	case "set-member":
+		return setMember(ctx, args[1:], stdout, stderr)
 	case "passkey-link":
 		return passkeyLink(ctx, args[1:], stdout, stderr)
 	case "rename-project":
@@ -399,11 +402,19 @@ func createUser(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs := flag.NewFlagSet("admin create-user", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprint(stderr, `Usage: allstill admin create-user -name NAME [-email EMAIL] [flags]
+		fmt.Fprint(stderr, `Usage: allstill admin create-user -name NAME [-email EMAIL] [-project PROJECT -role ROLE] [flags]
 
 Adds a person and prints a link, valid for 24 hours, where they make a
-passkey to sign in with. For now everyone added here is a workspace
-administrator, who sees every project; narrower roles come with invitations.
+passkey to sign in with.
+
+With -project, they see only those projects, with the role you give:
+  viewer   sees the checks, their hosts and ports, last runs and what jobs
+           printed; not full URLs or ping URLs; gets no alerts
+  editor   also sees full URLs and ping URLs, and gets alerts for the project
+  owner    the same as an editor, for now
+
+Without -project, they are a workspace administrator, who sees every project
+and gets alerts for all of them, so do not add an outside party that way.
 
 Flags:
 `)
@@ -413,6 +424,12 @@ Flags:
 	name := fs.String("name", "", "the person's name")
 	email := fs.String("email", "", "where their email alerts and digest go")
 	tz := fs.String("time-zone", "UTC", "the time zone the dashboard shows them, such as Europe/Amsterdam")
+	var projects []string
+	fs.Func("project", "a project they may see; repeat it for several. Without it they are an administrator", func(v string) error {
+		projects = append(projects, v)
+		return nil
+	})
+	roleName := fs.String("role", "", "their role in those projects: viewer, editor or owner")
 	baseURL := fs.String("base-url", os.Getenv("ALLSTILL_BASE_URL"), "the dashboard's address (ALLSTILL_BASE_URL; default: the one the server last ran with)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -420,6 +437,16 @@ Flags:
 	if strings.TrimSpace(*name) == "" || fs.NArg() != 0 {
 		fs.Usage()
 		return errors.New("give -name")
+	}
+	if (len(projects) == 0) != (*roleName == "") {
+		return errors.New("give -project and -role together, or neither for a workspace administrator")
+	}
+	var role store.Role
+	if *roleName != "" {
+		var err error
+		if role, err = store.ParseRole(*roleName); err != nil {
+			return fmt.Errorf("-role: %w", err)
+		}
 	}
 	if _, err := time.LoadLocation(*tz); err != nil || *tz == "" || *tz == "Local" {
 		return fmt.Errorf("-time-zone %q is not a time zone such as Europe/Amsterdam", *tz)
@@ -438,7 +465,24 @@ Flags:
 			return fmt.Errorf("someone with the email address %s exists already; use 'allstill admin passkey-link -email %s' for a new link", *email, *email)
 		}
 	}
-	personID, err := st.CreatePerson(ctx, ws, store.NewPerson{Name: strings.TrimSpace(*name), Email: *email, TimeZone: *tz, WorkspaceAdmin: true})
+	person := store.NewPerson{Name: strings.TrimSpace(*name), Email: *email, TimeZone: *tz}
+	var personID, what string
+	if len(projects) == 0 {
+		person.WorkspaceAdmin = true
+		personID, err = st.CreatePerson(ctx, ws, person)
+		what = "a workspace administrator"
+	} else {
+		ids := make([]string, len(projects))
+		for i, project := range projects {
+			if ids[i], err = st.ProjectByName(ctx, ws, project); errors.Is(err, store.ErrNotFound) {
+				return fmt.Errorf("no project is named %q", project)
+			} else if err != nil {
+				return err
+			}
+		}
+		personID, err = st.CreateMember(ctx, ws, person, ids, role)
+		what = fmt.Sprintf("%s of %s", role, strings.Join(projects, ", "))
+	}
 	if err != nil {
 		return err
 	}
@@ -446,7 +490,89 @@ Flags:
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Added %s (%s), a workspace administrator.\nThey make a passkey with this link, which works once, for 24 hours:\n\n  %s/setup#%s\n", *name, personID, base, token)
+	fmt.Fprintf(stdout, "Added %s (%s), %s.\nThey make a passkey with this link, which works once, for 24 hours:\n\n  %s/setup#%s\n", *name, personID, what, base, token)
+	return nil
+}
+
+func setMember(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("admin set-member", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill admin set-member (-email EMAIL | -person ID) -project PROJECT -role ROLE [flags]
+
+Gives someone a role in a project: viewer, editor or owner, or none to take
+them out of it. It applies from their next click. A workspace administrator
+sees every project whatever their roles say, but as a viewer of one gets no
+alerts for it; -role none gives those back.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	email := fs.String("email", "", "the person's email address")
+	personID := fs.String("person", "", "the person's id, per_…")
+	project := fs.String("project", "", "the project")
+	roleName := fs.String("role", "", "viewer, editor, owner, or none")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if (*email == "") == (*personID == "") || *project == "" || *roleName == "" || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -email or -person, and -project and -role")
+	}
+	var role store.Role
+	if *roleName != "none" {
+		var err error
+		if role, err = store.ParseRole(*roleName); err != nil {
+			return fmt.Errorf("-role: %w", err)
+		}
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	var p store.Person
+	if *email != "" {
+		p, err = st.PersonByEmail(ctx, ws, *email)
+	} else {
+		p, err = st.Person(ctx, ws, *personID)
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return errors.New("there is no such person, or they are disabled")
+	}
+	if err != nil {
+		return err
+	}
+	projectID, err := st.ProjectByName(ctx, ws, *project)
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("no project is named %q", *project)
+	} else if err != nil {
+		return err
+	}
+	if *roleName == "none" {
+		if err := st.RemoveMember(ctx, ws, projectID, p.ID); errors.Is(err, store.ErrNotFound) {
+			if p.Admin {
+				return fmt.Errorf("%s has no role in %s, and sees it as a workspace administrator", p.Name, *project)
+			}
+			return fmt.Errorf("%s is not in %s", p.Name, *project)
+		} else if err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s is no longer in %s.\n", p.Name, *project)
+	} else {
+		if err := st.SetMember(ctx, ws, projectID, p.ID, role); err != nil {
+			return err
+		}
+		fmt.Fprintf(stdout, "%s is now %s of %s.\n", p.Name, role, *project)
+	}
+	switch {
+	case p.Admin && role == store.Viewer:
+		fmt.Fprintf(stdout, "They are a workspace administrator, so they still see every project, but they no longer get alerts for %s. -role none gives those back.\n", *project)
+	case p.Admin:
+		fmt.Fprintln(stdout, "They are a workspace administrator, so they still see every project.")
+	}
 	return nil
 }
 

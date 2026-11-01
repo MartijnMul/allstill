@@ -216,3 +216,9 @@ ORDER BY p.name;
 -- name: DownsOfCheck :many
 SELECT ic.joined_at, i.resolved_at FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
 WHERE ic.check_id = ? AND ic.joined_at >= ? ORDER BY ic.joined_at DESC LIMIT ?;
+
+-- name: OpenIncidentsOfProject :many
+SELECT DISTINCT incident_id FROM incident_checks WHERE workspace_id = ? AND project_id = ? AND open = 1;
+
+-- name: LookAgainAtUntoldPerson :exec
+UPDATE recipients SET due_at = ? WHERE incident_id = ? AND person_id = ? AND told = 'nothing';

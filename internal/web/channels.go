@@ -20,6 +20,7 @@ type channelsData struct {
 	Email     string // the person's own address, to fill in
 	CanAdd    bool   // fewer than store.MaxEmails addresses
 	Another   bool   // the person has an address already
+	NoAlerts  bool   // they follow no project, so nothing would reach a device
 }
 
 type channelRow struct {
@@ -46,6 +47,10 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		return
 	}
 	d := channelsData{Shadow: shadow, Confirmed: r.URL.Query().Has("confirmed"), MailOn: s.MailOn, Email: v.Email}
+	d.NoAlerts = !v.Access.Admin
+	for _, p := range v.Access.Projects {
+		d.NoAlerts = d.NoAlerts && p.Role == store.Viewer
+	}
 	now := s.Now()
 	emails := 0
 	for _, c := range cs {

@@ -562,6 +562,21 @@ func (q *Queries) LookAgainAtUntold(ctx context.Context, arg LookAgainAtUntoldPa
 	return err
 }
 
+const lookAgainAtUntoldPerson = `-- name: LookAgainAtUntoldPerson :exec
+UPDATE recipients SET due_at = ? WHERE incident_id = ? AND person_id = ? AND told = 'nothing'
+`
+
+type LookAgainAtUntoldPersonParams struct {
+	DueAt      sql.NullInt64
+	IncidentID string
+	PersonID   string
+}
+
+func (q *Queries) LookAgainAtUntoldPerson(ctx context.Context, arg LookAgainAtUntoldPersonParams) error {
+	_, err := q.db.ExecContext(ctx, lookAgainAtUntoldPerson, arg.DueAt, arg.IncidentID, arg.PersonID)
+	return err
+}
+
 const markOpenIncidentsShadow = `-- name: MarkOpenIncidentsShadow :execrows
 UPDATE incidents SET shadow = 1
 WHERE state <> 'resolved' AND shadow = 0
@@ -620,6 +635,38 @@ func (q *Queries) OpenIncidentOfCheck(ctx context.Context, checkID string) (Inci
 		&i.Shadow,
 	)
 	return i, err
+}
+
+const openIncidentsOfProject = `-- name: OpenIncidentsOfProject :many
+SELECT DISTINCT incident_id FROM incident_checks WHERE workspace_id = ? AND project_id = ? AND open = 1
+`
+
+type OpenIncidentsOfProjectParams struct {
+	WorkspaceID string
+	ProjectID   string
+}
+
+func (q *Queries) OpenIncidentsOfProject(ctx context.Context, arg OpenIncidentsOfProjectParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, openIncidentsOfProject, arg.WorkspaceID, arg.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var incident_id string
+		if err := rows.Scan(&incident_id); err != nil {
+			return nil, err
+		}
+		items = append(items, incident_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const peopleWhoGetAlerts = `-- name: PeopleWhoGetAlerts :many

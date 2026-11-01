@@ -212,6 +212,120 @@ func TestAddAndSetTCPCheck(t *testing.T) {
 	}
 }
 
+func TestPeopleWithARole(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _ := st.Workspace(ctx)
+	customer, _, _ := st.CreateProject(ctx, ws, "Customer")
+	other, _, _ := st.CreateProject(ctx, ws, "Other")
+	st.Close()
+	admin := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := run(ctx, append([]string{"admin"}, append(args, "-db", dbPath)...), &out, &bytes.Buffer{})
+		return out.String(), err
+	}
+	access := func(email string) store.Access {
+		t.Helper()
+		st, err := store.Open(ctx, dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		p, err := st.PersonByEmail(ctx, ws, email)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, err := st.AccessOfPerson(ctx, ws, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a
+	}
+	base := []string{"create-user", "-base-url", "https://allstill.example.com"}
+	for what, c := range map[string]struct {
+		args []string
+		want string
+	}{
+		"a project without a role": {[]string{"-name", "X", "-project", "Customer"}, "together"},
+		"a role without a project": {[]string{"-name", "X", "-role", "viewer"}, "together"},
+		"a role that is not one":   {[]string{"-name", "X", "-project", "Customer", "-role", "admin"}, "not a role"},
+		"no such project":          {[]string{"-name", "X", "-project", "None", "-role", "viewer"}, `no project is named "None"`},
+	} {
+		if _, err := admin(append(base, c.args...)...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	// None of those left anyone behind: the same name and address are free.
+	if _, err := admin(append(base, "-name", "X", "-email", "x@example.com", "-project", "None", "-role", "viewer")...); err == nil {
+		t.Fatal("a project that does not exist was taken")
+	}
+	if _, err := admin(append(base, "-name", "X", "-email", "x@example.com", "-project", "Customer", "-role", "viewer")...); err != nil {
+		t.Errorf("x@example.com was left behind: %v", err)
+	}
+	if _, err := admin(append(base, "-name", "Bob", "-email", "bob@example.com", "-project", "Customer", "-role", "viewer")...); err != nil {
+		t.Fatal(err)
+	}
+	bob := access("bob@example.com")
+	if bob.Admin || len(bob.Projects) != 1 {
+		t.Fatalf("%+v", bob)
+	}
+	if role, ok := bob.Role(customer); !ok || role != store.Viewer {
+		t.Errorf("in Customer: %v %v", role, ok)
+	}
+	if _, ok := bob.Role(other); ok {
+		t.Error("he sees the other project")
+	}
+
+	out, err := admin("set-member", "-email", "bob@example.com", "-project", "Customer", "-role", "editor")
+	if err != nil || !strings.Contains(out, "Bob is now editor of Customer") {
+		t.Fatalf("%q, %v", out, err)
+	}
+	if role, _ := access("bob@example.com").Role(customer); role != store.Editor {
+		t.Errorf("role %v", role)
+	}
+	if _, err := admin("set-member", "-email", "bob@example.com", "-project", "Other", "-role", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := admin("set-member", "-email", "bob@example.com", "-project", "Customer", "-role", "none"); err != nil || !strings.Contains(out, "no longer in Customer") {
+		t.Fatalf("%q, %v", out, err)
+	}
+	if _, ok := access("bob@example.com").Role(customer); ok {
+		t.Error("he still sees Customer")
+	}
+	for what, c := range map[string]struct {
+		args []string
+		want string
+	}{
+		"not in it":  {[]string{"-email", "bob@example.com", "-project", "Customer", "-role", "none"}, "is not in Customer"},
+		"nobody":     {[]string{"-email", "nobody@example.com", "-project", "Customer", "-role", "viewer"}, "no such person"},
+		"no project": {[]string{"-email", "bob@example.com", "-project", "None", "-role", "viewer"}, "no project"},
+		"not a role": {[]string{"-email", "bob@example.com", "-project", "Customer", "-role", "boss"}, "not a role"},
+		"both ways":  {[]string{"-email", "bob@example.com", "-person", "per_x", "-project", "Customer", "-role", "viewer"}, "-email or -person"},
+	} {
+		if _, err := admin(append([]string{"set-member"}, c.args...)...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	// Without -project someone is an administrator, as before, and a role says
+	// nothing about what they see.
+	if _, err := admin(append(base, "-name", "Ada", "-email", "ada@example.com")...); err != nil {
+		t.Fatal(err)
+	}
+	if a := access("ada@example.com"); !a.Admin || len(a.Projects) != 2 {
+		t.Errorf("%+v", a)
+	}
+	if out, err := admin("set-member", "-email", "ada@example.com", "-project", "Other", "-role", "viewer"); err != nil || !strings.Contains(out, "still see every project") || !strings.Contains(out, "no longer get alerts for Other") {
+		t.Errorf("%q, %v", out, err)
+	}
+	if _, err := admin("set-member", "-email", "ada@example.com", "-project", "Customer", "-role", "none"); err == nil || !strings.Contains(err.Error(), "as a workspace administrator") {
+		t.Errorf("an administrator with no role: %v", err)
+	}
+}
+
 func TestProbeCommands(t *testing.T) {
 	ctx := t.Context()
 	dbPath := filepath.Join(t.TempDir(), "allstill.db")

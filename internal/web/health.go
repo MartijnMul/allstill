@@ -49,7 +49,8 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 // projects they see where nobody would be told (R11).
 func (s *Server) alertCards(ctx context.Context, v viewer, now time.Time) ([]card, error) {
 	var cards []card
-	if s.Behind != nil {
+	// How the sending is doing is for those who can do something about it.
+	if s.Behind != nil && v.Access.Admin {
 		behind, err := s.Behind(ctx)
 		if err != nil {
 			return nil, err

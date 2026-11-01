@@ -70,9 +70,11 @@ func Dialer(timeout time.Duration, allow []netip.Prefix) *net.Dialer {
 
 // Redirects is a check's redirect policy for http.Client: none are followed
 // unless follow, then at most MaxRedirects, to http or https only. The
-// transport checks each hop's address as it dials it.
+// transport checks each hop's address as it dials it. A hop is not told where
+// it came from: the URL before it may hold a token (ADR 0004).
 func Redirects(follow bool) func(*http.Request, []*http.Request) error {
 	return func(req *http.Request, via []*http.Request) error {
+		req.Header.Del("Referer")
 		switch {
 		case !follow:
 			return http.ErrUseLastResponse

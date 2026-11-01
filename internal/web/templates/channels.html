@@ -6,6 +6,16 @@
     <p class="lede">Where your alerts go: this browser, your phone, and your email.</p>
   </header>
 
+  {{if .NoAlerts}}
+  <div class="callout info">
+    <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
+    <div>
+      <p class="callout-title">You get no alerts for now</p>
+      <p>You can see your projects, but you are not told when something goes wrong. To be told, ask your administrator for more than view access. You can still get your devices ready.</p>
+    </div>
+  </div>
+  {{end}}
+
   {{if .Shadow}}
   <div class="callout info">
     <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>

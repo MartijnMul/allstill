@@ -168,3 +168,125 @@ func TestRenameProject(t *testing.T) {
 		t.Fatalf("no such project: %v", err)
 	}
 }
+
+// A viewer gets no alerts, and that follows their role both ways.
+func TestAlertsFollowTheRole(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	person, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Bob"}, []string{f.project}, Viewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alerts := func() int64 {
+		t.Helper()
+		var n int64
+		if err := f.s.r.QueryRow("SELECT alerts FROM memberships WHERE project_id = ? AND person_id = ?", f.project, person).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	a, err := f.s.AccessOfPerson(ctx, f.ws, person)
+	if err != nil || a.Admin || len(a.Projects) != 1 {
+		t.Fatalf("%+v, %v", a, err)
+	}
+	if alerts() != 0 {
+		t.Error("a viewer gets alerts")
+	}
+	for _, c := range []struct {
+		role Role
+		want int64
+	}{{Editor, 1}, {Owner, 1}, {Viewer, 0}, {Viewer, 0}, {Owner, 1}} {
+		if err := f.s.SetMember(ctx, f.ws, f.project, person, c.role); err != nil {
+			t.Fatal(err)
+		}
+		if got := alerts(); got != c.want {
+			t.Errorf("as %s: alerts %d", c.role, got)
+		}
+	}
+	if err := f.s.RemoveMember(ctx, f.ws, f.project, person); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.RemoveMember(ctx, f.ws, f.project, person); !errors.Is(err, ErrNotFound) {
+		t.Errorf("again: %v", err)
+	}
+	if a, _ := f.s.AccessOfPerson(ctx, f.ws, person); len(a.Projects) != 0 {
+		t.Errorf("%+v", a)
+	}
+}
+
+// Someone who gets alerts for a project during an incident should have known
+// since it opened, as when a check moves there.
+func TestGettingAlertsDuringAnIncident(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	id := f.httpCheck(t)
+	f.attempt(t, id, check.Failed, t0)
+	f.attempt(t, id, check.Failed, t0.Add(time.Minute))
+	if c := f.get(t, id); c.State != "down" {
+		t.Fatalf("%s", c.State)
+	}
+	due := func(person string) bool {
+		t.Helper()
+		rows, err := f.s.DueRecipients(ctx, time.Now().Add(time.Hour), 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, r := range rows {
+			if r.PersonID == person {
+				return true
+			}
+		}
+		return false
+	}
+	added, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Added"}, []string{f.project}, Editor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !due(added) {
+		t.Error("someone added as an editor was not told")
+	}
+	viewer, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Viewer"}, []string{f.project}, Viewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if due(viewer) {
+		t.Error("a viewer is to be told")
+	}
+	if err := f.s.SetMember(ctx, f.ws, f.project, viewer, Editor); err != nil {
+		t.Fatal(err)
+	}
+	if !due(viewer) {
+		t.Error("a viewer who became an editor was not told")
+	}
+	// Looked at and left, as when they stopped following it, then back.
+	if err := f.s.Record(ctx, nil, []Told{{IncidentID: dueIncident(t, f, viewer), PersonID: viewer}}); err != nil {
+		t.Fatal(err)
+	}
+	if due(viewer) {
+		t.Fatal("still due after the sender looked")
+	}
+	if err := f.s.SetMember(ctx, f.ws, f.project, viewer, Viewer); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.SetMember(ctx, f.ws, f.project, viewer, Editor); err != nil {
+		t.Fatal(err)
+	}
+	if !due(viewer) {
+		t.Error("back as an editor, they were not told")
+	}
+}
+
+func dueIncident(t *testing.T, f fixture, person string) string {
+	t.Helper()
+	rows, err := f.s.DueRecipients(t.Context(), time.Now().Add(time.Hour), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range rows {
+		if r.PersonID == person {
+			return r.IncidentID
+		}
+	}
+	t.Fatal("not due")
+	return ""
+}

@@ -116,7 +116,7 @@ Ping URLs follow Healthchecks, so a job moves by changing the start of its URL: 
 A new installation starts in shadow mode: it records what it would have sent under **Messages** in the dashboard, and sends only test messages. Someone who wants alerts adds a device or an email address under **Devices**. An administrator then switches them on with `allstill admin set-alerts on`, and `shadow` goes back. No command shows which mode it is in, so ask the person before telling them they will be alerted.
 
 - `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` or `none`. `allstill admin set-alerting -critical` breaks through quiet hours. Each call sets both, so give `-urgency` and `-critical` together when you want both.
-- `allstill admin create-user` adds a person, with a link to make a passkey. Everyone added this way is an administrator who sees every project, so do not use it for an outside party. `allstill admin passkey-link` gives a new link to someone who lost their devices.
+- `allstill admin create-user` adds a person, with a link to make a passkey. Without `-project` they are an administrator who sees every project, so for an outside party add `-project Customer -role viewer` (or `editor`, `owner`): they then see only those projects. `allstill admin set-member` changes a role later, and `-role none` takes someone out of a project. `allstill admin passkey-link` gives a new link to someone who lost their devices.
 
 ## Not here yet
 
@@ -124,7 +124,6 @@ A new installation starts in shadow mode: it records what it would have sent und
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Choosing or changing a pinged check's schedule or grace period, and changing a project's defaults for them.
 - Removing or pausing a check.
-- Access limited to some projects: everyone is an administrator.
 - Alerts other than by push and email, and changing quiet hours or the digest's time.
 - Calendars, maintenance windows and status pages.
 - The macOS menu bar app.

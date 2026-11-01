@@ -16,14 +16,22 @@ SELECT * FROM people WHERE workspace_id = ? AND id = ? AND disabled_at IS NULL;
 -- name: CreateProject :exec
 INSERT INTO projects (id, workspace_id, name, ping_key_hash, created_at) VALUES (?, ?, ?, ?, ?);
 
+-- name: RemoveMember :execrows
+DELETE FROM memberships WHERE workspace_id = ? AND project_id = ? AND person_id = ?;
+
 -- A new member gets alerts unless they are a viewer; so does a viewer who
--- becomes an editor or owner. Other changes of role keep the setting.
+-- becomes an editor or owner, and someone who becomes a viewer stops getting
+-- them. Other changes of role keep the setting.
 -- name: AddMember :exec
 INSERT INTO memberships (workspace_id, project_id, person_id, role, created_at, alerts)
 VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (project_id, person_id) DO UPDATE SET
     role = excluded.role,
-    alerts = CASE WHEN memberships.role = 'viewer' AND excluded.role <> 'viewer' THEN 1 ELSE memberships.alerts END;
+    alerts = CASE
+        WHEN memberships.role = 'viewer' AND excluded.role <> 'viewer' THEN 1
+        WHEN memberships.role <> 'viewer' AND excluded.role = 'viewer' THEN 0
+        ELSE memberships.alerts
+    END;
 
 -- The projects a person may see, with their role. A workspace administrator
 -- sees every project, as owner.

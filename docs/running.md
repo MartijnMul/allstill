@@ -61,7 +61,7 @@ Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device*
 - The overview says when alerts may not reach you: a message to you failed in the last day, a device needs you, Allstill is behind with sending, or nobody gets alerts for a project you see.
 - Serving a copy of the database? Start it with `-shadow` (`ALLSTILL_SHADOW=1`): it then sends no alerts, whatever the copy says.
 
-- Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project.
+- Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project unless they are a viewer of it; viewers do not.
 - New people have quiet hours from 22:00 to 07:00 in their time zone. An alert waits for the morning unless its check is critical.
 - After Allstill was down, or its host slept or its clock jumped forward, checks whose deadline passed meanwhile become unknown, not down, and nobody is alerted for them.
 - `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` (the daily digest at 08:00) or `none`. `-critical` breaks through quiet hours.
@@ -92,6 +92,19 @@ What to know:
 - **Microsoft:** Outlook.com accounts only allow OAuth, which Allstill does not do. Microsoft 365 is retiring password sign-in for SMTP and turns it off by default; use a sending service, or your tenant's relay.
 - **Sending services** (Postmark, Resend, Mailgun, Amazon SES and the like) work well, and most are free or nearly so for a few messages a day. Postmark's token is both user name and password; Resend's user name is `resend`; SES needs its SMTP credentials, not IAM keys, and in its sandbox delivers only to verified addresses.
 - **Blocked ports:** some clouds block port 25, and some (Hetzner Cloud) 465 too. Use 587, or a sending service's 2525 or 2587.
+
+## People
+
+`allstill admin create-user` without `-project` adds a workspace administrator, who sees every project and gets alerts for all of them. To add someone who should only see their own, such as a customer:
+
+```sh
+allstill admin create-user -name "Bob" -email bob@example.com -project Customer -role viewer
+```
+
+- **Viewer:** sees the project's checks with their descriptions and tags, last runs and why they failed, what jobs printed, and the scheme, host and port of what a check looks at, so do not add an outsider to a project whose internal host names they should not know. Not a full URL or a ping URL. Gets no alerts.
+- **Editor and owner:** also see full URLs and ping URLs, and get alerts for the project, also for what is already open when they join.
+
+`allstill admin set-member -email bob@example.com -project Customer -role editor` changes a role from their next click, and `-role none` takes someone out of a project. `-project` can be repeated when adding someone; `set-member` adds them to one more. Someone in no project can still sign in, and sees no checks.
 
 ## Sites, ports and certificates
 
