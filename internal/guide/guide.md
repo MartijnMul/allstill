@@ -11,13 +11,13 @@ There are two ways to watch something:
 ## For AI assistants
 
 - A ping URL is a secret: anyone who has it can report for that check. Keep it in the place the project keeps its secrets. Never put it in the repository, in a log or in a message. If one leaks, someone who may edit the project replaces it on the check's form in the dashboard; the old one stops working at once, so jobs need the new one.
-- You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands do not fail elsewhere, they quietly do the wrong thing.
+- You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands do not fail elsewhere, they quietly do the wrong thing. Someone without access to the server who may edit a project can still change its checks: see "In the dashboard" below.
 - Do not switch alerts on or off, and do not promise anything from "Not here yet" below.
 - Run `allstill <command> -h` for every flag of a command. If this guide and that help disagree, the help is right.
 
 ## Report a job
 
-Get the ping URL from the person who runs Allstill. It takes one of two forms:
+Get the ping URL from the person who runs Allstill, or from the check's page in the dashboard if you are told it is there. It takes one of two forms:
 
 ```text
 https://allstill.example.com/ping/CHECK-UUID
@@ -34,7 +34,7 @@ ALLSTILL_URL="$BACKUP_PING_URL" allstill run -- ./backup.sh
 
 This reports the start, the end, the exit status and the tail of the output, which goes to the server, so the job should not print secrets. The exit status of `allstill run` is the job's own. Each job needs its own URL. Prefer the variable to `allstill run -url`, which shows the secret to anyone who can list processes.
 
-To have the first ping create a check that does not exist yet, end a URL of the second form with `?create=1`. If the slug comes out wrong, `allstill admin delete-check` removes the check.
+To have the first ping create a check that does not exist yet, end a URL of the second form with `?create=1`. If the slug comes out wrong, `allstill admin delete-check` removes the check, or **Delete check** on its form in the dashboard.
 
 **Check the job against the schedule first.** A check made with `create=1` gets one schedule until someone changes it, on its form in the dashboard or on the server with `allstill admin set-check -project Backups -check nightly -every 1h -grace 30m`, or `-cron "0 3 * * *" -time-zone Europe/Amsterdam` in place of `-every`. A new schedule counts from now. As made, it goes down in two cases:
 
@@ -66,6 +66,15 @@ echo "kilobytes=$(du -sk /backup | cut -f1)" >> "$ALLSTILL_VALUES_FILE"
 ```
 
 That variable only exists under `allstill run`. With curl, add them to the last ping: `?v=kilobytes:18400`.
+
+## In the dashboard
+
+Someone who may edit a project needs no access to the server to add and change its checks.
+
+- **Add check** asks what to watch. A new job's page shows a line with its ping URL, to run at the end of the job. That URL is a secret, so handle it as above, and see "Report a job" for how to report a failure too.
+- A check's page has **Edit**, and **Pause** or **Resume**. Its form also deletes it, moves it to another project the person may edit, and for a job replaces its ping URL, each after saying what will happen.
+- A probe's own check, which tells when the probe goes quiet, can be renamed but not deleted or paused, and only an administrator can move it.
+- Someone who may only view a project can only look. For more, they ask an administrator, who sets it on the server.
 
 ## On the server
 
