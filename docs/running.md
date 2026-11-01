@@ -36,7 +36,7 @@ A package upgrade restarts a running service; removing the package stops it and 
 
 ## Move from Healthchecks
 
-1. Copy a project's checks: `HEALTHCHECKS_API_KEY=… allstill import healthchecks -project "Backups"` (add `-url` for a self-hosted Healthchecks). Each check keeps its UUID, so a job that pings by UUID only changes the host. A job that pings by slug needs the project's new ping key as well, printed once when the import creates the project: Healthchecks does not hand out its own.
+1. Copy a project's checks: `HEALTHCHECKS_API_KEY=… allstill import healthchecks -project "Backups"` (add `-url` for a self-hosted Healthchecks). Each check keeps its UUID, so a job that pings by UUID only changes the start of its URL: `https://hc-ping.com/…` becomes `https://allstill.example.com/ping/…`. A job that pings by slug needs the project's new ping key as well, printed once when the import creates the project: Healthchecks does not hand out its own.
 2. Let jobs report to both for a while: `allstill run --url https://hc-ping.com/… --url https://allstill.example.com/ping/… -- ./backup.sh`, or two space-separated URLs in `ALLSTILL_URL`.
 3. Compare: `HEALTHCHECKS_API_KEY=… allstill compare healthchecks -since 2026-10-01` lists, per check, where Allstill saw it go down or come back up differently from Healthchecks: missed, extra, or more than five minutes apart (`-within`). Give `-since` the day the jobs began to ping both. Healthchecks keeps about three months of this history, and counts a check it paused as down until its next ping. It matches checks by UUID, so a project split over several in Allstill compares as one, and lists the checks Allstill never heard from, as they cannot alert, with when Healthchecks last did. One difference is by design: a start that arrives after its end joins that run in Allstill, where Healthchecks waits for another end and reports the check down. With the same `rid` that holds within the grace period; without a `rid`, when the latest run is an end that came without a start, at most ten seconds ago, and that no other start has joined. A job that restarts within seconds of its end should send a `rid`: without one, after an end without a start, its runs are not tracked until it leaves a longer gap, and only the schedule notices one that hangs.
 4. Switch a check off at Healthchecks once the comparison has stayed clean for a few weeks.
@@ -136,6 +136,17 @@ ALLSTILL_PROBE_KEY=... allstill probe -server https://allstill.example.com -allo
 - **When its own network goes down.** A check that times out asks whether the server can be reached; when it cannot, the attempt judges nothing. Runs wait in memory, at most 5000, until the server can be reached again, and are lost when the probe restarts. Each has an id, so a retry cannot count twice, and says how long ago it ended, so its time is right whatever the clock says. An outage that was already over when Allstill hears of it sends no alert: the next digest lists it. One still going alerts as any other.
 - **Its clock.** Certificates are checked against the probe's clock. More than a minute off the server's, its log says so and its checks become unknown until the clock is set right.
 - **Versions and keys.** A probe of another protocol version than the server's, or with a key that no longer works, stops with what to do. `allstill admin rekey-probe office` gives a new key and the old one stops working. A probe's key and the settings it fetches, tokens in URLs included, travel to it: use https, and `-key-file` where an environment variable will not do.
+
+## AI assistants
+
+`allstill guide` prints a manual written for people new to Allstill and for AI assistants, for the version it comes with. So that an assistant knows about Allstill in every project, install the skill that points to it, once, on a machine that has the program. For Claude Code:
+
+```sh
+mkdir -p ~/.claude/skills/allstill
+allstill guide -skill > ~/.claude/skills/allstill/SKILL.md
+```
+
+Other assistants that support Agent Skills read the same file from a folder of their own. The skill holds no address or key: a job's ping URL stays in that project's secrets, and the manual tells the assistant so. It stays current by itself as long as the program does, so upgrading Allstill on that machine is all it needs.
 
 ## Keep it
 

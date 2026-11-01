@@ -2,7 +2,7 @@
 
 // Package importer brings checks over from Healthchecks.io or a self-hosted
 // Healthchecks through its API. Each check keeps its UUID, so a job that pings
-// it moves over by changing only the host in its ping URL; until then it can
+// it moves over by changing only the start of its ping URL; until then it can
 // ping both, and their status changes can be compared.
 package importer
 

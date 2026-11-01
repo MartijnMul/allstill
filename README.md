@@ -15,7 +15,7 @@ Is it all still running? Allstill watches your cron jobs, backups, scripts and w
 
 ## How it runs
 
-One Go binary and one SQLite file. No database server, no cloud account. The same binary is the server, the job wrapper (`allstill run -- ./backup.sh`) and the probe. It comes as a Linux package, a container image or a plain archive; [docs/running.md](docs/running.md) explains how to set it up.
+One Go binary and one SQLite file. No database server, no cloud account. The same binary is the server, the job wrapper (`allstill run -- ./backup.sh`) and the probe. It comes as a Linux package, a container image or a plain archive; [docs/running.md](docs/running.md) explains how to set it up. `allstill guide` explains how to use it, to people and to [AI assistants](docs/running.md#ai-assistants).
 
 ## Licence
 

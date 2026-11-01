@@ -531,8 +531,8 @@ func importCommand(ctx context.Context, args []string, stdout, stderr io.Writer)
 		fmt.Fprint(stderr, `Usage: allstill import healthchecks -project NAME [flags]
 
 Copies the checks of one Healthchecks project into an Allstill project,
-creating it when needed. Each check keeps its UUID, so jobs keep their ping
-URLs apart from the host. Checks already in Allstill are skipped, so it can
+creating it when needed. Each check keeps its UUID, so a job only changes the
+start of its ping URL. Checks already in Allstill are skipped, so it can
 run again; with -tag, only the checks with one of the tags are copied, to split
 one Healthchecks project over several. The project's read-write API key is
 read from HEALTHCHECKS_API_KEY; the import only reads from Healthchecks.

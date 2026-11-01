@@ -25,6 +25,7 @@ import (
 	"github.com/MartijnMul/allstill/internal/active"
 	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/check"
+	"github.com/MartijnMul/allstill/internal/guide"
 	"github.com/MartijnMul/allstill/internal/ingest"
 	"github.com/MartijnMul/allstill/internal/outbound"
 	"github.com/MartijnMul/allstill/internal/runner"
@@ -54,6 +55,7 @@ Usage:
   allstill admin test-email -to ADDRESS  send a test email with the SMTP settings
   allstill admin set-alerts on|shadow    switch alerts on, or back to shadow mode
   allstill backup [flags] FILE           copy the database while it runs
+  allstill guide [-skill]                how to use Allstill, for people and AI assistants
   allstill version                       print the version
 
 Run 'allstill <command> -h' for a command's flags.
@@ -98,6 +100,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return adminCommand(ctx, args[1:], stdout, stderr)
 	case "backup":
 		return backup(ctx, args[1:], stdout, stderr)
+	case "guide":
+		return guideCommand(args[1:], stdout, stderr)
 	case "version":
 		fmt.Fprintln(stdout, "allstill", version())
 		return nil
@@ -347,6 +351,24 @@ Flags:
 	if code != 0 {
 		return exitStatus(code)
 	}
+	return nil
+}
+
+func guideCommand(args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("guide", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	skill := fs.Bool("skill", false, "print the skill that points AI assistants to this guide, to save as SKILL.md")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return errors.New("guide takes no arguments")
+	}
+	if *skill {
+		fmt.Fprint(stdout, guide.Skill)
+		return nil
+	}
+	fmt.Fprintf(stdout, "This guide describes allstill %s.\n\n%s", version(), guide.Manual())
 	return nil
 }
 
