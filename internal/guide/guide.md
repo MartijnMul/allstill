@@ -92,10 +92,26 @@ The examples below leave that part out. Anywhere else, those that use the databa
 
 `allstill login https://allstill.example.com` signs a machine in, with no shell on the server and no browser needed there. It prints an address and a short code, and someone approves that code with their passkey in a browser on any device, also a phone. Only approve a code you asked for yourself.
 
-- `allstill whoami` says who is signed in, where, and what they may do. For now that is all a sign-in is for: the commands that use it are still to come.
+- `allstill whoami` says who is signed in, where, and what they may do.
 - `allstill logout` ends the sign-in on this machine. **Devices** in the dashboard lists every sign-in and browser session, and ends any of them at once.
 - `allstill login -read-only` can only read, as a viewer in every project that person can see, also for an administrator. `allstill login -name` says what to call it; the default is the machine's name.
 - With several installations, the last one signed in to is used, and `allstill whoami -server URL` or `ALLSTILL_SERVER` picks another.
+
+Then read what you may see, from anywhere. An address shows as you may see it, and nothing that reads a check shows a ping URL. `-json` gives the API's own answer, for scripts.
+
+```sh
+allstill status                                   # what is up, and what needs attention
+allstill projects
+allstill checks -project Backups
+allstill checks show -check nightly
+allstill checks runs -check nightly -limit 20
+allstill log -check nightly                       # what happened, when and by whom
+allstill log -name old-backup                     # also a check that was deleted
+allstill log -what signins -late
+allstill probes
+```
+
+A name two checks share lists both, with their ids: use `-project`, or an id. `allstill status` exits 0 however bad things are: it reports state, not health. Changing things from here comes next.
 
 ## Watch a site or a port
 
@@ -144,7 +160,8 @@ A new installation starts in shadow mode: it records what it would have sent und
 
 ## Not here yet
 
-- Seeing a check's status from outside the dashboard. The JSON API described in the project's `api/` directory is not served yet, apart from what probes use, signing in, and saying who is signed in.
+- Adding or changing checks, projects and people without a shell on the server. For now reading works from anywhere, and changes are made in the dashboard or by commands on the server.
+- Reading incidents, or acknowledging and snoozing them.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Changing a project's default schedule and grace period.
 - Managing projects, people, probes and who is alerted in the dashboard: for now they are commands, run on the server.

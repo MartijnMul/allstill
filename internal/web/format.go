@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/check"
+	"github.com/MartijnMul/allstill/internal/logtext"
 )
 
 var funcs = template.FuncMap{
@@ -48,9 +49,7 @@ func lookOf(st check.State) look {
 }
 
 // needsAttention says whether a state asks someone to act.
-func needsAttention(st check.State) bool {
-	return st == check.Down || st == check.Late || st == check.Warning
-}
+func needsAttention(st check.State) bool { return st.NeedsAttention() }
 
 func outcomeLook(outcome string) look {
 	switch outcome {
@@ -66,46 +65,12 @@ func outcomeLook(outcome string) look {
 	return look{"Running", "quiet"}
 }
 
-// span says how long a duration is, to the precision a person needs.
-func span(d time.Duration) string {
-	d = d.Round(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%d s", int(d.Seconds()))
-	case d < 10*time.Minute:
-		m, s := int(d.Minutes()), int(d.Seconds())%60
-		if s == 0 {
-			return fmt.Sprintf("%d min", m)
-		}
-		return fmt.Sprintf("%d min %d s", m, s)
-	case d < time.Hour:
-		return fmt.Sprintf("%d min", int(d.Minutes()))
-	case d < 48*time.Hour:
-		h, m := int(d.Hours()), int(d.Minutes())%60
-		if m == 0 {
-			return fmt.Sprintf("%d h", h)
-		}
-		return fmt.Sprintf("%d h %d min", h, m)
-	}
-	days, h := int(d.Hours())/24, int(d.Hours())%24
-	if h == 0 {
-		return fmt.Sprintf("%d days", days)
-	}
-	return fmt.Sprintf("%d days %d h", days, h)
-}
-
-// every says how often an interval is.
-func every(d time.Duration) string {
-	switch {
-	case d == time.Hour:
-		return "every hour"
-	case d == 24*time.Hour:
-		return "every day"
-	case d == 7*24*time.Hour:
-		return "every week"
-	}
-	return "every " + span(d)
-}
+// How long, how often and when: as the log says them.
+var (
+	span  = logtext.Span
+	every = logtext.Every
+	clock = logtext.Clock
+)
 
 // ago says how long ago t was.
 func ago(now, t time.Time) string {
@@ -127,26 +92,6 @@ func ago(now, t time.Time) string {
 		d = d.Truncate(time.Minute)
 	}
 	return span(d) + " ago"
-}
-
-// clock says when t is, as briefly as is clear from now: a time today, a
-// weekday this week, a date otherwise.
-func clock(now, t time.Time, loc *time.Location) string {
-	if t.IsZero() {
-		return "—"
-	}
-	t, now = t.In(loc), now.In(loc)
-	y1, m1, d1 := t.Date()
-	y2, m2, d2 := now.Date()
-	switch {
-	case y1 == y2 && m1 == m2 && d1 == d2:
-		return t.Format("15:04")
-	case t.After(now.AddDate(0, 0, -6)) && t.Before(now.AddDate(0, 0, 6)):
-		return t.Format("Mon 15:04")
-	case y1 == y2:
-		return t.Format("Mon 2 Jan 15:04")
-	}
-	return t.Format("2 Jan 2006 15:04")
 }
 
 // until says when a future moment comes, or that it has passed.

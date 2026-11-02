@@ -165,7 +165,7 @@ func TestSigningInFromACommandLine(t *testing.T) {
 	}
 	var me api.Me
 	json.Unmarshal(w.Body.Bytes(), &me)
-	if me.Kind != api.Person || me.Person.Name != "Ada" || !*me.Person.WorkspaceAdmin || me.ServerVersion != "1.2.3" || me.SignIn.Name != "laptop-1" || !slices.Contains(me.Scopes, api.ScopeManage) || len(me.Projects) != 2 {
+	if me.Kind != api.Person || me.Person.Name != "Ada" || !*me.Person.WorkspaceAdmin || me.ServerVersion != "1.2.3" || me.SignIn.Name != "laptop-1" || !slices.Contains(me.Scopes, api.Manage) || len(me.Projects) != 2 {
 		t.Fatalf("/me: %+v", me)
 	}
 
@@ -657,7 +657,7 @@ func TestAReadOnlySignIn(t *testing.T) {
 	if err := json.Unmarshal(bearer(f, "GET", "/me", token).Body.Bytes(), &me); err != nil {
 		t.Fatal(err)
 	}
-	if slices.Contains(me.Scopes, api.ScopeManage) || !slices.Contains(me.Scopes, api.ScopeRead) || *me.Person.WorkspaceAdmin || me.Projects[0].Role != api.Viewer {
+	if slices.Contains(me.Scopes, api.Manage) || !slices.Contains(me.Scopes, api.Read) || *me.Person.WorkspaceAdmin || me.Projects[0].Role != api.Viewer {
 		t.Fatalf("read-only reads as %+v", me)
 	}
 	// It can end itself, and that is all it can end.

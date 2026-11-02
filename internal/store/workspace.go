@@ -288,6 +288,14 @@ func (a Access) Role(projectID string) (Role, bool) {
 	return "", false
 }
 
+// SeesSecrets says the caller may see a check's secrets whole: its ping URL, the URL
+// it fetches, and where that must redirect. Everyone else gets the scheme and host of
+// an address, and no ping URL (intent/http-checks/spec.md, R12).
+func (a Access) SeesSecrets(projectID string) bool {
+	role, _ := a.Role(projectID)
+	return role == Editor || role == Owner
+}
+
 // AccessOfPerson returns what a person may see. A disabled or unknown person
 // gets ErrNotFound. A workspace administrator sees every project, as owner.
 func (s *Store) AccessOfPerson(ctx context.Context, workspaceID, personID string) (Access, error) {

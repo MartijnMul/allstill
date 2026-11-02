@@ -3,6 +3,8 @@
 package client
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -14,6 +16,8 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	"github.com/MartijnMul/allstill/internal/apiclient"
 )
 
 func TestParseServer(t *testing.T) {
@@ -343,3 +347,194 @@ func TestAServersNumbersAreKeptInBounds(t *testing.T) {
 		t.Error("an address that is none was taken")
 	}
 }
+
+func TestVersionsThatAreTheSame(t *testing.T) {
+	for _, tt := range []struct {
+		a, b string
+		same bool
+	}{{"0.1.0-rc28", "v0.1.0-rc28", true}, {"v1.2.3", "v1.2.3", true}, {"1.2.3", "1.2.4", false}, {"(devel)", "1.2.3", false}} {
+		if SameVersion(tt.a, tt.b) != tt.same {
+			t.Errorf("%q and %q", tt.a, tt.b)
+		}
+	}
+}
+
+// Every field printed from a server, with what could steer a terminal in it (R19).
+func TestPrintingLeavesNothingThatSteersATerminal(t *testing.T) {
+	const bad = "x\x1b[2J\u202e\ny"
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	s := bad
+	state := apiclient.CheckState(bad)
+	role := apiclient.Role(bad)
+	outcome := apiclient.RunOutcome(bad)
+	urgency := apiclient.AlertingUrgency(bad)
+	tags := []string{bad}
+	values := map[string]float64{bad: 1}
+	var schedule apiclient.Schedule
+	schedule.FromCronSchedule(apiclient.CronSchedule{Kind: "cron", Expression: bad, TimeZone: bad})
+	check := apiclient.Check{
+		Id: bad, Name: bad, ProjectId: bad, Kind: apiclient.CheckKind(bad), State: state, StateSince: now, StateReason: &s,
+		Description: &s, Slug: &s, Tags: &tags, ProbeName: &s, Schedule: &schedule,
+		Http: &apiclient.HttpCheck{Url: bad}, Alerting: &apiclient.Alerting{Urgency: &urgency},
+	}
+	var out bytes.Buffer
+	counts := apiclient.StateCounts{bad: 1}
+	PrintStatus(&out, "https://a.example.com", &apiclient.Status{
+		Counts: counts, Projects: []apiclient.Project{{Id: bad, Name: bad, Role: role, Counts: counts}},
+		Attention: []apiclient.AttentionCheck{{Id: bad, Name: bad, ProjectName: bad, State: state, StateReason: &s}},
+	}, now, time.UTC)
+	PrintProjects(&out, []apiclient.Project{{Id: bad, Name: bad, Role: role, Counts: counts}})
+	PrintChecks(&out, []CheckOf{{Check: check, Project: bad}}, now, time.UTC)
+	PrintCheck(&out, &check, bad, now, time.UTC)
+	PrintRuns(&out, []apiclient.Run{{Id: bad, CheckId: bad, Outcome: outcome, Reason: &s, Values: &values}}, now, time.UTC)
+	details := map[string]any{"reason": bad, "to": bad, "via": bad}
+	PrintLog(&out, &apiclient.LogPage{NextCursor: &s, Items: []apiclient.LogEntry{
+		{Kind: "check.state", ProjectName: &s, AboutName: &s, By: apiclient.LogParty{Kind: "person", Name: &s}, Details: &details},
+		{Kind: bad, AboutName: &s, By: apiclient.LogParty{Kind: bad, Name: &s}},
+	}}, now, time.UTC)
+	PrintProbes(&out, []apiclient.Probe{{Id: bad, Name: bad, ProjectId: bad}}, []apiclient.Project{{Id: bad, Name: bad}})
+	got := out.String()
+	if !strings.Contains(got, "x[2Jy") {
+		t.Fatalf("nothing was printed: %q", got)
+	}
+	if strings.ContainsAny(got, "\x1b\u202e") || strings.Contains(got, "x[2J\n") {
+		t.Errorf("printed: %q", got)
+	}
+
+	// -json keeps what came, escaped.
+	var j bytes.Buffer
+	if err := PrintJSON(&j, []byte(`{"name":"x\u001b[2J","n":18400000000.5}`)); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsRune(j.String(), '\x1b') || !strings.Contains(j.String(), `\u001b`) || !strings.Contains(j.String(), "18400000000.5") {
+		t.Errorf("-json: %q", j.String())
+	}
+	// Also what the encoder leaves as it is, and a script still reads the same text.
+	const others = "a\u009b31m\u007f\u202e\u200b\U000E0001\U00100000b"
+	raw, _ := json.Marshal(map[string]string{"name": others})
+	j.Reset()
+	if err := PrintJSON(&j, raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range j.String() {
+		if c != '\n' && steers(c) {
+			t.Errorf("-json holds %U: %q", c, j.String())
+		}
+	}
+	var back map[string]string
+	if err := json.Unmarshal(j.Bytes(), &back); err != nil || back["name"] != others {
+		t.Errorf("-json reads back as %q, %v", back["name"], err)
+	}
+	if err := PrintJSON(&j, []byte(`not json`)); err == nil {
+		t.Error("what is not JSON was printed")
+	}
+}
+
+// An older command line says only what kind of entry it does not know.
+func TestALogKindNotKnownYet(t *testing.T) {
+	name := "backup"
+	line := LogLine(apiclient.LogEntry{Kind: "something.new", AboutName: &name, By: apiclient.LogParty{Kind: "allstill"}}, time.Now(), time.UTC)
+	if line != "Allstill: something new, backup." {
+		t.Errorf("%q", line)
+	}
+}
+
+// Two with one name list both, and an unknown name says so.
+func TestFindingByName(t *testing.T) {
+	mux := http.NewServeMux()
+	write := func(w http.ResponseWriter, body string) {
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, body)
+	}
+	check := func(id, project string) string {
+		return `{"id":"` + id + `","project_id":"` + project + `","name":"nightly","kind":"ping","state":"up","state_since":"2026-11-02T12:00:00Z","created_at":"2026-11-02T12:00:00Z"}`
+	}
+	mux.HandleFunc("GET /api/v1/projects", func(w http.ResponseWriter, r *http.Request) {
+		write(w, `{"items":[{"id":"prj_a","name":"Shop","role":"owner","counts":{}},{"id":"prj_b","name":"Backups","role":"owner","counts":{}}]}`)
+	})
+	mux.HandleFunc("GET /api/v1/projects/prj_a/checks", func(w http.ResponseWriter, r *http.Request) {
+		write(w, `{"items":[`+check("chk_1", "prj_a")+`]}`)
+	})
+	mux.HandleFunc("GET /api/v1/projects/prj_b/checks", func(w http.ResponseWriter, r *http.Request) {
+		write(w, `{"items":[`+check("chk_2", "prj_b")+`]}`)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	c, _ := New(srv.URL, "alt_x", "1.2.3", nil)
+	ctx := t.Context()
+
+	_, _, err := c.FindCheck(ctx, "", "nightly")
+	if err == nil || !strings.Contains(err.Error(), "chk_1  in Shop") || !strings.Contains(err.Error(), "chk_2  in Backups") {
+		t.Fatalf("two with one name: %v", err)
+	}
+	got, _, err := c.FindCheck(ctx, "Backups", "nightly")
+	if err != nil || got.Id != "chk_2" {
+		t.Fatalf("in one project: %+v, %v", got, err)
+	}
+	if _, _, err := c.FindCheck(ctx, "", "other"); !errors.Is(err, ErrNoSuchThing) {
+		t.Errorf("an unknown name: %v", err)
+	}
+	if _, err := c.FindProject(ctx, "Nowhere"); !errors.Is(err, ErrNoSuchThing) {
+		t.Errorf("an unknown project: %v", err)
+	}
+	if p, err := c.FindProject(ctx, "prj_b"); err != nil || p.Name != "Backups" {
+		t.Errorf("a project by id: %+v, %v", p, err)
+	}
+}
+
+// A command reading many lists can run into the limit by itself, and reading can wait.
+func TestAListWaitsForTheLimit(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		answers := []string{"429", "429", `{"items":[{"id":"prj_a","name":"Shop","role":"owner","counts":{}}]}`}
+		var at []time.Time
+		var transport roundTrip = func(r *http.Request) (*http.Response, error) {
+			at = append(at, time.Now())
+			next := answers[0]
+			answers = answers[1:]
+			resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(next)), Request: r}
+			if next == "429" {
+				resp.StatusCode = http.StatusTooManyRequests
+				resp.Header.Set("Retry-After", "7")
+				resp.Body = io.NopCloser(strings.NewReader(`{"status":429,"title":"Too many requests."}`))
+			}
+			return resp, nil
+		}
+		c, _ := New("https://a.example.com", "alt_x", "1.2.3", transport)
+		start := time.Now()
+		got, err := c.Projects(t.Context())
+		if err != nil || len(got.Items) != 1 {
+			t.Fatalf("%+v, %v", got, err)
+		}
+		if took := time.Since(start); took != 14*time.Second {
+			t.Errorf("took %v", took)
+		}
+	})
+	// It gives up after a while, and says so.
+	synctest.Test(t, func(t *testing.T) {
+		var transport roundTrip = func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"7"}, "Content-Type": {"application/problem+json"}}, Body: io.NopCloser(strings.NewReader(`{"status":429,"title":"Too many requests."}`)), Request: r}, nil
+		}
+		c, _ := New("https://a.example.com", "alt_x", "1.2.3", transport)
+		if _, err := c.Projects(t.Context()); err == nil || !strings.Contains(err.Error(), "Too many") {
+			t.Errorf("got %v", err)
+		}
+	})
+	// A single read does not wait, so a loop in a script hears of it.
+	synctest.Test(t, func(t *testing.T) {
+		var transport roundTrip = func(r *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"7"}, "Content-Type": {"application/problem+json"}}, Body: io.NopCloser(strings.NewReader(`{"status":429,"title":"Too many requests.","detail":"Try again in 7 seconds."}`)), Request: r}, nil
+		}
+		c, _ := New("https://a.example.com", "alt_x", "1.2.3", transport)
+		start := time.Now()
+		if _, _, err := c.Status(t.Context()); err == nil || !strings.Contains(err.Error(), "Try again") {
+			t.Errorf("got %v", err)
+		}
+		if time.Since(start) != 0 {
+			t.Error("it waited")
+		}
+	})
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

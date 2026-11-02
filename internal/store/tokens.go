@@ -332,9 +332,12 @@ func (s *Store) RemovePasskey(ctx context.Context, by Actor, workspaceID, person
 }
 
 // ReadOnly is what a credential with the scope read may do with an access: read as
-// a viewer in every project it can see, also for an administrator (R5).
+// a viewer in every project it can see, also for an administrator (R5). It holds no
+// person, so what concerns only them stays out of what it reads, such as their other
+// sign-ins, which are listed on Devices alone.
 func (a Access) ReadOnly() Access {
 	a.Admin = false
+	a.PersonID = ""
 	a.Projects = slices.Clone(a.Projects)
 	for i := range a.Projects {
 		a.Projects[i].Role = Viewer

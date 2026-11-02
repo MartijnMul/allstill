@@ -7,18 +7,22 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/client"
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/web"
 )
 
 // fakeServer answers as an installation does, with a sign-in approved at once. What
@@ -437,5 +441,186 @@ func TestALoginKeepsWhatChangedWhileItWaited(t *testing.T) {
 	saved, err := client.LoadCredentials(path)
 	if err != nil || len(saved.Servers) != 2 {
 		t.Errorf("after two logins at once: %+v, %v", saved, err)
+	}
+}
+
+// A real server, and a sign-in as it would be kept, for reading from a command line.
+func aRealServer(t *testing.T) (st *store.Store, ws, url string, signIn func(person, scope string)) {
+	t.Helper()
+	path := aHome(t)
+	ctx := t.Context()
+	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "allstill.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ws, _ = st.Workspace(ctx)
+	base, _ := web.ParseBaseURL("https://allstill.example.com")
+	dashboard, err := web.New(st, ws, base, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashboard.Version = version()
+	mux := http.NewServeMux()
+	dashboard.Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	n := 0
+	return st, ws, srv.URL, func(person, scope string) {
+		t.Helper()
+		now := time.Now()
+		n++
+		keys, _ := st.Passkeys(ctx, ws, person)
+		if len(keys) == 0 {
+			link, err := st.CreatePasskeyLink(ctx, store.Command("test"), ws, person, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.AddPasskey(ctx, link, store.NewPasskey{CredentialID: []byte(person), RPID: "allstill.example.com", Name: "k", Record: []byte(`{"id":"x"}`)}, "", now); err != nil {
+				t.Fatal(err)
+			}
+			keys, _ = st.Passkeys(ctx, ws, person)
+		}
+		token, err := st.CreatePersonToken(ctx, store.NewPersonToken{WorkspaceID: ws, PersonID: person, PasskeyID: keys[0].ID, Record: keys[0].Record, Name: "laptop-1", Scope: scope}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := client.Credentials{Current: srv.URL, Servers: map[string]client.Credential{srv.URL: {Token: token}}}
+		if err := c.Save(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestReadingFromTheCommandLine(t *testing.T) {
+	st, ws, url, signIn := aRealServer(t)
+	ctx := t.Context()
+	test := store.Command("test")
+	ada, _ := st.CreatePerson(ctx, test, ws, store.NewPerson{Name: "Ada", WorkspaceAdmin: true})
+	carol, _ := st.CreatePerson(ctx, test, ws, store.NewPerson{Name: "Carol"})
+	backups, _, _ := st.CreateProject(ctx, test, ws, "Backups")
+	shop, _, _ := st.CreateProject(ctx, test, ws, "Shop")
+	st.SetMember(ctx, test, ws, shop, carol, store.Viewer)
+	admin, _ := st.AccessOfPerson(ctx, ws, ada)
+	job, err := st.CreateCheck(ctx, admin, backups, store.NewCheck{Name: "nightly", Cron: "0 3 * * *", TimeZone: "UTC", Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, _ := st.CreateCheck(ctx, admin, shop, store.NewCheck{Name: "nightly", Interval: time.Hour, Grace: time.Hour})
+	site, err := st.CreateCheck(ctx, admin, shop, store.NewCheck{Name: "site\x1b[31m", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "https://shop.example.com/health?token=s3cret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	st.Ping(ctx, store.PingIn{CheckUUID: job.PingUUID, Kind: check.Fail, ExitStatus: 3, Method: "POST", At: now})
+
+	signIn(ada, store.ScopeManage)
+	for _, tt := range []struct {
+		args []string
+		has  []string
+		not  []string
+	}{
+		{[]string{"status"}, []string{"1 of 3 checks needs attention", "down", "nightly", "Backups", "1 down", "Shop"}, nil},
+		{[]string{"projects"}, []string{"Backups", "owner", "1 down", shop}, nil},
+		{[]string{"checks"}, []string{"nightly", "Backups", "0 3 * * * (UTC)", "every hour", "https://shop.example.com/health?token=s3cret"}, nil},
+		{[]string{"checks", "-project", "Backups"}, []string{"nightly"}, []string{"shop.example.com"}},
+		{[]string{"checks", "show", "-check", "nightly", "-project", "Backups"}, []string{job.ID, "Backups", "down since", "Grace", "1 h"}, nil},
+		{[]string{"checks", "show", "-check", job.ID}, []string{"nightly", "Backups"}, nil},
+		{[]string{"checks", "-project", "Backups", "show", "-check", "nightly"}, []string{job.ID}, nil},
+		{[]string{"checks", "-project", "Backups", "runs", "-check", "nightly"}, []string{"exit 3"}, nil},
+		{[]string{"checks", "runs", "-check", job.ID}, []string{"fail", "exit 3"}, nil},
+		{[]string{"log", "-check", job.ID}, []string{"Ada", "added", "nightly", "Backups"}, nil},
+		{[]string{"log", "-name", "nightly", "-project", "Shop"}, []string{"Ada added nightly."}, nil},
+		{[]string{"log", "-what", "done", "-limit", "1"}, []string{"There is more", "-before"}, nil},
+		{[]string{"probes"}, []string{"No probes"}, nil},
+		{[]string{"status", "-json"}, []string{`"overall": "incident"`, `"attention"`}, nil},
+		{[]string{"checks", "-json"}, []string{`"items"`, `"state": "down"`}, []string{"ping_url", job.PingUUID}},
+		{[]string{"checks", "runs", "-json", "-check", job.ID}, []string{`"outcome": "fail"`}, nil},
+	} {
+		out, err := command(t, tt.args...)
+		if err != nil {
+			t.Errorf("%v: %v", tt.args, err)
+			continue
+		}
+		for _, want := range tt.has {
+			if !strings.Contains(out, want) {
+				t.Errorf("%v lacks %q:\n%s", tt.args, want, out)
+			}
+		}
+		for _, not := range tt.not {
+			if strings.Contains(out, not) {
+				t.Errorf("%v holds %q:\n%s", tt.args, not, out)
+			}
+		}
+		if strings.ContainsRune(out, '\x1b') && !slices.Contains(tt.args, "-json") {
+			t.Errorf("%v printed a control character:\n%q", tt.args, out)
+		}
+	}
+
+	// A name two share lists both, and changes nothing.
+	_, err = command(t, "checks", "show", "-check", "nightly")
+	if err == nil || !strings.Contains(err.Error(), job.ID) || !strings.Contains(err.Error(), both.ID) {
+		t.Errorf("two with one name: %v", err)
+	}
+	if _, err := command(t, "checks", "show", "-check", "nothing"); err == nil || !strings.Contains(err.Error(), "no check named") {
+		t.Errorf("an unknown name: %v", err)
+	}
+	if _, err := command(t, "log", "-check", "nothing"); err == nil || !strings.Contains(err.Error(), "-name") {
+		t.Errorf("the log of an unknown check: %v", err)
+	}
+	if _, err := command(t, "log", "-what", "everything"); err == nil {
+		t.Error("-what took anything")
+	}
+	if _, err := command(t, "checks", "nonsense"); err == nil {
+		t.Error("an unknown checks command")
+	}
+	if out, err := command(t, "status", "-server", url); err != nil || !strings.Contains(out, url) {
+		t.Errorf("-server: %v, %s", err, out)
+	}
+
+	// A viewer reads an address as far as they may, and no one's name.
+	signIn(carol, store.ScopeManage)
+	out, err := command(t, "checks")
+	if err != nil || !strings.Contains(out, "https://shop.example.com") || strings.Contains(out, "s3cret") || strings.Contains(out, "Backups") {
+		t.Errorf("a viewer's checks: %v:\n%s", err, out)
+	}
+	if out, err = command(t, "log", "-check", site.ID); err != nil || strings.Contains(out, "Ada") || !strings.Contains(out, "The team") {
+		t.Errorf("a viewer's log: %v:\n%s", err, out)
+	}
+	if out, err := command(t, "checks", "show", "-check", job.ID); err == nil {
+		t.Errorf("a check in another project: %s", out)
+	}
+	// A read-only administrator reads as a viewer does, everywhere.
+	signIn(ada, store.ScopeRead)
+	out, err = command(t, "checks", "-json")
+	if err != nil || strings.Contains(out, "s3cret") || !strings.Contains(out, "https://shop.example.com") {
+		t.Errorf("read-only: %v:\n%s", err, out)
+	}
+	if out, _ = command(t, "whoami"); strings.Contains(out, "administrator") {
+		t.Errorf("read-only whoami: %s", out)
+	}
+	// A sign-in that has ended says so.
+	if _, _, err := st.EndEverySignIn(ctx, test, ws, ada, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := command(t, "status"); err == nil || !strings.Contains(err.Error(), "has ended") {
+		t.Errorf("ended: %v", err)
+	}
+}
+
+// Stopping a waiting login says so in plain words.
+func TestStoppingALogin(t *testing.T) {
+	aHome(t)
+	srv := newFakeServer(t)
+	srv.hold = make(chan struct{})
+	defer close(srv.hold)
+	ctx, cancel := context.WithCancel(t.Context())
+	var out, errOut bytes.Buffer
+	done := make(chan error)
+	go func() { done <- run(ctx, []string{"login", srv.URL}, &out, &errOut) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	if err := <-done; err == nil || !strings.Contains(err.Error(), "not signed in") {
+		t.Errorf("got %v", err)
 	}
 }

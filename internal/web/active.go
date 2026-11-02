@@ -22,13 +22,6 @@ import (
 // scheme and host for everyone else (R12). A TCP check's host and port are no
 // more than that.
 
-// whole says whether the viewer may see a check's secrets whole: its ping
-// URL, the URL it fetches, and where that must redirect.
-func whole(v viewer, projectID string) bool {
-	role, _ := v.Access.Role(projectID)
-	return role == store.Editor || role == store.Owner
-}
-
 type activeData struct {
 	History  logHistory
 	C        store.CheckView
@@ -116,7 +109,7 @@ func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c 
 		}
 	} else {
 		h := settingsOf(c)
-		a.Secret, a.HasStatus, a.HasCertificate = !whole(v, c.ProjectID), true, true
+		a.Secret, a.HasStatus, a.HasCertificate = !v.Access.SeesSecrets(c.ProjectID), true, true
 		url, location := h.URL, h.Location
 		if a.Secret {
 			url, location = active.Shown(url), active.Shown(location)

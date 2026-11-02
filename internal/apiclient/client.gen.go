@@ -10,14 +10,140 @@ package apiclient
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
+
+// Defines values for AlertingUrgency.
+const (
+	Digest AlertingUrgency = "digest"
+	None   AlertingUrgency = "none"
+	Now    AlertingUrgency = "now"
+)
+
+// Valid indicates whether the value is a known member of the AlertingUrgency enum.
+func (e AlertingUrgency) Valid() bool {
+	switch e {
+	case Digest:
+		return true
+	case None:
+		return true
+	case Now:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckKind.
+const (
+	Http CheckKind = "http"
+	Ping CheckKind = "ping"
+	Tcp  CheckKind = "tcp"
+)
+
+// Valid indicates whether the value is a known member of the CheckKind enum.
+func (e CheckKind) Valid() bool {
+	switch e {
+	case Http:
+		return true
+	case Ping:
+		return true
+	case Tcp:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckState.
+const (
+	CheckStateDown    CheckState = "down"
+	CheckStateLate    CheckState = "late"
+	CheckStateNew     CheckState = "new"
+	CheckStatePaused  CheckState = "paused"
+	CheckStateUnknown CheckState = "unknown"
+	CheckStateUp      CheckState = "up"
+	CheckStateWarning CheckState = "warning"
+)
+
+// Valid indicates whether the value is a known member of the CheckState enum.
+func (e CheckState) Valid() bool {
+	switch e {
+	case CheckStateDown:
+		return true
+	case CheckStateLate:
+		return true
+	case CheckStateNew:
+		return true
+	case CheckStatePaused:
+		return true
+	case CheckStateUnknown:
+		return true
+	case CheckStateUp:
+		return true
+	case CheckStateWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CronScheduleKind.
+const (
+	Cron CronScheduleKind = "cron"
+)
+
+// Valid indicates whether the value is a known member of the CronScheduleKind enum.
+func (e CronScheduleKind) Valid() bool {
+	switch e {
+	case Cron:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for HttpCheckMethod.
+const (
+	GET  HttpCheckMethod = "GET"
+	HEAD HttpCheckMethod = "HEAD"
+)
+
+// Valid indicates whether the value is a known member of the HttpCheckMethod enum.
+func (e HttpCheckMethod) Valid() bool {
+	switch e {
+	case GET:
+		return true
+	case HEAD:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for IntervalScheduleKind.
+const (
+	Interval IntervalScheduleKind = "interval"
+)
+
+// Valid indicates whether the value is a known member of the IntervalScheduleKind enum.
+func (e IntervalScheduleKind) Valid() bool {
+	switch e {
+	case Interval:
+		return true
+	default:
+		return false
+	}
+}
 
 // Defines values for MeKind.
 const (
@@ -58,10 +184,36 @@ func (e Role) Valid() bool {
 	}
 }
 
+// Defines values for RunOutcome.
+const (
+	RunOutcomeFail    RunOutcome = "fail"
+	RunOutcomeRunning RunOutcome = "running"
+	RunOutcomeSuccess RunOutcome = "success"
+	RunOutcomeTimeout RunOutcome = "timeout"
+	RunOutcomeWarning RunOutcome = "warning"
+)
+
+// Valid indicates whether the value is a known member of the RunOutcome enum.
+func (e RunOutcome) Valid() bool {
+	switch e {
+	case RunOutcomeFail:
+		return true
+	case RunOutcomeRunning:
+		return true
+	case RunOutcomeSuccess:
+		return true
+	case RunOutcomeTimeout:
+		return true
+	case RunOutcomeWarning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Scope.
 const (
 	Manage Scope = "manage"
-	Ping   Scope = "ping"
 	Read   Scope = "read"
 )
 
@@ -70,8 +222,6 @@ func (e Scope) Valid() bool {
 	switch e {
 	case Manage:
 		return true
-	case Ping:
-		return true
 	case Read:
 		return true
 	default:
@@ -79,8 +229,361 @@ func (e Scope) Valid() bool {
 	}
 }
 
+// Defines values for StatusOverall.
+const (
+	StatusOverallAllStill  StatusOverall = "all_still"
+	StatusOverallAttention StatusOverall = "attention"
+	StatusOverallIncident  StatusOverall = "incident"
+	StatusOverallUnknown   StatusOverall = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the StatusOverall enum.
+func (e StatusOverall) Valid() bool {
+	switch e {
+	case StatusOverallAllStill:
+		return true
+	case StatusOverallAttention:
+		return true
+	case StatusOverallIncident:
+		return true
+	case StatusOverallUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListLogParamsWhat.
+const (
+	Done     ListLogParamsWhat = "done"
+	Happened ListLogParamsWhat = "happened"
+	Reached  ListLogParamsWhat = "reached"
+	Signins  ListLogParamsWhat = "signins"
+)
+
+// Valid indicates whether the value is a known member of the ListLogParamsWhat enum.
+func (e ListLogParamsWhat) Valid() bool {
+	switch e {
+	case Done:
+		return true
+	case Happened:
+		return true
+	case Reached:
+		return true
+	case Signins:
+		return true
+	default:
+		return false
+	}
+}
+
+// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+type Alerting struct {
+	// Critical Breaks through people's quiet hours.
+	Critical *bool `json:"critical,omitempty"`
+
+	// Urgency `now` alerts people's phones, `digest` waits for the morning digest, `none`
+	// shows the problem but never alerts, for a machine that is often off.
+	Urgency *AlertingUrgency `json:"urgency,omitempty"`
+}
+
+// AlertingUrgency `now` alerts people's phones, `digest` waits for the morning digest, `none`
+// shows the problem but never alerts, for a machine that is often off.
+type AlertingUrgency string
+
+// AttentionCheck defines model for AttentionCheck.
+type AttentionCheck struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId   Id     `json:"project_id"`
+	ProjectName string `json:"project_name"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State       CheckState `json:"state"`
+	StateReason *string    `json:"state_reason,omitempty"`
+	StateSince  time.Time  `json:"state_since"`
+}
+
+// Check defines model for Check.
+type Check struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind       CheckKind  `json:"kind"`
+	LastPingAt *time.Time `json:"last_ping_at,omitempty"`
+
+	// LastRun One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+	LastRun        *Run       `json:"last_run,omitempty"`
+	Name           string     `json:"name"`
+	NextExpectedAt *time.Time `json:"next_expected_at,omitempty"`
+
+	// ProbeName The name of the probe that runs it, if any.
+	ProbeName *string `json:"probe_name,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State CheckState `json:"state"`
+
+	// StateReason Why it is in this state, in a short sentence, such as `The job failed with exit status 3.`
+	StateReason *string   `json:"state_reason,omitempty"`
+	StateSince  time.Time `json:"state_since"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+}
+
+// CheckKind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+// Clients show kinds they do not know by name: more will come.
+type CheckKind string
+
+// CheckPage defines model for CheckPage.
+type CheckPage struct {
+	Items      []Check `json:"items"`
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// CheckSettings What a check is and how it is judged; the part a client can change.
+type CheckSettings struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind *CheckKind `json:"kind,omitempty"`
+	Name *string    `json:"name,omitempty"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+	Tags     *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+}
+
+// CheckState - `new`: never pinged.
+// - `up`: ran on time and every rule passed.
+// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+// - `late`: overdue, within its grace period.
+// - `down`: failed, or overdue past its grace period.
+// - `paused`: paused by someone, until resumed or pinged.
+// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+type CheckState string
+
+// CronSchedule defines model for CronSchedule.
+type CronSchedule struct {
+	// Expression A cron expression with five fields, as in crontab.
+	//
+	// Examples: 0 3 * * *
+	Expression string           `json:"expression"`
+	Kind       CronScheduleKind `json:"kind"`
+
+	// TimeZone An IANA time zone name, such as `Europe/Amsterdam`.
+	TimeZone string `json:"time_zone"`
+}
+
+// CronScheduleKind defines model for CronSchedule.Kind.
+type CronScheduleKind string
+
+// HttpCheck An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+// with the status code (`status`), how long it took in milliseconds (`ms`) and
+// the days the certificate has left (`cert_days`) in its `values`, and why it
+// failed or warned in its `reason`. The check is down after `fail_after` failed
+// attempts in a row, and up on the first that passes.
+type HttpCheck struct {
+	// Ca Certificates in PEM to trust beyond the system's, such as an internal CA's. Returned only with a whole `url`.
+	Ca *string `json:"ca,omitempty"`
+
+	// ExpectedStatus Status codes that count as up. Default any 2xx, or any 3xx with `location`.
+	ExpectedStatus *[]int `json:"expected_status,omitempty"`
+
+	// FailAfter How many failed attempts in a row make the check down.
+	FailAfter *int `json:"fail_after,omitempty"`
+
+	// FailDays An attempt fails when fewer days than this are left, or less than a tenth of the certificate's lifetime when that is shorter. 0 turns it off.
+	FailDays *int `json:"fail_days,omitempty"`
+
+	// FollowRedirects Follow up to 5 redirects and judge the last answer. Each hop must be an address the server may reach. Not with `location`.
+	FollowRedirects *bool `json:"follow_redirects,omitempty"`
+
+	// JsonField A field in a JSON body that must equal a value, such as a health endpoint's status.
+	JsonField *struct {
+		// Equals The value, as a string; a number, `true`, `false` or `null` as JSON writes it. At most 1 MB of a body is read.
+		Equals string `json:"equals"`
+
+		// Pointer A JSON Pointer (RFC 6901), such as `/status`.
+		Pointer string `json:"pointer"`
+	} `json:"json_field,omitempty"`
+
+	// Location Where a redirect must lead; the answer must be a redirect there. A secret as `url` is, and returned the same way.
+	Location *string          `json:"location,omitempty"`
+	Method   *HttpCheckMethod `json:"method,omitempty"`
+
+	// NoVerify Do not verify the certificate, such as a self-signed one; its expiry is still read.
+	NoVerify *bool `json:"no_verify,omitempty"`
+
+	// ProbeId Run from this probe instead of the server.
+	ProbeId *Id `json:"probe_id,omitempty"`
+
+	// Timeout Seconds.
+	Timeout *int `json:"timeout,omitempty"`
+
+	// Url What it fetches, http or https, without a user name or password. A token
+	// in its path or query is a secret, as a ping URL is: it is whole only for
+	// an editor or owner of the check's project, a workspace administrator, or
+	// a project API key with the `manage` scope; everyone else, and anything
+	// with the `read` scope, gets its scheme and host alone, such as
+	// `https://shop.example.com`.
+	Url string `json:"url"`
+
+	// WarnDays Every attempt over TLS reads the certificate. The check is in warning when
+	// fewer days than this are left, or less than a third of its lifetime when
+	// that is shorter, and the digest lists it. 0 turns warnings off.
+	WarnDays *int `json:"warn_days,omitempty"`
+}
+
+// HttpCheckMethod defines model for HttpCheck.Method.
+type HttpCheckMethod string
+
 // Id An opaque identifier. Never a secret.
 type Id = string
+
+// IntervalSchedule defines model for IntervalSchedule.
+type IntervalSchedule struct {
+	// Every Seconds between pings.
+	Every int64                `json:"every"`
+	Kind  IntervalScheduleKind `json:"kind"`
+}
+
+// IntervalScheduleKind defines model for IntervalSchedule.Kind.
+type IntervalScheduleKind string
+
+// LogEntry defines model for LogEntry.
+type LogEntry struct {
+	// AboutId An opaque identifier. Never a secret.
+	AboutId   *Id     `json:"about_id,omitempty"`
+	AboutKind *string `json:"about_kind,omitempty"`
+
+	// AboutName Its name at the time, so a check that was deleted can still be read.
+	AboutName *string `json:"about_name,omitempty"`
+
+	// At When it happened.
+	At time.Time `json:"at"`
+
+	// By Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// `former_member`. A person's `id` is what to narrow to them with.
+	By LogParty `json:"by"`
+
+	// Details What this kind of entry says, in its own fields, none of them promised.
+	Details *map[string]interface{} `json:"details,omitempty"`
+
+	// Group When this entry stands for several, what to ask for to read them.
+	Group *string `json:"group,omitempty"`
+	Id    int64   `json:"id"`
+
+	// Kind Such as `check.state` or `token.made`. New kinds will come.
+	Kind string `json:"kind"`
+
+	// Person Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// `former_member`. A person's `id` is what to narrow to them with.
+	Person *LogParty `json:"person,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId *Id `json:"project_id,omitempty"`
+
+	// ProjectName Its name at the time.
+	ProjectName *string `json:"project_name,omitempty"`
+
+	// RecordedAt When Allstill learned of it, which a probe can make later.
+	RecordedAt time.Time `json:"recorded_at"`
+}
+
+// LogPage defines model for LogPage.
+type LogPage struct {
+	Items []LogEntry `json:"items"`
+
+	// KeptFor How long entries are kept, in seconds.
+	KeptFor    int64   `json:"kept_for"`
+	NextCursor *string `json:"next_cursor,omitempty"`
+
+	// StartedAt When Allstill began keeping this; nothing before it is here.
+	StartedAt *time.Time `json:"started_at,omitempty"`
+}
+
+// LogParty Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+// reader may not know by name, `team`, `administrator`, `outside` or, later,
+// `former_member`. A person's `id` is what to narrow to them with.
+type LogParty struct {
+	// Id An opaque identifier. Never a secret.
+	Id   *Id     `json:"id,omitempty"`
+	Kind string  `json:"kind"`
+	Name *string `json:"name,omitempty"`
+}
 
 // Me defines model for Me.
 type Me struct {
@@ -126,6 +629,22 @@ type MeSignIn struct {
 	Name string `json:"name"`
 }
 
+// Probe defines model for Probe.
+type Probe struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// ProjectId A project it serves that the caller may edit.
+	ProjectId Id `json:"project_id"`
+}
+
+// ProbeList defines model for ProbeList.
+type ProbeList struct {
+	// Items One item per project a probe serves.
+	Items []Probe `json:"items"`
+}
+
 // Problem Problem Details (RFC 9457).
 type Problem struct {
 	Detail *string `json:"detail,omitempty"`
@@ -145,14 +664,132 @@ type Problem struct {
 	Type *string `json:"type,omitempty"`
 }
 
+// Project defines model for Project.
+type Project struct {
+	// Counts How many checks are in each state; states with none are left out.
+	Counts StateCounts `json:"counts"`
+
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+	Role Role   `json:"role"`
+
+	// WorstState Left out for a project with no checks.
+	WorstState *CheckState `json:"worst_state,omitempty"`
+}
+
+// ProjectPage defines model for ProjectPage.
+type ProjectPage struct {
+	Items      []Project `json:"items"`
+	NextCursor *string   `json:"next_cursor,omitempty"`
+}
+
 // Role defines model for Role.
 type Role string
+
+// Run One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+type Run struct {
+	// CheckId An opaque identifier. Never a secret.
+	CheckId    Id         `json:"check_id"`
+	EndedAt    *time.Time `json:"ended_at,omitempty"`
+	ExitStatus *int       `json:"exit_status,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id      Id         `json:"id"`
+	Outcome RunOutcome `json:"outcome"`
+
+	// Reason Why an attempt failed or warned, in plain words, such as `HTTP 503` or `certificate expires in 12 days`. It never holds the check's URL.
+	Reason *string `json:"reason,omitempty"`
+
+	// RunTime Seconds, when both start and end are known.
+	RunTime   *int64     `json:"run_time,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+
+	// Values The values a job sent, or what an attempt measured (see `HttpCheck` and `TcpCheck`).
+	Values *map[string]float64 `json:"values,omitempty"`
+}
+
+// RunOutcome defines model for RunOutcome.
+type RunOutcome string
+
+// RunPage defines model for RunPage.
+type RunPage struct {
+	Items      []Run   `json:"items"`
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
+// Schedule When a check expects to be pinged.
+type Schedule struct {
+	union json.RawMessage
+}
 
 // Scope defines model for Scope.
 type Scope string
 
 // Slug defines model for Slug.
 type Slug = string
+
+// StateCounts How many checks are in each state; states with none are left out.
+type StateCounts map[string]int
+
+// Status defines model for Status.
+type Status struct {
+	// Attention Every check that is down, late or has a warning, by project and then by name.
+	Attention []AttentionCheck `json:"attention"`
+
+	// Counts How many checks are in each state; states with none are left out.
+	Counts      StateCounts `json:"counts"`
+	GeneratedAt time.Time   `json:"generated_at"`
+
+	// Overall `incident` when a check is down, `attention` when one is late or has a warning,
+	// `unknown` when nothing is wrong but a check cannot be judged, and `all_still`
+	// otherwise.
+	Overall  StatusOverall `json:"overall"`
+	Projects []Project     `json:"projects"`
+}
+
+// StatusOverall `incident` when a check is down, `attention` when one is late or has a warning,
+// `unknown` when nothing is wrong but a check cannot be judged, and `all_still`
+// otherwise.
+type StatusOverall string
+
+// TcpCheck A connection Allstill makes itself, on its interval: each attempt is a run, with
+// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+// has left (`cert_days`) in its `values`, and why it failed or warned in its
+// `reason`. Nothing is sent over the connection. The check is down after
+// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+// and port are shown to everyone who can see the check.
+type TcpCheck struct {
+	// Ca As in `HttpCheck`.
+	Ca *string `json:"ca,omitempty"`
+
+	// FailAfter How many failed attempts in a row make the check down.
+	FailAfter *int `json:"fail_after,omitempty"`
+
+	// FailDays As in `HttpCheck`.
+	FailDays *int `json:"fail_days,omitempty"`
+
+	// Host A host name or IP address, without a scheme or a port.
+	Host string `json:"host"`
+
+	// NoVerify As in `HttpCheck`.
+	NoVerify *bool `json:"no_verify,omitempty"`
+	Port     int   `json:"port"`
+
+	// ProbeId Run from this probe instead of the server.
+	ProbeId *Id `json:"probe_id,omitempty"`
+
+	// Timeout Seconds.
+	Timeout *int `json:"timeout,omitempty"`
+
+	// Tls Also finish a TLS handshake, and judge its certificate as `HttpCheck` does.
+	// STARTTLS, as on mail ports 25 and 587, is not covered. `warn_days`,
+	// `fail_days`, `ca` and `no_verify` need it.
+	Tls *bool `json:"tls,omitempty"`
+
+	// WarnDays As in `HttpCheck`.
+	WarnDays *int `json:"warn_days,omitempty"`
+}
 
 // ChannelId An opaque identifier. Never a secret.
 type ChannelId = Id
@@ -163,11 +800,14 @@ type CheckId = Id
 // CheckUuid defines model for CheckUuid.
 type CheckUuid = openapi_types.UUID
 
+// Cursor defines model for Cursor.
+type Cursor = string
+
 // ExitStatus defines model for ExitStatus.
 type ExitStatus = int
 
-// IncidentId An opaque identifier. Never a secret.
-type IncidentId = Id
+// Limit defines model for Limit.
+type Limit = int
 
 // PingKey defines model for PingKey.
 type PingKey = string
@@ -178,8 +818,171 @@ type ProbeProtocol = int
 // ProjectId An opaque identifier. Never a secret.
 type ProjectId = Id
 
+// BadRequest Problem Details (RFC 9457).
+type BadRequest = Problem
+
+// NotFound Problem Details (RFC 9457).
+type NotFound = Problem
+
+// TooManyRequests Problem Details (RFC 9457).
+type TooManyRequests = Problem
+
 // Unauthorized Problem Details (RFC 9457).
 type Unauthorized = Problem
+
+// ListRunsParams defines parameters for ListRuns.
+type ListRunsParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most items on one page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListLogParams defines parameters for ListLog.
+type ListLogParams struct {
+	ProjectId *Id `form:"project_id,omitempty" json:"project_id,omitempty"`
+	CheckId   *Id `form:"check_id,omitempty" json:"check_id,omitempty"`
+
+	// Name What an entry is about, by its exact name, ignoring case. This also finds a check that was deleted.
+	Name     *string            `form:"name,omitempty" json:"name,omitempty"`
+	PersonId *Id                `form:"person_id,omitempty" json:"person_id,omitempty"`
+	What     *ListLogParamsWhat `form:"what,omitempty" json:"what,omitempty"`
+
+	// Late Also show a check going late and back, which a job that pings just after its time does on every run.
+	Late *bool `form:"late,omitempty" json:"late,omitempty"`
+
+	// Group What one entry stands for, by its `group`.
+	Group *string `form:"group,omitempty" json:"group,omitempty"`
+
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most items on one page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListLogParamsWhat defines parameters for ListLog.
+type ListLogParamsWhat string
+
+// ListProjectsParams defines parameters for ListProjects.
+type ListProjectsParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most items on one page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListChecksParams defines parameters for ListChecks.
+type ListChecksParams struct {
+	// Cursor The `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most items on one page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// AsIntervalSchedule returns the union data inside the Schedule as a IntervalSchedule
+func (t Schedule) AsIntervalSchedule() (IntervalSchedule, error) {
+	var body IntervalSchedule
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromIntervalSchedule overwrites any union data inside the Schedule as the provided IntervalSchedule
+func (t *Schedule) FromIntervalSchedule(v IntervalSchedule) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"interval"}`))
+	t.union = b
+	return err
+}
+
+// MergeIntervalSchedule performs a merge with any union data inside the Schedule, using the provided IntervalSchedule
+func (t *Schedule) MergeIntervalSchedule(v IntervalSchedule) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"interval"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsCronSchedule returns the union data inside the Schedule as a CronSchedule
+func (t Schedule) AsCronSchedule() (CronSchedule, error) {
+	var body CronSchedule
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromCronSchedule overwrites any union data inside the Schedule as the provided CronSchedule
+func (t *Schedule) FromCronSchedule(v CronSchedule) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"cron"}`))
+	t.union = b
+	return err
+}
+
+// MergeCronSchedule performs a merge with any union data inside the Schedule, using the provided CronSchedule
+func (t *Schedule) MergeCronSchedule(v CronSchedule) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	b, err = runtime.JSONMerge(b, []byte(`{"kind":"cron"}`))
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t Schedule) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"kind"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t Schedule) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "cron":
+		return t.AsCronSchedule()
+	case "interval":
+		return t.AsIntervalSchedule()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t Schedule) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *Schedule) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -255,6 +1058,25 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// GetCheck One check
+	//
+	// Corresponds with GET /checks/{check_id} (the `GetCheck` operationId).
+	GetCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRuns The runs of a check, newest first
+	//
+	// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
+	ListRuns(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListLog What happened, newest first, as far as the caller may know
+	//
+	// The same record, under the same rules for each reader, as the dashboard's **Log**.
+	// It holds facts, not sentences. New `kind`s will come: a client says what kind of
+	// entry it does not know.
+	//
+	// Corresponds with GET /log (the `ListLog` operationId).
+	ListLog(ctx context.Context, params *ListLogParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetMe The signed-in person, or the API key, and the projects it can see
 	//
 	// A sign-in with the scope `read` acts as a viewer in every project its person
@@ -271,6 +1093,86 @@ type ClientInterface interface {
 	//
 	// Corresponds with DELETE /me/token (the `EndThisToken` operationId).
 	EndThisToken(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListProbes The probes that serve projects the caller may edit
+	//
+	// Someone who may only look is not told of a project's probes. An administrator sees all.
+	//
+	// Corresponds with GET /probes (the `ListProbes` operationId).
+	ListProbes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListProjects The projects the caller can see
+	//
+	// Corresponds with GET /projects (the `ListProjects` operationId).
+	ListProjects(ctx context.Context, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetProject One project
+	//
+	// Corresponds with GET /projects/{project_id} (the `GetProject` operationId).
+	GetProject(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListChecks The checks of a project
+	//
+	// Corresponds with GET /projects/{project_id}/checks (the `ListChecks` operationId).
+	ListChecks(ctx context.Context, projectId ProjectId, params *ListChecksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetStatus Everything the caller can see, in one snapshot
+	//
+	// Read this first: how many checks are in each state, per project and in all, and
+	// every check that needs attention, with why. It answers 200 however bad things
+	// are, as it reports state and not its own health.
+	//
+	// Corresponds with GET /status (the `GetStatus` operationId).
+	GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// GetCheck One check
+//
+// Corresponds with GET /checks/{check_id} (the `GetCheck` operationId).
+func (c *Client) GetCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCheckRequest(c.Server, checkId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListRuns The runs of a check, newest first
+//
+// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
+func (c *Client) ListRuns(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRunsRequest(c.Server, checkId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListLog What happened, newest first, as far as the caller may know
+//
+// The same record, under the same rules for each reader, as the dashboard's **Log**.
+// It holds facts, not sentences. New `kind`s will come: a client says what kind of
+// entry it does not know.
+//
+// Corresponds with GET /log (the `ListLog` operationId).
+func (c *Client) ListLog(ctx context.Context, params *ListLogParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLogRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // GetMe The signed-in person, or the API key, and the projects it can see
@@ -308,6 +1210,344 @@ func (c *Client) EndThisToken(ctx context.Context, reqEditors ...RequestEditorFn
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// ListProbes The probes that serve projects the caller may edit
+//
+// Someone who may only look is not told of a project's probes. An administrator sees all.
+//
+// Corresponds with GET /probes (the `ListProbes` operationId).
+func (c *Client) ListProbes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProbesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListProjects The projects the caller can see
+//
+// Corresponds with GET /projects (the `ListProjects` operationId).
+func (c *Client) ListProjects(ctx context.Context, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProjectsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetProject One project
+//
+// Corresponds with GET /projects/{project_id} (the `GetProject` operationId).
+func (c *Client) GetProject(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetProjectRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListChecks The checks of a project
+//
+// Corresponds with GET /projects/{project_id}/checks (the `ListChecks` operationId).
+func (c *Client) ListChecks(ctx context.Context, projectId ProjectId, params *ListChecksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListChecksRequest(c.Server, projectId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetStatus Everything the caller can see, in one snapshot
+//
+// Read this first: how many checks are in each state, per project and in all, and
+// every check that needs attention, with why. It answers 200 however bad things
+// are, as it reports state and not its own health.
+//
+// Corresponds with GET /status (the `GetStatus` operationId).
+func (c *Client) GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetStatusRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewGetCheckRequest constructs an http.Request for the GetCheck method
+func NewGetCheckRequest(server string, checkId CheckId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListRunsRequest constructs an http.Request for the ListRuns method
+func NewListRunsRequest(server string, checkId CheckId, params *ListRunsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s/runs", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListLogRequest constructs an http.Request for the ListLog method
+func NewListLogRequest(server string, params *ListLogParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/log")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ProjectId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "project_id", *params.ProjectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.CheckId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "check_id", *params.CheckId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Name != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "name", *params.Name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.PersonId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "person_id", *params.PersonId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.What != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "what", *params.What, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Late != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "late", *params.Late, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Group != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "group", *params.Group, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewGetMeRequest constructs an http.Request for the GetMe method
@@ -364,6 +1604,233 @@ func NewEndThisTokenRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListProbesRequest constructs an http.Request for the ListProbes method
+func NewListProbesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/probes")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListProjectsRequest constructs an http.Request for the ListProjects method
+func NewListProjectsRequest(server string, params *ListProjectsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetProjectRequest constructs an http.Request for the GetProject method
+func NewGetProjectRequest(server string, projectId ProjectId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListChecksRequest constructs an http.Request for the ListChecks method
+func NewListChecksRequest(server string, projectId ProjectId, params *ListChecksParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/checks", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetStatusRequest constructs an http.Request for the GetStatus method
+func NewGetStatusRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/status")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -408,6 +1875,31 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// GetCheckWithResponse One check
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /checks/{check_id} (the `GetCheck` operationId).
+	GetCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*GetCheckResponse, error)
+
+	// ListRunsWithResponse The runs of a check, newest first
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
+	ListRunsWithResponse(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error)
+
+	// ListLogWithResponse What happened, newest first, as far as the caller may know
+	//
+	// The same record, under the same rules for each reader, as the dashboard's **Log**.
+	// It holds facts, not sentences. New `kind`s will come: a client says what kind of
+	// entry it does not know.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /log (the `ListLog` operationId).
+	ListLogWithResponse(ctx context.Context, params *ListLogParams, reqEditors ...RequestEditorFn) (*ListLogResponse, error)
+
 	// GetMeWithResponse The signed-in person, or the API key, and the projects it can see
 	//
 	// A sign-in with the scope `read` acts as a viewer in every project its person
@@ -428,6 +1920,266 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with DELETE /me/token (the `EndThisToken` operationId).
 	EndThisTokenWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*EndThisTokenResponse, error)
+
+	// ListProbesWithResponse The probes that serve projects the caller may edit
+	//
+	// Someone who may only look is not told of a project's probes. An administrator sees all.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /probes (the `ListProbes` operationId).
+	ListProbesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProbesResponse, error)
+
+	// ListProjectsWithResponse The projects the caller can see
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /projects (the `ListProjects` operationId).
+	ListProjectsWithResponse(ctx context.Context, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error)
+
+	// GetProjectWithResponse One project
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /projects/{project_id} (the `GetProject` operationId).
+	GetProjectWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*GetProjectResponse, error)
+
+	// ListChecksWithResponse The checks of a project
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /projects/{project_id}/checks (the `ListChecks` operationId).
+	ListChecksWithResponse(ctx context.Context, projectId ProjectId, params *ListChecksParams, reqEditors ...RequestEditorFn) (*ListChecksResponse, error)
+
+	// GetStatusWithResponse Everything the caller can see, in one snapshot
+	//
+	// Read this first: how many checks are in each state, per project and in all, and
+	// every check that needs attention, with why. It answers 200 however bad things
+	// are, as it reports state and not its own health.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /status (the `GetStatus` operationId).
+	GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error)
+}
+
+// GetCheckResponse429Headers the declared response headers of an HTTP 429 response for GetCheck
+type GetCheckResponse429Headers struct {
+	RetryAfter *int
+}
+
+type GetCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Check
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GetCheckResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetCheckResponse) GetJSON200() *Check {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r GetCheckResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r GetCheckResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r GetCheckResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r GetCheckResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListRunsResponse429Headers the declared response headers of an HTTP 429 response for ListRuns
+type ListRunsResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListRunsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RunPage
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListRunsResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListRunsResponse) GetJSON200() *RunPage {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r ListRunsResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListRunsResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r ListRunsResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListRunsResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListRunsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListRunsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListRunsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListLogResponse429Headers the declared response headers of an HTTP 429 response for ListLog
+type ListLogResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListLogResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LogPage
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListLogResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListLogResponse) GetJSON200() *LogPage {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r ListLogResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListLogResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListLogResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListLogResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListLogResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListLogResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListLogResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetMeResponse429Headers the declared response headers of an HTTP 429 response for GetMe
+type GetMeResponse429Headers struct {
+	RetryAfter *int
 }
 
 type GetMeResponse struct {
@@ -437,6 +2189,10 @@ type GetMeResponse struct {
 	JSON200 *Me
 	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
 	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GetMeResponse429Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -447,6 +2203,11 @@ func (r GetMeResponse) GetJSON200() *Me {
 // GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
 func (r GetMeResponse) GetApplicationproblemJSON401() *Unauthorized {
 	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r GetMeResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
 }
 
 // GetBody returns the raw response body bytes
@@ -478,16 +2239,30 @@ func (r GetMeResponse) ContentType() string {
 	return ""
 }
 
+// EndThisTokenResponse429Headers the declared response headers of an HTTP 429 response for EndThisToken
+type EndThisTokenResponse429Headers struct {
+	RetryAfter *int
+}
+
 type EndThisTokenResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
 	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *EndThisTokenResponse429Headers
 }
 
 // GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
 func (r EndThisTokenResponse) GetApplicationproblemJSON401() *Unauthorized {
 	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r EndThisTokenResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
 }
 
 // GetBody returns the raw response body bytes
@@ -517,6 +2292,387 @@ func (r EndThisTokenResponse) ContentType() string {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
+}
+
+// ListProbesResponse429Headers the declared response headers of an HTTP 429 response for ListProbes
+type ListProbesResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListProbesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProbeList
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListProbesResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProbesResponse) GetJSON200() *ProbeList {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListProbesResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListProbesResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProbesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProbesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProbesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProbesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListProjectsResponse429Headers the declared response headers of an HTTP 429 response for ListProjects
+type ListProjectsResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListProjectsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProjectPage
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListProjectsResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProjectsResponse) GetJSON200() *ProjectPage {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r ListProjectsResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListProjectsResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListProjectsResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProjectsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProjectsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProjectsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProjectsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetProjectResponse429Headers the declared response headers of an HTTP 429 response for GetProject
+type GetProjectResponse429Headers struct {
+	RetryAfter *int
+}
+
+type GetProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Project
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GetProjectResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetProjectResponse) GetJSON200() *Project {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r GetProjectResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r GetProjectResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r GetProjectResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r GetProjectResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListChecksResponse429Headers the declared response headers of an HTTP 429 response for ListChecks
+type ListChecksResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListChecksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CheckPage
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListChecksResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListChecksResponse) GetJSON200() *CheckPage {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r ListChecksResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListChecksResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r ListChecksResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListChecksResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListChecksResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListChecksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListChecksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListChecksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetStatusResponse429Headers the declared response headers of an HTTP 429 response for GetStatus
+type GetStatusResponse429Headers struct {
+	RetryAfter *int
+}
+
+type GetStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Status
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GetStatusResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetStatusResponse) GetJSON200() *Status {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r GetStatusResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r GetStatusResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r GetStatusResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetStatusResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetCheckWithResponse One check
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /checks/{check_id} (the `GetCheck` operationId).
+func (c *ClientWithResponses) GetCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*GetCheckResponse, error) {
+	rsp, err := c.GetCheck(ctx, checkId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetCheckResponse(rsp)
+}
+
+// ListRunsWithResponse The runs of a check, newest first
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
+func (c *ClientWithResponses) ListRunsWithResponse(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error) {
+	rsp, err := c.ListRuns(ctx, checkId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRunsResponse(rsp)
+}
+
+// ListLogWithResponse What happened, newest first, as far as the caller may know
+//
+// The same record, under the same rules for each reader, as the dashboard's **Log**.
+// It holds facts, not sentences. New `kind`s will come: a client says what kind of
+// entry it does not know.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /log (the `ListLog` operationId).
+func (c *ClientWithResponses) ListLogWithResponse(ctx context.Context, params *ListLogParams, reqEditors ...RequestEditorFn) (*ListLogResponse, error) {
+	rsp, err := c.ListLog(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLogResponse(rsp)
 }
 
 // GetMeWithResponse The signed-in person, or the API key, and the projects it can see
@@ -552,6 +2708,264 @@ func (c *ClientWithResponses) EndThisTokenWithResponse(ctx context.Context, reqE
 	return ParseEndThisTokenResponse(rsp)
 }
 
+// ListProbesWithResponse The probes that serve projects the caller may edit
+//
+// Someone who may only look is not told of a project's probes. An administrator sees all.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /probes (the `ListProbes` operationId).
+func (c *ClientWithResponses) ListProbesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProbesResponse, error) {
+	rsp, err := c.ListProbes(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProbesResponse(rsp)
+}
+
+// ListProjectsWithResponse The projects the caller can see
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /projects (the `ListProjects` operationId).
+func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error) {
+	rsp, err := c.ListProjects(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProjectsResponse(rsp)
+}
+
+// GetProjectWithResponse One project
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /projects/{project_id} (the `GetProject` operationId).
+func (c *ClientWithResponses) GetProjectWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*GetProjectResponse, error) {
+	rsp, err := c.GetProject(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetProjectResponse(rsp)
+}
+
+// ListChecksWithResponse The checks of a project
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /projects/{project_id}/checks (the `ListChecks` operationId).
+func (c *ClientWithResponses) ListChecksWithResponse(ctx context.Context, projectId ProjectId, params *ListChecksParams, reqEditors ...RequestEditorFn) (*ListChecksResponse, error) {
+	rsp, err := c.ListChecks(ctx, projectId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListChecksResponse(rsp)
+}
+
+// GetStatusWithResponse Everything the caller can see, in one snapshot
+//
+// Read this first: how many checks are in each state, per project and in all, and
+// every check that needs attention, with why. It answers 200 however bad things
+// are, as it reports state and not its own health.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /status (the `GetStatus` operationId).
+func (c *ClientWithResponses) GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error) {
+	rsp, err := c.GetStatus(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetStatusResponse(rsp)
+}
+
+// ParseGetCheckResponse parses an HTTP response from a GetCheckWithResponse call
+func ParseGetCheckResponse(rsp *http.Response) (*GetCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Check
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GetCheckResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListRunsResponse parses an HTTP response from a ListRunsWithResponse call
+func ParseListRunsResponse(rsp *http.Response) (*ListRunsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListRunsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RunPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListRunsResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListLogResponse parses an HTTP response from a ListLogWithResponse call
+func ParseListLogResponse(rsp *http.Response) (*ListLogResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListLogResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LogPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListLogResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseGetMeResponse parses an HTTP response from a GetMeWithResponse call
 func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -580,6 +2994,26 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 		}
 		response.ApplicationproblemJSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GetMeResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil
@@ -609,6 +3043,319 @@ func ParseEndThisTokenResponse(rsp *http.Response) (*EndThisTokenResponse, error
 		}
 		response.ApplicationproblemJSON401 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers EndThisTokenResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListProbesResponse parses an HTTP response from a ListProbesWithResponse call
+func ParseListProbesResponse(rsp *http.Response) (*ListProbesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProbesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProbeList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListProbesResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListProjectsResponse parses an HTTP response from a ListProjectsWithResponse call
+func ParseListProjectsResponse(rsp *http.Response) (*ListProjectsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProjectsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProjectPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListProjectsResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetProjectResponse parses an HTTP response from a GetProjectWithResponse call
+func ParseGetProjectResponse(rsp *http.Response) (*GetProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Project
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GetProjectResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListChecksResponse parses an HTTP response from a ListChecksWithResponse call
+func ParseListChecksResponse(rsp *http.Response) (*ListChecksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListChecksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CheckPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListChecksResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetStatusResponse parses an HTTP response from a GetStatusWithResponse call
+func ParseGetStatusResponse(rsp *http.Response) (*GetStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GetStatusResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
 	}
 
 	return response, nil

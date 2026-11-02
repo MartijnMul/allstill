@@ -9,4 +9,4 @@ generate:
   models: true
 output: client.gen.go
 output-options:
-  include-operation-ids: [getMe, endThisToken]
+  include-operation-ids: [getMe, endThisToken, getStatus, listLog, listProbes, listProjects, getProject, listChecks, getCheck, listRuns]

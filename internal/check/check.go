@@ -44,6 +44,9 @@ import (
 // State is what the last ping or deadline decided.
 type State string
 
+// NeedsAttention says a state asks someone to act.
+func (s State) NeedsAttention() bool { return s == Down || s == Late || s == Warning }
+
 const (
 	New     State = "new"
 	Up      State = "up"

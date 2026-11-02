@@ -45,6 +45,13 @@ Usage:
   allstill login URL [flags]             sign in from this machine, with a code you approve anywhere
   allstill logout                        end the sign-in on this machine
   allstill whoami                        who you are signed in as, and what you may do
+  allstill status [flags]                what is up, and what needs attention
+  allstill projects [flags]              the projects you can see
+  allstill checks [flags]                the checks you can see
+  allstill checks show [flags]           one check
+  allstill checks runs [flags]           a check's latest runs
+  allstill log [flags]                   what happened, when and by whom
+  allstill probes [flags]                the probes that serve projects you may edit
   allstill admin create-user [flags]     add a person, with a link to make a passkey
   allstill admin set-member [flags]      what someone may do in a project
   allstill admin passkey-link [flags]    a new passkey link for someone
@@ -112,6 +119,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return logoutCommand(ctx, args[1:], stdout, stderr)
 	case "whoami":
 		return whoamiCommand(ctx, args[1:], stdout, stderr)
+	case "status":
+		return statusCommand(ctx, args[1:], stdout, stderr)
+	case "projects":
+		return projectsCommand(ctx, args[1:], stdout, stderr)
+	case "checks":
+		return checksCommand(ctx, args[1:], stdout, stderr)
+	case "log":
+		return logCommand(ctx, args[1:], stdout, stderr)
+	case "probes":
+		return probesCommand(ctx, args[1:], stdout, stderr)
 	case "backup":
 		return backup(ctx, args[1:], stdout, stderr)
 	case "guide":

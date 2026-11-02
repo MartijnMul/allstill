@@ -6,8 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/MartijnMul/allstill/internal/api"
 	"github.com/MartijnMul/allstill/internal/store"
@@ -37,6 +41,14 @@ var apiOperations = []struct {
 	{"EndThisToken", "DELETE /api/v1/me/token", signInCredential},
 	{"GetProbeChecks", "GET /api/v1/probe/checks", probeCredential},
 	{"PostProbeRuns", "POST /api/v1/probe/runs", probeCredential},
+	{"GetStatus", "GET /api/v1/status", signInCredential},
+	{"ListLog", "GET /api/v1/log", signInCredential},
+	{"ListProbes", "GET /api/v1/probes", signInCredential},
+	{"ListProjects", "GET /api/v1/projects", signInCredential},
+	{"GetProject", "GET /api/v1/projects/{project_id}", signInCredential},
+	{"ListChecks", "GET /api/v1/projects/{project_id}/checks", signInCredential},
+	{"GetCheck", "GET /api/v1/checks/{check_id}", signInCredential},
+	{"ListRuns", "GET /api/v1/checks/{check_id}/runs", signInCredential},
 }
 
 // maxAPIBody caps what a request can hold, before anything reads it.
@@ -63,7 +75,11 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
 		BaseURL: "/api/v1", BaseRouter: mux, Middlewares: []api.MiddlewareFunc{s.credential},
 		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeProblem(w, problem(http.StatusBadRequest, "The request cannot be read.", "It needs the header Allstill-Probe-Protocol."))
+			detail := ""
+			if strings.HasPrefix(r.URL.Path, "/api/v1/probe/") {
+				detail = "It needs the header Allstill-Probe-Protocol."
+			}
+			writeProblem(w, problem(http.StatusBadRequest, "The request cannot be read.", detail))
 		},
 	})
 }
@@ -116,20 +132,70 @@ func (s *Server) signInCredential(w http.ResponseWriter, r *http.Request, next h
 		writeProblem(w, problem(http.StatusInternalServerError, "Something went wrong on the server.", ""))
 		return
 	}
+	// After the lookup, so that made-up values do not fill it (R42).
+	if wait, ok := s.apiLimit.allow(t.ID, s.Now()); !ok {
+		tooManyRequests(w, wait, "this sign-in")
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxAPIBody)
 	next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), callerContextKey{}, caller{a, t})))
+}
+
+// tooManyRequests says a credential has asked too often, and how long to wait.
+func tooManyRequests(w http.ResponseWriter, wait int, what string) {
+	w.Header().Set("Retry-After", strconv.Itoa(wait))
+	writeProblem(w, problem(http.StatusTooManyRequests, "Too many requests with "+what+".",
+		fmt.Sprintf("It gets %d a minute. Try again in %s.", apiRequestsPerMinute, plural(wait, "second", "seconds"))))
+}
+
+// apiRequestsPerMinute is a credential's limit: a brake on a loop in a script, so it
+// cannot slow pings down. A restart resets it, which is fine for a brake.
+const apiRequestsPerMinute = 120
+
+// apiLimiter keeps a token bucket per credential. Only real credentials get one, so
+// it holds no more than there are.
+type apiLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*apiBucket
+}
+
+type apiBucket struct {
+	tokens float64
+	at     time.Time
+}
+
+// allow takes a token for a credential. Without one, it says how many seconds to wait.
+func (l *apiLimiter) allow(id string, now time.Time) (wait int, ok bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.buckets == nil {
+		l.buckets = map[string]*apiBucket{}
+	}
+	b := l.buckets[id]
+	if b == nil {
+		b = &apiBucket{tokens: apiRequestsPerMinute, at: now}
+		l.buckets[id] = b
+	}
+	perSecond := float64(apiRequestsPerMinute) / 60
+	b.tokens = min(apiRequestsPerMinute, b.tokens+now.Sub(b.at).Seconds()*perSecond)
+	b.at = now
+	if b.tokens < 1 {
+		return int(math.Ceil((1 - b.tokens) / perSecond)), false
+	}
+	b.tokens--
+	return 0, true
 }
 
 // GetMe says who is asking, on which version of the server.
 func (a apiServer) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.GetMeResponseObject, error) {
 	c := ctx.Value(callerContextKey{}).(caller)
-	p, err := a.s.Store.Person(ctx, c.Access.WorkspaceID, c.Access.PersonID)
+	p, err := a.s.Store.Person(ctx, c.Token.WorkspaceID, c.Token.PersonID)
 	if err != nil {
 		return nil, err
 	}
-	scopes := []api.Scope{api.ScopeRead}
+	scopes := []api.Scope{api.Read}
 	if c.Token.Scope == store.ScopeManage {
-		scopes = append(scopes, api.ScopeManage)
+		scopes = append(scopes, api.Manage)
 	}
 	me := api.GetMe200JSONResponse{
 		Kind: api.Person, Scopes: scopes, ServerVersion: a.s.Version, Projects: []api.MeProject{},
@@ -148,7 +214,7 @@ func (a apiServer) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 // EndThisToken ends the sign-in a request came through.
 func (a apiServer) EndThisToken(ctx context.Context, _ api.EndThisTokenRequestObject) (api.EndThisTokenResponseObject, error) {
 	c := ctx.Value(callerContextKey{}).(caller)
-	err := a.s.Store.EndPersonToken(ctx, c.Access.Actor, c.Access.WorkspaceID, c.Access.PersonID, c.Token.ID, a.s.Now())
+	err := a.s.Store.EndPersonToken(ctx, c.Access.Actor, c.Token.WorkspaceID, c.Token.PersonID, c.Token.ID, a.s.Now())
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}

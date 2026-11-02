@@ -68,11 +68,16 @@ func onThisMachine(host string) bool {
 // line prints from a server goes through it.
 func Clean(s string) string {
 	return strings.Map(func(c rune) rune {
-		if unicode.In(c, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp, unicode.Co) || c == unicode.ReplacementChar {
+		if steers(c) || c == unicode.ReplacementChar {
 			return -1
 		}
 		return c
 	}, strings.ToValidUTF8(s, ""))
+}
+
+// steers says a character could steer a terminal or turn text around.
+func steers(c rune) bool {
+	return unicode.In(c, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp, unicode.Co)
 }
 
 // Client talks to one installation.
@@ -154,7 +159,7 @@ func (c *Client) refusal(ctx context.Context, resp *http.Response, body []byte, 
 // being of different versions explains (R45). Known says it can ask its version.
 func (c *Client) otherVersion(ctx context.Context, known bool) error {
 	if known {
-		if me, err := c.Me(ctx); err == nil && me.ServerVersion != c.Version {
+		if me, err := c.Me(ctx); err == nil && !SameVersion(me.ServerVersion, c.Version) {
 			return fmt.Errorf("%s does not know this. It runs version %s and this command line is %s: use the same version of both", c.Server, Clean(me.ServerVersion), c.Version)
 		}
 	}

@@ -138,7 +138,7 @@ allstill admin create-user -name "Bob" -email bob@example.com -project Customer 
 
 From your own machine, `allstill login https://allstill.example.com` prints an address and a short code. Open the address in a browser on any device, also your phone, sign in, enter the code, and approve it with your passkey. The command line then finishes by itself, so the machine needs no browser. A code works once and is gone after 10 minutes, and you get a few wrong tries a minute.
 
-- **It acts as you, with your role as it is at that moment.** So a change of role counts at once. `-read-only` makes one that can only read, as a viewer in every project you can see, also if you are an administrator: use that for an AI assistant. For now a sign-in can only say who you are (`allstill whoami`): the commands that use it come next.
+- **It acts as you, with your role as it is at that moment.** So a change of role counts at once. `-read-only` makes one that can only read, as a viewer in every project you can see, also if you are an administrator: use that for an AI assistant. Asking too often gets a sign-in told to wait: each has 120 requests a minute, as a probe's key has.
 - **It is kept in a file only you can read,** in your user's configuration folder, per installation. A file is what `gh` falls back to and how ssh keeps keys: anything running as you can read it. If others can read the file, commands refuse it.
 - **It ends** after 30 days without use and after a year at most, as a browser session does, or at once with `allstill logout`, or under **Devices** in the dashboard, where you see every sign-in and browser session you have with when it was last used.
 - **Never approve a code you did not ask for yourself.** The page says what the machine calls itself and when it asked, but that is only its own claim, and it cannot show where it is, as nothing in Allstill knows a caller's real address behind a proxy. A code is always typed, so a link can never arrive with one filled in. A sign-in you approved by mistake is under **Devices** from that moment: end it there, and whatever was fetched stops working.
@@ -152,6 +152,12 @@ From your own machine, `allstill login https://allstill.example.com` prints an a
 
   Then give them a new passkey with `allstill admin passkey-link`. Read the log for what was done meanwhile.
 - **A proxy in front** must let `/oauth` and `/api` through to clients that are not browsers. Some block those by default, and `allstill login` then fails, saying what it got back. A proxy can also limit by address, which Allstill cannot: asking for codes is limited to 60 a minute over the whole installation, so someone hammering it can keep new sign-ins waiting. Everything already signed in goes on.
+
+## Reading from anywhere
+
+Once signed in, `allstill status`, `allstill projects`, `allstill checks`, `allstill checks show`, `allstill checks runs`, `allstill log` and `allstill probes` read what you may see, as the dashboard shows it to you, in the same words. `-json` prints the API's own answer, for scripts; `allstill status -json` exits 0 however bad things are. Printed text carries no control characters, so a site's reason or a typed name cannot steer your terminal.
+
+For an AI assistant, or anything else you would not hand your rights to, use `allstill login -read-only`: it reads as a viewer in every project you can see, so it gets no whole address, no ping URL, no alert settings, no names in the log and nothing about your other sign-ins, even if you are an administrator.
 
 ## What the log records
 

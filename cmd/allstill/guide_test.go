@@ -28,11 +28,12 @@ var notInGuide = []string{
 }
 
 // twoWords are the commands whose second word is a command too.
-var twoWords = []string{"admin", "import", "compare"}
+var twoWords = []string{"admin", "import", "compare", "checks"}
 
 // commandName is how a command is called, from the words after `allstill`.
 func commandName(words []string) string {
-	if len(words) > 1 && slices.Contains(twoWords, words[0]) {
+	// `allstill checks` is a command too, with its flags after it.
+	if len(words) > 1 && slices.Contains(twoWords, words[0]) && !strings.HasPrefix(words[1], "-") && !strings.HasPrefix(words[1], "[") {
 		return words[0] + " " + words[1]
 	}
 	return words[0]

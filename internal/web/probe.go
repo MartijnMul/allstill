@@ -61,6 +61,11 @@ func (s *Server) probeKey(next http.Handler) http.Handler {
 			writeProblem(w, problem(http.StatusInternalServerError, "Something went wrong on the server.", ""))
 			return
 		}
+		// A probe asks a few times a minute, so this only stops one that has gone wrong.
+		if wait, ok := s.apiLimit.allow(p.ID, s.Now()); !ok {
+			tooManyRequests(w, wait, "this probe's key")
+			return
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxProbeBody)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), probeContextKey{}, p)))
 	})

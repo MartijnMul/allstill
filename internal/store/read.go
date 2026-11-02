@@ -162,7 +162,92 @@ func (s *Store) RunLog(ctx context.Context, a Access, checkID, runID string) ([]
 	return pings, nil
 }
 
-func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) (CheckView, error) {
+// CheckStates returns every check the caller may see, by project and then by name,
+// without its runs: enough to say how things stand, at one query per project.
+func (s *Store) CheckStates(ctx context.Context, a Access) ([]CheckView, error) {
+	q := db.New(s.r)
+	var views []CheckView
+	for _, p := range a.Projects {
+		rows, err := q.ChecksOfProject(ctx, db.ChecksOfProjectParams{WorkspaceID: a.WorkspaceID, ProjectID: p.ID})
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range rows {
+			v, err := baseView(c, p.Name)
+			if err != nil {
+				return nil, err
+			}
+			views = append(views, v)
+		}
+	}
+	return views, nil
+}
+
+// ChecksOfProject returns a page of a project's checks, by name, from offset, and
+// whether there are more; ErrNotFound when the caller may not see the project.
+func (s *Store) ChecksOfProject(ctx context.Context, a Access, projectID string, offset, limit int) ([]CheckView, bool, error) {
+	for _, p := range a.Projects {
+		if p.ID != projectID {
+			continue
+		}
+		q := db.New(s.r)
+		rows, err := q.ChecksOfProject(ctx, db.ChecksOfProjectParams{WorkspaceID: a.WorkspaceID, ProjectID: p.ID})
+		if err != nil {
+			return nil, false, err
+		}
+		rows = rows[min(offset, len(rows)):]
+		more := len(rows) > limit
+		rows = rows[:min(limit, len(rows))]
+		views := make([]CheckView, len(rows))
+		for i, c := range rows {
+			if views[i], err = viewOf(ctx, q, c, p.Name); err != nil {
+				return nil, false, err
+			}
+		}
+		return views, more, nil
+	}
+	return nil, false, ErrNotFound
+}
+
+// Runs returns a page of a check's runs, newest first, older than the run before if
+// one is given, and whether there are more; ErrNotFound when the caller may not see
+// the check.
+func (s *Store) Runs(ctx context.Context, a Access, checkID, before string, limit int) ([]RunView, bool, error) {
+	if _, err := s.Check(ctx, a, checkID); err != nil {
+		return nil, false, err
+	}
+	if before == "" {
+		before = "~" // sorts after every real id
+	}
+	rows, err := db.New(s.r).RunsOfCheck(ctx, db.RunsOfCheckParams{CheckID: checkID, ID: before, Limit: int64(limit) + 1})
+	if err != nil {
+		return nil, false, err
+	}
+	more := len(rows) > limit
+	rows = rows[:min(limit, len(rows))]
+	runs := make([]RunView, len(rows))
+	for i, r := range rows {
+		if runs[i], err = runViewOf(r); err != nil {
+			return nil, false, err
+		}
+	}
+	return runs, more, nil
+}
+
+func runViewOf(r db.Run) (RunView, error) {
+	rv := RunView{
+		ID: r.ID, Outcome: r.Outcome, Started: msTime(r.StartedAt), Ended: msTime(r.EndedAt),
+		TimedOut: msTime(r.TimedOutAt), ExitStatus: exitOf(r.ExitStatus), Reason: r.Reason,
+	}
+	if r.Measured != "{}" {
+		if err := json.Unmarshal([]byte(r.Measured), &rv.Values); err != nil {
+			return rv, err
+		}
+	}
+	return rv, nil
+}
+
+func baseView(c db.Check, projectName string) (CheckView, error) {
 	v := CheckView{
 		ID: c.ID, ProjectID: c.ProjectID, ProjectName: projectName, Name: c.Name, Slug: c.Slug.String,
 		Description: c.Description, PingUUID: c.PingUuid, ProbeID: c.ProbeID.String, Version: c.Version, Kind: c.Kind, Settings: []byte(c.Settings),
@@ -172,7 +257,12 @@ func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) 
 		Urgency: c.Urgency, Critical: c.Critical == 1,
 		Status: statusOf(c), Created: time.UnixMilli(c.CreatedAt).UTC(),
 	}
-	if err := json.Unmarshal([]byte(c.Tags), &v.Tags); err != nil {
+	return v, json.Unmarshal([]byte(c.Tags), &v.Tags)
+}
+
+func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) (CheckView, error) {
+	v, err := baseView(c, projectName)
+	if err != nil {
 		return v, err
 	}
 	// The newest id sorts after every real one.
@@ -181,14 +271,9 @@ func viewOf(ctx context.Context, q *db.Queries, c db.Check, projectName string) 
 		return v, err
 	}
 	for _, r := range runs {
-		rv := RunView{
-			ID: r.ID, Outcome: r.Outcome, Started: msTime(r.StartedAt), Ended: msTime(r.EndedAt),
-			TimedOut: msTime(r.TimedOutAt), ExitStatus: exitOf(r.ExitStatus), Reason: r.Reason,
-		}
-		if r.Measured != "{}" {
-			if err := json.Unmarshal([]byte(r.Measured), &rv.Values); err != nil {
-				return v, err
-			}
+		rv, err := runViewOf(r)
+		if err != nil {
+			return v, err
 		}
 		v.Recent = append(v.Recent, rv)
 	}

@@ -70,6 +70,7 @@ type Server struct {
 	pages      map[string]*template.Template
 	memory     *memory
 	grants     *grants
+	apiLimit   apiLimiter
 }
 
 // ParseBaseURL checks the address people use to reach Allstill: https, or

@@ -11,6 +11,7 @@ import (
 
 	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/check"
+	"github.com/MartijnMul/allstill/internal/logtext"
 	"github.com/MartijnMul/allstill/internal/store"
 )
 
@@ -217,12 +218,7 @@ func worse(a, b look) look {
 	return a
 }
 
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return "1 " + one
-	}
-	return fmt.Sprintf("%d %s", n, many)
-}
+var plural = logtext.Plural
 
 func matches(c store.CheckView, show, query string) bool {
 	switch show {
@@ -405,7 +401,7 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 	}
 	// A ping URL is a secret: viewers, often outsiders who only need a
 	// status, do not see it (intent/http-checks/spec.md, R12).
-	if whole(v, c.ProjectID) {
+	if v.Access.SeesSecrets(c.ProjectID) {
 		d.PingURL = s.base.String() + "/ping/" + c.PingUUID
 		if c.Slug != "" {
 			d.SlugURL = s.base.String() + "/ping/<ping key>/" + c.Slug

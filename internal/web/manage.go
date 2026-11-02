@@ -962,7 +962,7 @@ func firstAttempt(c store.CheckView, now time.Time) time.Time {
 // may not see it, forbidden when they may only look (R25).
 func (s *Server) forChange(w http.ResponseWriter, r *http.Request, v viewer) (store.CheckView, bool) {
 	c, err := s.Store.Check(r.Context(), v.Access, r.PathValue("id"))
-	if err == nil && !whole(v, c.ProjectID) {
+	if err == nil && !v.Access.SeesSecrets(c.ProjectID) {
 		err = store.ErrForbidden
 	}
 	if err != nil {
@@ -1347,7 +1347,7 @@ type manageLinks struct {
 // manageOf says which buttons a person gets on a check's page: none when they may
 // only look, and only Edit on a probe's own check (R19, R25).
 func (s *Server) manageOf(ctx context.Context, v viewer, c store.CheckView) (*manageLinks, error) {
-	if !whole(v, c.ProjectID) {
+	if !v.Access.SeesSecrets(c.ProjectID) {
 		return nil, nil
 	}
 	own, err := s.Store.IsProbesOwnCheck(ctx, v.Access, c.ID)

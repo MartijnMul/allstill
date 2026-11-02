@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,7 +13,9 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/MartijnMul/allstill/internal/apiclient"
 	"github.com/MartijnMul/allstill/internal/client"
 	"github.com/MartijnMul/allstill/internal/store"
 )
@@ -142,6 +145,9 @@ Flags:
 	}
 	fmt.Fprintf(stdout, "To sign in, open this address in a browser on any device:\n\n  %s\n\nand enter this code:\n\n  %s\n\nOnly enter it if you started this yourself. Waiting...\n", code.VerificationURI, code.UserCode)
 	token, err := api.WaitForToken(ctx, code)
+	if errors.Is(err, context.Canceled) {
+		return errors.New("stopped, so this machine is not signed in")
+	}
 	if err != nil {
 		return err
 	}
@@ -295,8 +301,391 @@ Flags:
 		}
 		fmt.Fprintf(stdout, "Projects:\n%s", lines.String())
 	}
-	if me.ServerVersion != version() {
+	if !client.SameVersion(me.ServerVersion, version()) {
 		fmt.Fprintf(stdout, "The server runs version %s, and this command line is %s.\n", client.Clean(me.ServerVersion), version())
 	}
+	return nil
+}
+
+// reading is what the commands that read have in common: where, and how to answer.
+type reading struct {
+	server *string
+	json   *bool
+}
+
+func readingFlags(fs *flag.FlagSet) reading {
+	return reading{serverFlag(fs), fs.Bool("json", false, "print the API's own answer, for scripts")}
+}
+
+// client returns the sign-in to read with.
+func (r reading) client() (*client.Client, error) {
+	api, _, _, err := signedIn(*r.server)
+	return api, err
+}
+
+// said turns what a server refused into what to do about it.
+func said(api *client.Client, err error) error {
+	if errors.Is(err, client.ErrSignedOut) {
+		return fmt.Errorf("your sign-in on %s has ended. Sign in again with allstill login %s", api.Server, api.Server)
+	}
+	if errors.Is(err, context.Canceled) {
+		return errors.New("stopped")
+	}
+	return err
+}
+
+func statusCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill status [-json] [-server URL]
+
+Says how many checks are in each state, per project you can see, and every check
+that needs attention, with why. Its exit status is 0 however bad things are: it reports
+state, not health.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	r := readingFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("status takes no arguments")
+	}
+	api, err := r.client()
+	if err != nil {
+		return err
+	}
+	status, raw, err := api.Status(ctx)
+	if err != nil {
+		return said(api, err)
+	}
+	if *r.json {
+		return client.PrintJSON(stdout, raw)
+	}
+	client.PrintStatus(stdout, api.Server, status, time.Now(), time.Local)
+	return nil
+}
+
+func projectsCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("projects", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill projects [-json] [-server URL]
+
+Lists the projects you can see, with what you are in each and how their checks stand.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	r := readingFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("projects takes no arguments")
+	}
+	api, err := r.client()
+	if err != nil {
+		return err
+	}
+	projects, err := api.Projects(ctx)
+	if err != nil {
+		return said(api, err)
+	}
+	if *r.json {
+		return client.PrintItems(stdout, projects.Raw)
+	}
+	client.PrintProjects(stdout, projects.Items)
+	return nil
+}
+
+func checksCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "show":
+			return checksShow(ctx, args[1:], stdout, stderr)
+		case "runs":
+			return checksRuns(ctx, args[1:], stdout, stderr)
+		}
+	}
+	fs := flag.NewFlagSet("checks", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill checks [-project NAME] [-json] [-server URL]
+       allstill checks show -check NAME [flags]
+       allstill checks runs -check NAME [flags]
+
+Lists the checks you can see, in one project or in all. An address shows as you may
+see it: the scheme and host alone if you may only look, or with a read-only sign-in.
+No list shows a ping URL.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	r := readingFlags(fs)
+	project := fs.String("project", "", "only this project, by name or id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		// `allstill checks -project P show -check C` says the same as with flags after it.
+		rest := fs.Args()
+		flags := slices.Clone(args[:len(args)-len(rest)])
+		switch rest[0] {
+		case "show":
+			return checksShow(ctx, append(flags, rest[1:]...), stdout, stderr)
+		case "runs":
+			return checksRuns(ctx, append(flags, rest[1:]...), stdout, stderr)
+		}
+		fs.Usage()
+		return fmt.Errorf("unknown checks command %q", client.Clean(rest[0]))
+	}
+	api, err := r.client()
+	if err != nil {
+		return err
+	}
+	var projects []apiclient.Project
+	if *project != "" {
+		p, err := api.FindProject(ctx, *project)
+		if err != nil {
+			return said(api, err)
+		}
+		projects = []apiclient.Project{p}
+	} else {
+		all, err := api.Projects(ctx)
+		if err != nil {
+			return said(api, err)
+		}
+		projects = all.Items
+	}
+	var checks []client.CheckOf
+	var raw []json.RawMessage
+	for _, p := range projects {
+		page, err := api.Checks(ctx, p.Id)
+		if err != nil {
+			return said(api, err)
+		}
+		for _, c := range page.Items {
+			checks = append(checks, client.CheckOf{Check: c, Project: p.Name})
+		}
+		raw = append(raw, page.Raw...)
+	}
+	if *r.json {
+		return client.PrintItems(stdout, raw)
+	}
+	client.PrintChecks(stdout, checks, time.Now(), time.Local)
+	return nil
+}
+
+func checksShow(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("checks show", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill checks show -check NAME [-project NAME] [-json] [-server URL]
+
+Shows one check, by name or id. Two with one name list both, with their ids.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	r := readingFlags(fs)
+	name := fs.String("check", "", "the check, by name or id")
+	project := fs.String("project", "", "the project it is in, by name or id, if two share its name")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -check")
+	}
+	api, err := r.client()
+	if err != nil {
+		return err
+	}
+	check, raw, err := api.FindCheck(ctx, *project, *name)
+	if err != nil {
+		return said(api, err)
+	}
+	if *r.json {
+		return client.PrintJSON(stdout, raw)
+	}
+	projectName := ""
+	if projects, err := api.Projects(ctx); err == nil {
+		for _, p := range projects.Items {
+			if p.Id == check.ProjectId {
+				projectName = p.Name
+			}
+		}
+	}
+	client.PrintCheck(stdout, check, projectName, time.Now(), time.Local)
+	return nil
+}
+
+func checksRuns(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("checks runs", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill checks runs -check NAME [-project NAME] [-limit N] [-json] [-server URL]
+
+Lists a check's latest runs, newest first.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	r := readingFlags(fs)
+	name := fs.String("check", "", "the check, by name or id")
+	project := fs.String("project", "", "the project it is in, by name or id, if two share its name")
+	limit := fs.Int("limit", 20, "how many, up to 200")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *name == "" || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -check")
+	}
+	api, err := r.client()
+	if err != nil {
+		return err
+	}
+	check, _, err := api.FindCheck(ctx, *project, *name)
+	if err != nil {
+		return said(api, err)
+	}
+	runs, raw, err := api.Runs(ctx, check.Id, *limit)
+	if err != nil {
+		return said(api, err)
+	}
+	if *r.json {
+		return client.PrintJSON(stdout, raw)
+	}
+	client.PrintRuns(stdout, runs.Items, time.Now(), time.Local)
+	return nil
+}
+
+func logCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("log", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill log [flags]
+
+Shows what happened, when and by whom, newest first, in the words and under the rules
+for each reader of Log in the dashboard.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	r := readingFlags(fs)
+	project := fs.String("project", "", "only this project, by name or id")
+	check := fs.String("check", "", "only this check, by name or id")
+	name := fs.String("name", "", "only what is about this exact name, also a check that was deleted")
+	person := fs.String("person", "", "only what this person did or what concerns them, by id")
+	what := fs.String("what", "", "only happened, done, reached or signins")
+	late := fs.Bool("late", false, "also show checks that were briefly late")
+	limit := fs.Int("limit", 50, "how many lines, up to 200")
+	before := fs.String("before", "", "read on from where a list said there is more")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("log takes no arguments")
+	}
+	api, err := r.client()
+	if err != nil {
+		return err
+	}
+	params := &apiclient.ListLogParams{Limit: limit, Late: late}
+	if *project != "" {
+		p, err := api.FindProject(ctx, *project)
+		if err != nil {
+			return said(api, err)
+		}
+		params.ProjectId = &p.Id
+	}
+	if *check != "" {
+		c, _, err := api.FindCheck(ctx, *project, *check)
+		if errors.Is(err, client.ErrNoSuchThing) {
+			return fmt.Errorf("%w. For one that was deleted, use -name", err)
+		}
+		if err != nil {
+			return said(api, err)
+		}
+		params.CheckId = &c.Id
+	}
+	if *name != "" {
+		params.Name = name
+	}
+	if *person != "" {
+		params.PersonId = person
+	}
+	if *what != "" {
+		kind := apiclient.ListLogParamsWhat(*what)
+		if !kind.Valid() {
+			return errors.New("-what takes happened, done, reached or signins")
+		}
+		params.What = &kind
+	}
+	if *before != "" {
+		params.Cursor = before
+	}
+	page, raw, err := api.Log(ctx, params)
+	if err != nil {
+		return said(api, err)
+	}
+	if *r.json {
+		return client.PrintJSON(stdout, raw)
+	}
+	client.PrintLog(stdout, page, time.Now(), time.Local)
+	return nil
+}
+
+func probesCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("probes", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill probes [-json] [-server URL]
+
+Lists the probes that serve projects you may edit, to choose one for a check. Making
+a probe stays on the server.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	r := readingFlags(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("probes takes no arguments")
+	}
+	api, err := r.client()
+	if err != nil {
+		return err
+	}
+	probes, raw, err := api.Probes(ctx)
+	if err != nil {
+		return said(api, err)
+	}
+	if *r.json {
+		return client.PrintJSON(stdout, raw)
+	}
+	projects, err := api.Projects(ctx)
+	if err != nil {
+		return said(api, err)
+	}
+	client.PrintProbes(stdout, probes.Items, projects.Items)
 	return nil
 }
