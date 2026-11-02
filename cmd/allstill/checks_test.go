@@ -19,6 +19,21 @@ import (
 	"github.com/MartijnMul/allstill/internal/store"
 )
 
+// serverDatabase makes the database the server would have, as only the server
+// starts one, and returns its path.
+func serverDatabase(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "allstill.db")
+	st, err := store.Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestAddAndSetCheck(t *testing.T) {
 	ctx := t.Context()
 	dbPath := filepath.Join(t.TempDir(), "allstill.db")
@@ -535,7 +550,7 @@ func TestTryOnceWarnsOfHEAD(t *testing.T) {
 // (intent/activity-log/spec.md, R15).
 func TestCommandsAreInTheLog(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := serverDatabase(t)
 	admin := func(args ...string) {
 		t.Helper()
 		var out, stderr bytes.Buffer

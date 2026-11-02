@@ -395,7 +395,7 @@ Flags:
 	if fs.NArg() != 1 {
 		return errors.New("give the file to write the copy to; it must not exist yet")
 	}
-	st, err := store.Open(ctx, *dbPath)
+	st, err := openExisting(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
@@ -693,6 +693,11 @@ Flags:
 		return errors.New("give -project and set HEALTHCHECKS_API_KEY")
 	}
 
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
 	checks, err := importer.Fetch(ctx, http.DefaultClient, *base, key)
 	if err != nil {
 		return err
@@ -702,11 +707,6 @@ Flags:
 			return errors.New("no check at Healthchecks has one of these tags")
 		}
 	}
-	st, ws, err := openStore(ctx, *dbPath)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
 	projectID, err := st.ProjectByName(ctx, ws, *project)
 	if errors.Is(err, store.ErrNotFound) {
 		var pingKey string
@@ -738,8 +738,17 @@ Flags:
 	return err
 }
 
+// openExisting opens the server's database, for a command that is run beside it.
+func openExisting(ctx context.Context, path string) (*store.Store, error) {
+	st, err := store.OpenExisting(ctx, path)
+	if errors.Is(err, store.ErrNoDatabase) {
+		return nil, fmt.Errorf("there is no Allstill database at %s. This command works on the server's database, which the server makes when it first starts: run it on the server, with -db if the database is elsewhere", path)
+	}
+	return st, err
+}
+
 func openStore(ctx context.Context, path string) (*store.Store, string, error) {
-	st, err := store.Open(ctx, path)
+	st, err := openExisting(ctx, path)
 	if err != nil {
 		return nil, "", err
 	}

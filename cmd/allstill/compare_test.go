@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +21,7 @@ import (
 
 func TestCompareHealthchecks(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := serverDatabase(t)
 	st, ws, err := openStore(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)

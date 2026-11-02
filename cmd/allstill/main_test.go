@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,7 +109,7 @@ func TestServeAndRun(t *testing.T) {
 
 func TestAdminCommands(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := serverDatabase(t)
 	var out, errOut bytes.Buffer
 	admin := func(args ...string) error {
 		out.Reset()
@@ -157,7 +158,7 @@ func TestAdminCommands(t *testing.T) {
 // are split by tag and by name.
 func TestMoveChecksAndRenameProject(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := serverDatabase(t)
 	st, ws, err := openStore(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -245,5 +246,84 @@ func TestTheLogCannotBeKeptTooShort(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "at least 30 days") {
 			t.Errorf("-keep-log %s: %v", days, err)
 		}
+	}
+}
+
+// Off the server, these commands used to create a database of their own and
+// succeed. Each must refuse, and leave nothing behind.
+func TestCommandsNeedADatabase(t *testing.T) {
+	t.Setenv("HEALTHCHECKS_API_KEY", "not-a-real-key")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "allstill.db")
+	commands := [][]string{
+		{"admin", "create-project", "-db", path, "Backups"},
+		{"admin", "rename-project", "-db", path, "Backups", "Sites"},
+		{"admin", "create-user", "-db", path, "-name", "Ada", "-email", "ada@example.com", "-base-url", "https://allstill.example.com"},
+		{"admin", "set-member", "-db", path, "-email", "ada@example.com", "-project", "Backups", "-role", "editor"},
+		{"admin", "passkey-link", "-db", path, "-email", "ada@example.com", "-base-url", "https://allstill.example.com"},
+		{"admin", "move-checks", "-db", path, "-from", "Backups", "-to", "Sites", "-check", "nightly"},
+		{"admin", "set-alerting", "-db", path, "-project", "Backups", "-check", "nightly", "-urgency", "now"},
+		{"admin", "add-check", "-db", path, "-project", "Sites", "-name", "shop", "-http", "https://shop.example.com"},
+		{"admin", "set-check", "-db", path, "-project", "Sites", "-check", "shop", "-every", "5m"},
+		{"admin", "pause-check", "-db", path, "-project", "Sites", "-check", "shop"},
+		{"admin", "resume-check", "-db", path, "-project", "Sites", "-check", "shop"},
+		{"admin", "delete-check", "-db", path, "-project", "Sites", "-check", "shop"},
+		{"admin", "create-probe", "-db", path, "-project", "Sites", "office"},
+		{"admin", "rekey-probe", "-db", path, "office"},
+		{"admin", "set-alerts", "-db", path, "on"},
+		{"import", "healthchecks", "-db", path, "-url", "http://127.0.0.1:1", "-project", "Backups"},
+		{"compare", "healthchecks", "-db", path, "-url", "http://127.0.0.1:1", "-since", "2026-10-01"},
+		{"backup", "-db", path, filepath.Join(dir, "copy.db")},
+	}
+	for _, args := range commands {
+		t.Run(strings.Join(args[:2], " "), func(t *testing.T) {
+			var out bytes.Buffer
+			err := run(t.Context(), args, &out, &out)
+			if err == nil || !strings.Contains(err.Error(), "no Allstill database at "+path) {
+				t.Errorf("got %v, want it to say there is no Allstill database at %s; output: %s", err, path, out.String())
+			}
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range entries {
+				t.Errorf("it left %s behind", e.Name())
+			}
+		})
+	}
+}
+
+// Only the server starts a database: without this, nothing could.
+func TestServeMakesTheDatabase(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	path := filepath.Join(t.TempDir(), "allstill.db")
+	ctx, stop := context.WithCancel(t.Context())
+	served := make(chan error, 1)
+	go func() {
+		served <- run(ctx, []string{"serve", "-db", path, "-listen", addr}, &bytes.Buffer{}, &bytes.Buffer{})
+	}()
+	for i := 0; ; i++ {
+		resp, err := http.Get("http://" + addr + "/health")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		if i == 50 {
+			t.Fatalf("the server did not start: %v", err)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	var out bytes.Buffer
+	if err := run(t.Context(), []string{"admin", "create-project", "-db", path, "Backups"}, &out, &out); err != nil {
+		t.Errorf("a command beside the new server: %v", err)
+	}
+	stop()
+	if err := <-served; err != nil && !errors.Is(err, context.Canceled) {
+		t.Errorf("serve: %v", err)
 	}
 }

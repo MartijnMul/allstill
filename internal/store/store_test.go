@@ -3,7 +3,9 @@
 package store
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -295,5 +297,68 @@ func TestBackupWhileInUse(t *testing.T) {
 	defer c.Close()
 	if n := count(t, c, "pings"); n != 1 {
 		t.Fatalf("%d pings in the copy", n)
+	}
+}
+
+func TestOpenExistingNeedsADatabase(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+
+	missing := filepath.Join(dir, "missing.db")
+	if _, err := OpenExisting(ctx, missing); !errors.Is(err, ErrNoDatabase) {
+		t.Fatalf("a missing file: %v, want ErrNoDatabase", err)
+	}
+	if _, err := os.Stat(missing); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("opening a missing file left something behind: %v", err)
+	}
+
+	// To SQLite a file with nothing in it is a new database.
+	empty := filepath.Join(dir, "empty.db")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenExisting(ctx, empty); !errors.Is(err, ErrNoDatabase) {
+		t.Errorf("an empty file: %v, want ErrNoDatabase", err)
+	}
+
+	// Another program's database is left exactly as it was.
+	other := filepath.Join(dir, "other.db")
+	conn, err := sql.Open("sqlite", other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "CREATE TABLE theirs (id INTEGER); PRAGMA user_version = 1"); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	before, err := os.ReadFile(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenExisting(ctx, other); !errors.Is(err, ErrNoDatabase) {
+		t.Errorf("another program's database: %v, want ErrNoDatabase", err)
+	}
+	if after, _ := os.ReadFile(other); !bytes.Equal(before, after) {
+		t.Error("opening another program's database changed it")
+	}
+
+	// A database the server has open, with its write-ahead log in use.
+	path := filepath.Join(dir, "allstill.db")
+	server, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	ws, _ := server.Workspace(ctx)
+	if _, _, err := server.CreateProject(ctx, Command("test"), ws, "Backups"); err != nil {
+		t.Fatal(err)
+	}
+	st, err := OpenExisting(ctx, path)
+	if err != nil {
+		t.Fatalf("a database in use: %v", err)
+	}
+	defer st.Close()
+	if _, err := st.ProjectByName(ctx, ws, "Backups"); err != nil {
+		t.Errorf("what it holds: %v", err)
 	}
 }

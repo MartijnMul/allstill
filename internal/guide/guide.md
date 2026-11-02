@@ -11,7 +11,7 @@ There are two ways to watch something:
 ## For AI assistants
 
 - A ping URL is a secret: anyone who has it can report for that check. Keep it in the place the project keeps its secrets. Never put it in the repository, in a log or in a message. If one leaks, someone who may edit the project replaces it on the check's form in the dashboard; the old one stops working at once, so jobs need the new one.
-- You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands do not fail elsewhere, they quietly do the wrong thing. Someone without access to the server who may edit a project can still change its checks: see "In the dashboard" below.
+- You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands only work there. Someone without access to the server who may edit a project can still change its checks: see "In the dashboard" below.
 - Do not switch alerts on or off, and do not promise anything from "Not here yet" below.
 - Run `allstill <command> -h` for every flag of a command. If this guide and that help disagree, the help is right.
 
@@ -85,7 +85,7 @@ docker exec allstill allstill admin create-project Backups
 sudo -u allstill allstill admin create-project -db /var/lib/allstill/allstill.db Backups
 ```
 
-The examples below leave that part out. Never run them anywhere else. They would quietly create an empty `allstill.db` in the current directory and succeed: the ping key they print works nowhere, and an import would leave secret ping URLs in that folder.
+The examples below leave that part out. Anywhere else, those that use the database stop, saying there is none there.
 
 ## Watch a site or a port
 

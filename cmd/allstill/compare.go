@@ -75,15 +75,15 @@ Flags:
 		return errors.New("-since is a day, such as 2026-10-01")
 	}
 
-	hcChecks, err := importer.Fetch(ctx, http.DefaultClient, *base, key)
-	if err != nil {
-		return err
-	}
 	st, ws, err := openStore(ctx, *dbPath)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	hcChecks, err := importer.Fetch(ctx, http.DefaultClient, *base, key)
+	if err != nil {
+		return err
+	}
 	admin, err := st.AdminAccess(ctx, ws, "compare")
 	if err != nil {
 		return err

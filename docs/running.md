@@ -18,7 +18,7 @@ A package upgrade restarts a running service; removing the package stops it and 
 1. Set the address people will use, such as `ALLSTILL_BASE_URL=https://allstill.example.com`: in `/etc/allstill/allstill.env`, as `-e` for the container, or as `allstill serve -base-url`.
 2. Put a reverse proxy with TLS in front of `127.0.0.1:8000` (in the container, port 8000), and keep the `Host` header as it is.
 3. Start it: `systemctl enable --now allstill`, or run the container.
-4. Add yourself. Allstill prints a link that works once, for a day, where you make a passkey:
+4. Add yourself. The server makes its database when it first starts, and commands refuse to run without one. Allstill prints a link that works once, for a day, where you make a passkey:
 
    ```sh
    sudo -u allstill allstill admin create-user -db /var/lib/allstill/allstill.db -name "Ada" -email ada@example.com

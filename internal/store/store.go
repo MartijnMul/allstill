@@ -48,12 +48,50 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	return openWith(ctx, path, migrations)
 }
 
+// ErrNoDatabase means a path holds no Allstill database: nothing, an empty file,
+// which SQLite would take for a new one, or another program's SQLite file, which
+// migrating would write Allstill's tables into.
+var ErrNoDatabase = errors.New("no database")
+
+// OpenExisting opens the database at path as Open does, but creates nothing: only
+// the server starts a database, so a command run somewhere else cannot make one of
+// its own and appear to work.
+func OpenExisting(ctx context.Context, path string) (*Store, error) {
+	info, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) || err == nil && info.Size() == 0 {
+		return nil, ErrNoDatabase
+	}
+	if err != nil {
+		return nil, err
+	}
+	conn, err := sql.Open("sqlite", fileURI(path)+"?mode=rw&_pragma=busy_timeout(10000)")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	// Its own tables say whose it is: other programs use user_version as well.
+	var tables int
+	err = conn.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name IN ('workspaces', 'checks')`).Scan(&tables)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+	if tables != 2 {
+		return nil, ErrNoDatabase
+	}
+	return Open(ctx, path)
+}
+
+// fileURI is path as SQLite reads it, a URI: it escapes what would end it or be
+// decoded.
+func fileURI(path string) string {
+	return "file:" + strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
+}
+
 func openWith(ctx context.Context, path string, schema fs.FS) (*Store, error) {
 	// journal_size_limit shrinks the WAL file back after a burst of writes.
 	pragmas := []string{"foreign_keys(1)", "journal_mode(WAL)", "synchronous(NORMAL)", "busy_timeout(10000)", "journal_size_limit(67108864)"}
 	q := url.Values{"_pragma": pragmas}
-	// SQLite reads the path as a URI: escape what would end it or be decoded.
-	file := "file:" + strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(path)
+	file := fileURI(path)
 	w, err := sql.Open("sqlite", file+"?"+q.Encode()+"&_txlock=immediate")
 	if err != nil {
 		return nil, err
