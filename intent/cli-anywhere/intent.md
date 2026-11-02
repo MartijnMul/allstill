@@ -2,7 +2,7 @@
 # Intent: use the command line to create, manage and do things, from anywhere
 
 Author: Claude, confirmed by Martijn Mullié (maintainer)
-Status: draft
+Status: accepted
 Started: 2026-11-02
 
 ## Problem
@@ -44,8 +44,8 @@ The maintainer misses this on a real installation. Anyone else who sets up Allst
 
 ## Constraints
 
-- Nobody can do more through the command line than their role allows, and the same rules are applied in the same place, whichever way a request comes in. A check refused in the form is refused here. What today takes the server goes to whom ADR 0001 gives it: an owner for a project's members, an administrator for what belongs to the whole installation, such as creating a project. The dashboard offers none of that yet.
-- Decisions already accepted stand, unless the spec changes them on purpose and says so. ADR 0001 gives machines a key that belongs to a project, never to a person, and gives a person a token per device. The manage-checks spec (R20 to R22, C1) already chose which check operations the API serves and gave projects `read` and `manage` keys that an owner makes, to be built once something is about to use them, and left sign-in for people until the menu bar app. This intent is that something, and it asks for sign-in sooner.
+- Nobody can do more through the command line than their role allows, and the same rules are applied in the same place, whichever way a request comes in. A check refused in the form is refused here. What today takes the server goes to whom ADR 0001 gives it, such as an owner for a project's members and an administrator for people. ADR 0001 does not say who creates a project; this intent takes that to be an administrator, as it is today. The dashboard offers none of that yet.
+- Decisions already accepted stand, unless the spec changes them on purpose and says so. ADR 0001 gives machines keys that belong to a project or the workspace, never to a person, and gives a person a token per device. The manage-checks spec (R20 to R22, C1) already chose which check operations the API serves and gave projects `read` and `manage` keys that an owner makes, to be built once something is about to use them, and left sign-in for people until the menu bar app. This intent is that something, and it asks for sign-in sooner.
 - A ping URL, a project's ping key, a probe's key, a URL holding a token and any new credential stay secret: shown only to those who may see them, never in the log.
 - A credential can be taken away, and when it is, it stops working at once. Losing a laptop must not mean losing control of the installation.
 - Every action goes through the same record as the dashboard's, with who did it. The log's intent already expects the API to do so.
