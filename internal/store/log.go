@@ -190,9 +190,17 @@ func logStateChange(ctx context.Context, q *db.Queries, c db.Check, before, afte
 	if why.action {
 		return nil
 	}
-	// A ping that resumes a paused check is an action, which is always written.
+	open, err := q.OpenIncidentOfCheck(ctx, c.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	incident := err == nil
+	// A ping that resumes a paused check is an action, which is always written. A job
+	// that pings a moment after its time goes late and back on every run: that says
+	// little, must not bury anything, and must not use up what its real changes may.
 	resumed := before.State == check.Paused
-	if !resumed {
+	late := briefLate(before.State, after.State)
+	if !resumed && !late {
 		flapping, err := startsFlapping(ctx, q, c, when)
 		if err != nil || flapping == skipEntry {
 			return err
@@ -204,23 +212,21 @@ func logStateChange(ctx context.Context, q *db.Queries, c db.Check, before, afte
 			})
 		}
 	}
-	open, err := q.OpenIncidentOfCheck(ctx, c.ID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	incident := err == nil
 	details := map[string]any{"from": before.State, "to": after.State}
 	if reason := logReason(after.Reason); reason != "" {
 		details["reason"] = reason
 	}
 	kind := "check.state"
-	if resumed {
+	switch {
+	case resumed:
 		kind = "check.resumed"
+	case late:
+		kind = "check.late"
 	}
 	e := logEntry{
 		WorkspaceID: c.WorkspaceID, At: after.Since, Recorded: when, ProjectID: c.ProjectID, Kind: kind,
 		AboutKind: "check", AboutID: c.ID, AboutName: c.Name, By: why.by,
-		Hidden: quietChange(before.State, after.State, incident), Group: why.group, Details: details,
+		Hidden: late || quietChange(before.State, after.State, incident), Group: why.group, Details: details,
 	}
 	if incident {
 		e.IncidentID = open.ID
@@ -236,6 +242,13 @@ func quietChange(from, to check.State, incident bool) bool {
 		return true
 	}
 	return from == check.Unknown && (to == check.Up || to == check.New) && !incident
+}
+
+// briefLate says a change is a check going late, or back to up from it. Going on to
+// down is not this, and neither is a recovery: a down check never goes late, so its
+// recovery is never from late.
+func briefLate(from, to check.State) bool {
+	return to == check.Late || (from == check.Late && to == check.Up)
 }
 
 type flappingState int
@@ -283,7 +296,15 @@ func (s *Store) closeFlapping(ctx context.Context, now time.Time) error {
 		}
 		removed := err != nil
 		if !removed && !st.DeletedAt.Valid && now.Sub(time.UnixMilli(st.StateSince)) < flappingOver {
-			continue
+			// A job going late and back on every run has no state that lasts an hour, yet
+			// has settled if it has only done that for the hour since its last incident.
+			settled, err := onlyBrieflyLate(ctx, db.New(s.r), r.AboutID, st.Kind, st.State, now)
+			if err != nil {
+				return err
+			}
+			if !settled {
+				continue
+			}
 		}
 		e := logEntry{
 			WorkspaceID: r.WorkspaceID, At: now, ProjectID: r.ProjectID, ProjectName: r.ProjectName, Kind: "check.steady",
@@ -486,6 +507,27 @@ func logFailure(reason string) string {
 		return "the device must subscribe again"
 	}
 	return "it could not be sent"
+}
+
+// onlyBrieflyLate says a check that jobs ping, up or late, has had no incident for as
+// long as it takes to count as steady. An incident stays open while a check keeps
+// failing, until it has held for a while, so this tells a job that is a little late from
+// a flapping one. A check Allstill runs never goes late, and can change without an
+// incident, between up and a warning, so it must hold its state.
+func onlyBrieflyLate(ctx context.Context, q *db.Queries, checkID, kind, state string, now time.Time) (bool, error) {
+	if Active(kind) || (state != string(check.Up) && state != string(check.Late)) {
+		return false, nil
+	}
+	if _, err := q.OpenIncidentOfCheck(ctx, checkID); err == nil {
+		return false, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	closed, err := q.LastIncidentClosedOfCheck(ctx, checkID)
+	if err != nil {
+		return false, err
+	}
+	return now.Sub(time.UnixMilli(closed)) >= flappingOver, nil
 }
 
 // A reason on a check's page can hold what a JSON field said and what was expected,

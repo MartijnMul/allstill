@@ -17,11 +17,11 @@ SELECT name, workspace_admin FROM people WHERE workspace_id = ? AND id = ?;
 -- name: RoleInProject :one
 SELECT role FROM memberships WHERE project_id = ? AND person_id = ?;
 
--- The time of a check's state change this many back. On the path of a ping that
--- changes a state, so `+kind` keeps it to the check's own rows, statistics or not.
+-- The time of a check's state change this many back, going through its lines but not
+-- the late ones.
 -- name: StateEntryAgo :one
 SELECT recorded_at FROM log_entries
-WHERE about_id = ? AND +kind = 'check.state' ORDER BY id DESC LIMIT 1 OFFSET ?;
+WHERE about_id = ? AND kind <> 'check.late' AND +kind = 'check.state' ORDER BY id DESC LIMIT 1 OFFSET ?;
 
 -- name: LastFlappingEntry :one
 SELECT kind FROM log_entries
@@ -36,9 +36,15 @@ WHERE f.kind IN ('check.flapping', 'check.steady') AND f.kind = 'check.flapping'
       WHERE s.about_id = f.about_id AND s.kind IN ('check.flapping', 'check.steady') AND s.id > f.id
   );
 
+-- When a check's last incident closed, or zero.
+-- name: LastIncidentClosedOfCheck :one
+SELECT CAST(COALESCE(MAX(i.resolved_at), 0) AS INTEGER)
+FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
+WHERE ic.check_id = ?;
+
 -- A deleted check counts too: it is steady by being gone.
 -- name: StateSinceOfCheck :one
-SELECT state, state_since, deleted_at, project_id, name FROM checks WHERE id = ?;
+SELECT state, state_since, deleted_at, project_id, name, kind FROM checks WHERE id = ?;
 
 -- The checks of an incident as they are now, or as they were when one has gone.
 -- name: ChecksOfIncident :many
@@ -62,25 +68,36 @@ DELETE FROM log_entries WHERE id IN (
 
 -- Each way of reading the log: the newest entries before a number, from one index.
 -- Who may see what is judged in one place, on what these return (logread.go), so a
--- filter cannot reach past it.
+-- filter cannot reach past it. Late lines have queries and indexes of their own, used
+-- only when asked for, so a job that goes late on every run cannot use up what a page
+-- may read and hide an older outage. Only an administrator's whole list skips them here.
 
 -- name: LogEntriesAll :many
-SELECT * FROM log_entries WHERE id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+SELECT * FROM log_entries WHERE (kind <> 'check.late' OR CAST(sqlc.arg(late) AS INTEGER) = 1) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
 -- name: LogEntriesOfProject :many
-SELECT * FROM log_entries WHERE project_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+SELECT * FROM log_entries WHERE project_id = sqlc.arg(of) AND kind <> 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
 -- name: LogEntriesAbout :many
-SELECT * FROM log_entries WHERE about_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+SELECT * FROM log_entries WHERE about_id = sqlc.arg(of) AND kind <> 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
 -- name: LogEntriesNamed :many
-SELECT * FROM log_entries WHERE about_name = sqlc.arg(of) COLLATE NOCASE AND about_name <> '' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+SELECT * FROM log_entries WHERE about_name = sqlc.arg(of) COLLATE NOCASE AND about_name <> '' AND kind <> 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
 -- name: LogEntriesBy :many
 SELECT * FROM log_entries WHERE by_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
 -- name: LogEntriesConcerning :many
 SELECT * FROM log_entries WHERE person_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesLateOfProject :many
+SELECT * FROM log_entries WHERE project_id = sqlc.arg(of) AND kind = 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesLateAbout :many
+SELECT * FROM log_entries WHERE about_id = sqlc.arg(of) AND kind = 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesLateNamed :many
+SELECT * FROM log_entries WHERE about_name = sqlc.arg(of) COLLATE NOCASE AND about_name <> '' AND kind = 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
 -- name: LogEntriesOwn :many
 SELECT * FROM log_entries WHERE person_id = sqlc.arg(of) AND project_id = '' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);

@@ -25,8 +25,11 @@ type LogFilter struct {
 	Name      string
 	What      string
 	Group     string
-	Before    int64 // only entries older than this number
-	Limit     int
+	// Late also shows a check going late and back, which a job that pings a moment
+	// after its time does on every run.
+	Late   bool
+	Before int64 // only entries older than this number
+	Limit  int
 }
 
 // LogParty is who acted or whom an entry concerns, as far as the reader may know.
@@ -71,7 +74,7 @@ var logScanLimit = 50_000
 // logClass says which of the filters a kind belongs to.
 func logClass(kind string) string {
 	switch {
-	case kind == "check.state", kind == "check.flapping", kind == "check.steady", kind == "checks.unjudged":
+	case kind == "check.state", kind == "check.late", kind == "check.flapping", kind == "check.steady", kind == "checks.unjudged":
 		return "happened"
 	case strings.HasPrefix(kind, "message."):
 		return "reached"
@@ -83,7 +86,7 @@ func logClass(kind string) string {
 
 // logKindsOf lists the kinds of a filter, for an administrator's query by kind.
 var logKindsOf = map[string][]string{
-	"happened": {"check.state", "check.flapping", "check.steady", "checks.unjudged"},
+	"happened": {"check.state", "check.late", "check.flapping", "check.steady", "checks.unjudged"},
 	"reached":  {"message.reached", "message.reached_several", "message.shadow", "message.shadow_several", "message.unreached"},
 	"signins":  {"signin", "passkey.added", "passkey.looks_copied"},
 }
@@ -91,7 +94,7 @@ var logKindsOf = map[string][]string{
 // Who may read a kind of entry in a project they are in; an administrator reads
 // everything. A kind not listed is for administrators, so a new kind starts out hidden.
 var logMinRole = map[string]Role{
-	"check.state": Viewer, "check.flapping": Viewer, "check.steady": Viewer, "checks.unjudged": Viewer,
+	"check.state": Viewer, "check.late": Viewer, "check.flapping": Viewer, "check.steady": Viewer, "checks.unjudged": Viewer,
 	"check.created": Viewer, "check.changed": Viewer, "check.paused": Viewer, "check.resumed": Viewer,
 	"check.moved_out": Viewer, "check.moved_in": Viewer, "check.deleted": Viewer, "check.ping_url_replaced": Viewer,
 	"project.renamed": Viewer,
@@ -191,8 +194,23 @@ func readLogEntry(r db.LogEntry, a Access) (LogEntry, bool) {
 	return e, true
 }
 
+// isLate says an entry is a check going late or back from it. Those written before
+// they had a kind of their own are told by what they say.
+func (e LogEntry) isLate() bool {
+	if e.Kind == "check.late" {
+		return true
+	}
+	if e.Kind != "check.state" {
+		return false
+	}
+	return e.Details["to"] == "late" || (e.Details["from"] == "late" && e.Details["to"] == "up")
+}
+
 // matches says whether an entry the reader may see is what they narrowed to.
 func (f LogFilter) matches(e LogEntry) bool {
+	if e.isLate() && !f.Late {
+		return false
+	}
 	switch {
 	case f.CheckID != "" && e.AboutID != f.CheckID:
 		return false
@@ -211,63 +229,75 @@ func (f LogFilter) matches(e LogEntry) bool {
 	}
 	// A check's own going into unknown, or what a line stands for, shows when asked
 	// for by that check or that line (R17, R19).
-	return !e.Hidden || f.CheckID != "" || f.Name != "" || f.Group != ""
+	return !e.Hidden || e.isLate() || f.CheckID != "" || f.Name != "" || f.Group != ""
 }
 
 type logSource func(ctx context.Context, q *db.Queries, before, batch int64) ([]db.LogEntry, error)
 
-func logOf(query func(context.Context, *db.Queries, string, int64, int64) ([]db.LogEntry, error), of string) logSource {
-	return func(ctx context.Context, q *db.Queries, before, batch int64) ([]db.LogEntry, error) {
-		return query(ctx, q, of, before, batch)
+// logFrom is a query by one value, as a source.
+func logFrom[P any](of string, params func(of string, before, batch int64) P, query func(context.Context, P) ([]db.LogEntry, error)) logSource {
+	return func(ctx context.Context, _ *db.Queries, before, batch int64) ([]db.LogEntry, error) {
+		return query(ctx, params(of, before, batch))
 	}
-}
-
-func logProject(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesOfProject(ctx, db.LogEntriesOfProjectParams{Of: of, Before: before, Batch: batch})
-}
-
-func logAbout(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesAbout(ctx, db.LogEntriesAboutParams{Of: of, Before: before, Batch: batch})
-}
-
-func logNamed(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesNamed(ctx, db.LogEntriesNamedParams{Of: of, Before: before, Batch: batch})
-}
-
-func logBy(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesBy(ctx, db.LogEntriesByParams{Of: of, Before: before, Batch: batch})
-}
-
-func logConcerning(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesConcerning(ctx, db.LogEntriesConcerningParams{Of: of, Before: before, Batch: batch})
-}
-
-func logOwn(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesOwn(ctx, db.LogEntriesOwnParams{Of: of, Before: before, Batch: batch})
-}
-
-func logOfKind(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesOfKind(ctx, db.LogEntriesOfKindParams{Of: of, Before: before, Batch: batch})
-}
-
-func logOfGroup(ctx context.Context, q *db.Queries, of string, before, batch int64) ([]db.LogEntry, error) {
-	return q.LogEntriesOfGroup(ctx, db.LogEntriesOfGroupParams{Of: of, Before: before, Batch: batch})
 }
 
 // logSources picks the indexes that serve a request; whatever else it asks is
 // checked on what they return.
-func logSources(f LogFilter, a Access) []logSource {
+func logSources(q *db.Queries, f LogFilter, a Access) []logSource {
+	withLate := func(calm, late logSource) []logSource {
+		// Late lines only belong to what happened, so nothing else reads through them.
+		if f.Late && (f.What == "" || f.What == "happened") {
+			return []logSource{calm, late}
+		}
+		return []logSource{calm}
+	}
+	about := func(of string) []logSource {
+		return withLate(
+			logFrom(of, func(of string, before, batch int64) db.LogEntriesAboutParams {
+				return db.LogEntriesAboutParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesAbout),
+			logFrom(of, func(of string, before, batch int64) db.LogEntriesLateAboutParams {
+				return db.LogEntriesLateAboutParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesLateAbout))
+	}
+	named := func(of string) []logSource {
+		return withLate(
+			logFrom(of, func(of string, before, batch int64) db.LogEntriesNamedParams {
+				return db.LogEntriesNamedParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesNamed),
+			logFrom(of, func(of string, before, batch int64) db.LogEntriesLateNamedParams {
+				return db.LogEntriesLateNamedParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesLateNamed))
+	}
+	project := func(of string) []logSource {
+		return withLate(
+			logFrom(of, func(of string, before, batch int64) db.LogEntriesOfProjectParams {
+				return db.LogEntriesOfProjectParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesOfProject),
+			logFrom(of, func(of string, before, batch int64) db.LogEntriesLateOfProjectParams {
+				return db.LogEntriesLateOfProjectParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesLateOfProject))
+	}
 	switch {
 	case f.Group != "":
-		return []logSource{logOf(logOfGroup, f.Group)}
+		return []logSource{logFrom(f.Group, func(of string, before, batch int64) db.LogEntriesOfGroupParams {
+			return db.LogEntriesOfGroupParams{Of: of, Before: before, Batch: batch}
+		}, q.LogEntriesOfGroup)}
 	case f.CheckID != "":
-		return []logSource{logOf(logAbout, f.CheckID)}
+		return about(f.CheckID)
 	case f.Name != "":
-		return []logSource{logOf(logNamed, f.Name)}
+		return named(f.Name)
 	case f.PersonID != "":
-		return []logSource{logOf(logBy, f.PersonID), logOf(logConcerning, f.PersonID)}
+		return []logSource{
+			logFrom(f.PersonID, func(of string, before, batch int64) db.LogEntriesByParams {
+				return db.LogEntriesByParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesBy),
+			logFrom(f.PersonID, func(of string, before, batch int64) db.LogEntriesConcerningParams {
+				return db.LogEntriesConcerningParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesConcerning),
+		}
 	case f.ProjectID != "":
-		return []logSource{logOf(logProject, f.ProjectID)}
+		return project(f.ProjectID)
 	}
 	var sources []logSource
 	if a.Admin {
@@ -275,19 +305,30 @@ func logSources(f LogFilter, a Access) []logSource {
 		if !narrow {
 			// "done" is most of what is not the others, so it reads everything.
 			return []logSource{func(ctx context.Context, q *db.Queries, before, batch int64) ([]db.LogEntry, error) {
-				return q.LogEntriesAll(ctx, db.LogEntriesAllParams{Before: before, Batch: batch})
+				return q.LogEntriesAll(ctx, db.LogEntriesAllParams{Late: boolInt(f.Late), Before: before, Batch: batch})
 			}}
 		}
 		for _, k := range kinds {
-			sources = append(sources, logOf(logOfKind, k))
+			if k == "check.late" && !f.Late {
+				continue
+			}
+			sources = append(sources, logFrom(k, func(of string, before, batch int64) db.LogEntriesOfKindParams {
+				return db.LogEntriesOfKindParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesOfKind))
 		}
 		return sources
 	}
 	for _, p := range a.Projects {
-		sources = append(sources, logOf(logProject, p.ID))
+		// What a role cannot read in a project is not worth reading through it for.
+		if f.What == "signins" || (f.What == "reached" && p.Role == Viewer) {
+			continue
+		}
+		sources = append(sources, project(p.ID)...)
 	}
 	if a.PersonID != "" {
-		sources = append(sources, logOf(logOwn, a.PersonID))
+		sources = append(sources, logFrom(a.PersonID, func(of string, before, batch int64) db.LogEntriesOwnParams {
+			return db.LogEntriesOwnParams{Of: of, Before: before, Batch: batch}
+		}, q.LogEntriesOwn))
 	}
 	return sources
 }
@@ -316,7 +357,7 @@ func (s *Store) ReadLog(ctx context.Context, a Access, f LogFilter) (LogPage, er
 	if before <= 0 {
 		before = math.MaxInt64
 	}
-	sources := logSources(f, a)
+	sources := logSources(q, f, a)
 	buffers := make([][]db.LogEntry, len(sources))
 	cursors := make([]int64, len(sources))
 	finished := make([]bool, len(sources))

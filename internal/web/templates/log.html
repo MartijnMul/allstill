@@ -11,6 +11,7 @@
     <div class="field grow"><label for="log-name">Check, by its exact name</label><input id="log-name" name="name" type="text" value="{{.Name}}"></div>
     <div class="field"><label for="log-project">Project</label><select id="log-project" name="project">{{range .Projects}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
     <div class="field"><label for="log-what">What</label><select id="log-what" name="what">{{range .Whats}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+    <label class="tick"><input type="checkbox" name="late" value="1"{{if .Late}} checked{{end}}> Also when a check was briefly late</label>
     <button type="submit" class="button">Show</button>
   </form>
   {{if .Chips}}<p class="log-chips">{{range .Chips}}<span class="tag">{{.Label}} <a href="{{.Clear}}" aria-label="Stop narrowing to {{.Label}}">×</a></span> {{end}}</p>{{end}}

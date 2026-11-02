@@ -676,6 +676,7 @@ func TestQuietChange(t *testing.T) {
 		{check.Down, check.Up, true, false},
 		{check.Up, check.Late, false, false},
 	} {
+		// Going late has its own rule, in briefLate.
 		if got := quietChange(tc.from, tc.to, tc.incident); got != tc.want {
 			t.Errorf("%s to %s, incident %v: %v", tc.from, tc.to, tc.incident, got)
 		}
@@ -1040,5 +1041,169 @@ func TestAMessageAboutAMovedCheckNamesNobodyThere(t *testing.T) {
 	})
 	if got[0].ProjectID != other || got[0].PersonOutsider != 1 || detailsOfEntry(t, got[0])["person_elsewhere"] != true {
 		t.Errorf("%+v", got[0])
+	}
+}
+
+func TestBriefLate(t *testing.T) {
+	for _, tc := range []struct {
+		from, to check.State
+		want     bool
+	}{
+		{check.Up, check.Late, true},
+		{check.Warning, check.Late, true},
+		{check.Late, check.Up, true},
+		{check.Late, check.Down, false}, // an outage
+		{check.Up, check.Down, false},
+		{check.Down, check.Up, false}, // a recovery
+		{check.Unknown, check.Up, false},
+	} {
+		if got := briefLate(tc.from, tc.to); got != tc.want {
+			t.Errorf("%s to %s: %v", tc.from, tc.to, got)
+		}
+	}
+}
+
+// A job that pings a moment after its time goes late and back on every run. That is
+// written and hidden, uses up nothing of the ceiling, and a real outage still shows.
+func TestAJobThatIsAlwaysALittleLate(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	c, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "often", Interval: time.Minute, Grace: time.Hour})
+	must(t, err)
+	_, err = f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", at))
+	must(t, err)
+	last := at
+	for range 100 {
+		_, err := f.s.ProcessDue(ctx, last.Add(time.Minute+time.Second))
+		must(t, err)
+		last = last.Add(time.Minute + 2*time.Second)
+		_, err = f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", last))
+		must(t, err)
+	}
+	var late, state int
+	for _, e := range entries(t, f.s) {
+		switch {
+		case e.AboutID != c.ID:
+		case e.Kind == "check.late":
+			late++
+			if e.Hidden != 1 {
+				t.Errorf("%+v", e)
+			}
+		case e.Kind == "check.flapping":
+			t.Errorf("late runs reached the ceiling: %+v", e)
+		case e.Kind == "check.state":
+			state++
+		}
+	}
+	if late != 200 || state != 1 {
+		t.Errorf("%d late, %d state", late, state)
+	}
+	// A real outage is written, and shows.
+	got := since(t, f.s, func() {
+		_, err := f.s.Ping(ctx, ping(c.PingUUID, check.Fail, "", last.Add(time.Second)))
+		must(t, err)
+	})
+	if !slices.Equal(kinds(got), []string{"check.state"}) || got[0].Hidden != 0 {
+		t.Errorf("%+v", got)
+	}
+}
+
+// A check past its ceiling that then only goes a little late on every run has settled,
+// though no state of it lasts an hour; one that keeps failing has not (R16, R17a).
+func TestAFlappingCheckThatIsOnlyLateSettles(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	checkID, uuid := f.pingCheck(t)
+	for i := range 40 {
+		kind := check.Fail
+		if i%2 == 1 {
+			kind = check.Success
+		}
+		_, err := f.s.Ping(ctx, ping(uuid, kind, "", at.Add(time.Duration(i)*time.Second)))
+		must(t, err)
+	}
+	// Still with its incident open, it has not settled, whatever its state.
+	got := since(t, f.s, func() { must(t, f.s.closeFlapping(ctx, at.Add(5*time.Minute))) })
+	if len(got) != 0 {
+		t.Fatalf("%v", kinds(got))
+	}
+	// Its incident closes, then the job only goes late and back.
+	for {
+		n, err := f.s.SettleIncidents(ctx, at.Add(20*time.Minute), 10*time.Minute)
+		must(t, err)
+		if n == 0 {
+			break
+		}
+	}
+	if len(f.incidents(t)) == 0 || f.incidents(t)[len(f.incidents(t))-1].State != "resolved" {
+		t.Fatalf("%+v", f.incidents(t))
+	}
+	last := at.Add(20 * time.Minute)
+	_, err := f.s.Ping(ctx, ping(uuid, check.Success, "", last))
+	must(t, err)
+	// An hour after it closed, with a change of state moments ago.
+	_, err = f.s.w.ExecContext(ctx, `UPDATE checks SET state = 'late', state_since = ? WHERE id = ?`, at.Add(90*time.Minute).UnixMilli(), checkID)
+	must(t, err)
+	got = since(t, f.s, func() { must(t, f.s.closeFlapping(ctx, at.Add(91*time.Minute))) })
+	if !slices.Equal(kinds(got), []string{"check.steady"}) || detailsOfEntry(t, got[0])["state"] != "late" {
+		t.Fatalf("%+v", got)
+	}
+	// So a real outage is written again.
+	got = since(t, f.s, func() {
+		_, err := f.s.Ping(ctx, ping(uuid, check.Fail, "", at.Add(92*time.Minute)))
+		must(t, err)
+	})
+	if !slices.Equal(kinds(got), []string{"check.state"}) {
+		t.Errorf("%v", kinds(got))
+	}
+}
+
+// A check Allstill runs can flip between up and a warning with no incident at all. Being
+// up with no incident does not make it steady: it must hold its state (R16).
+func TestAFlappingCheckWithoutIncidentsHasNotSettled(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	id := f.httpCheck(t)
+	var when time.Time
+	for i := range 40 {
+		when = at.Add(time.Duration(i) * 30 * time.Second)
+		outcome := check.Warned
+		if i%2 == 1 {
+			outcome = check.Passed
+		}
+		_, err := f.s.RecordAttempt(ctx, f.ws, id, Attempt{Attempt: check.Attempt{Outcome: outcome, Reason: "certificate expires in 3 days", At: when}})
+		must(t, err)
+	}
+	if c := f.get(t, id); c.State != string(check.Up) {
+		t.Fatalf("%s", c.State)
+	}
+	if got := since(t, f.s, func() { must(t, f.s.closeFlapping(ctx, when.Add(time.Minute))) }); len(got) != 0 {
+		t.Errorf("settled while flipping: %v", kinds(got))
+	}
+	got := since(t, f.s, func() { must(t, f.s.closeFlapping(ctx, when.Add(2*time.Hour))) })
+	if !slices.Equal(kinds(got), []string{"check.steady"}) {
+		t.Errorf("%v", kinds(got))
+	}
+}
+
+// The ceiling's lookup reads only what it needs, however many late lines a check has.
+func TestTheCeilingUsesItsIndex(t *testing.T) {
+	s := open(t)
+	rows, err := s.r.QueryContext(t.Context(), `EXPLAIN QUERY PLAN SELECT recorded_at FROM log_entries
+		WHERE about_id = 'x' AND kind <> 'check.late' AND +kind = 'check.state' ORDER BY id DESC LIMIT 1 OFFSET 29`)
+	must(t, err)
+	defer rows.Close()
+	var text string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		must(t, rows.Scan(&id, &parent, &unused, &detail))
+		text += detail
+	}
+	if !strings.Contains(text, "log_entries_about") || strings.Contains(text, "TEMP B-TREE") {
+		t.Errorf("%s", text)
 	}
 }

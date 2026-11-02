@@ -393,8 +393,9 @@ form.inline input { flex: 1 1 220px; min-width: 0; }
 
 /* The log */
 .log-filter.form { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: 12px 14px; max-width: none; margin-bottom: 14px; padding: 0; background: none; box-shadow: none; }
-.log-filter .field { flex: 0 1 200px; align-self: auto; }
-.log-filter .field.grow { flex: 1 1 240px; }
+.log-filter .field { flex: 0 1 165px; align-self: auto; }
+.log-filter .field.grow { flex: 1 1 190px; }
+.log-filter .tick { flex: none; padding-bottom: 8px; }
 .log-filter .button { flex: none; height: 36px; }
 .log-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .log-chips .tag a { margin-left: 4px; color: var(--muted); text-decoration: none; }

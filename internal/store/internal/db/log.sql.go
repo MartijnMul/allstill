@@ -197,6 +197,20 @@ func (q *Queries) LastFlappingEntry(ctx context.Context, aboutID string) (string
 	return kind, err
 }
 
+const lastIncidentClosedOfCheck = `-- name: LastIncidentClosedOfCheck :one
+SELECT CAST(COALESCE(MAX(i.resolved_at), 0) AS INTEGER)
+FROM incident_checks ic JOIN incidents i ON i.id = ic.incident_id
+WHERE ic.check_id = ?
+`
+
+// When a check's last incident closed, or zero.
+func (q *Queries) LastIncidentClosedOfCheck(ctx context.Context, checkID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lastIncidentClosedOfCheck, checkID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const lastReachOfIncident = `-- name: LastReachOfIncident :one
 SELECT kind FROM log_entries
 WHERE incident_id = ? AND incident_id <> '' AND person_id = ? AND kind IN ('message.reached', 'message.unreached')
@@ -217,7 +231,7 @@ func (q *Queries) LastReachOfIncident(ctx context.Context, arg LastReachOfIncide
 }
 
 const logEntriesAbout = `-- name: LogEntriesAbout :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_id = ?1 AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesAboutParams struct {
@@ -273,19 +287,22 @@ func (q *Queries) LogEntriesAbout(ctx context.Context, arg LogEntriesAboutParams
 
 const logEntriesAll = `-- name: LogEntriesAll :many
 
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE id < ?1 ORDER BY id DESC LIMIT ?2
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE (kind <> 'check.late' OR CAST(?1 AS INTEGER) = 1) AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesAllParams struct {
+	Late   int64
 	Before int64
 	Batch  int64
 }
 
 // Each way of reading the log: the newest entries before a number, from one index.
 // Who may see what is judged in one place, on what these return (logread.go), so a
-// filter cannot reach past it.
+// filter cannot reach past it. Late lines have queries and indexes of their own, used
+// only when asked for, so a job that goes late on every run cannot use up what a page
+// may read and hide an older outage. Only an administrator's whole list skips them here.
 func (q *Queries) LogEntriesAll(ctx context.Context, arg LogEntriesAllParams) ([]LogEntry, error) {
-	rows, err := q.db.QueryContext(ctx, logEntriesAll, arg.Before, arg.Batch)
+	rows, err := q.db.QueryContext(ctx, logEntriesAll, arg.Late, arg.Before, arg.Batch)
 	if err != nil {
 		return nil, err
 	}
@@ -439,8 +456,173 @@ func (q *Queries) LogEntriesConcerning(ctx context.Context, arg LogEntriesConcer
 	return items, nil
 }
 
+const logEntriesLateAbout = `-- name: LogEntriesLateAbout :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_id = ?1 AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesLateAboutParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesLateAbout(ctx context.Context, arg LogEntriesLateAboutParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesLateAbout, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesLateNamed = `-- name: LogEntriesLateNamed :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_name = ?1 COLLATE NOCASE AND about_name <> '' AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesLateNamedParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesLateNamed(ctx context.Context, arg LogEntriesLateNamedParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesLateNamed, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesLateOfProject = `-- name: LogEntriesLateOfProject :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE project_id = ?1 AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesLateOfProjectParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesLateOfProject(ctx context.Context, arg LogEntriesLateOfProjectParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesLateOfProject, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const logEntriesNamed = `-- name: LogEntriesNamed :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_name = ?1 COLLATE NOCASE AND about_name <> '' AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_name = ?1 COLLATE NOCASE AND about_name <> '' AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesNamedParams struct {
@@ -605,7 +787,7 @@ func (q *Queries) LogEntriesOfKind(ctx context.Context, arg LogEntriesOfKindPara
 }
 
 const logEntriesOfProject = `-- name: LogEntriesOfProject :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE project_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE project_id = ?1 AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesOfProjectParams struct {
@@ -764,7 +946,7 @@ func (q *Queries) RoleInProject(ctx context.Context, arg RoleInProjectParams) (s
 
 const stateEntryAgo = `-- name: StateEntryAgo :one
 SELECT recorded_at FROM log_entries
-WHERE about_id = ? AND +kind = 'check.state' ORDER BY id DESC LIMIT 1 OFFSET ?
+WHERE about_id = ? AND kind <> 'check.late' AND +kind = 'check.state' ORDER BY id DESC LIMIT 1 OFFSET ?
 `
 
 type StateEntryAgoParams struct {
@@ -772,8 +954,8 @@ type StateEntryAgoParams struct {
 	Offset  int64
 }
 
-// The time of a check's state change this many back. On the path of a ping that
-// changes a state, so `+kind` keeps it to the check's own rows, statistics or not.
+// The time of a check's state change this many back, going through its lines but not
+// the late ones.
 func (q *Queries) StateEntryAgo(ctx context.Context, arg StateEntryAgoParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, stateEntryAgo, arg.AboutID, arg.Offset)
 	var recorded_at int64
@@ -782,7 +964,7 @@ func (q *Queries) StateEntryAgo(ctx context.Context, arg StateEntryAgoParams) (i
 }
 
 const stateSinceOfCheck = `-- name: StateSinceOfCheck :one
-SELECT state, state_since, deleted_at, project_id, name FROM checks WHERE id = ?
+SELECT state, state_since, deleted_at, project_id, name, kind FROM checks WHERE id = ?
 `
 
 type StateSinceOfCheckRow struct {
@@ -791,6 +973,7 @@ type StateSinceOfCheckRow struct {
 	DeletedAt  sql.NullInt64
 	ProjectID  string
 	Name       string
+	Kind       string
 }
 
 // A deleted check counts too: it is steady by being gone.
@@ -803,6 +986,7 @@ func (q *Queries) StateSinceOfCheck(ctx context.Context, id string) (StateSinceO
 		&i.DeletedAt,
 		&i.ProjectID,
 		&i.Name,
+		&i.Kind,
 	)
 	return i, err
 }

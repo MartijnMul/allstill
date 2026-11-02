@@ -36,7 +36,7 @@ func TestTheLogIsQuickAtThreeMillionEntries(t *testing.T) {
 			return fmt.Sprintf("prj_%d", r.Intn(projects))
 		}
 	}
-	kinds := []string{"check.state", "check.state", "check.state", "check.state", "message.reached", "message.reached", "check.changed", "check.state"}
+	kinds := []string{"check.state", "check.state", "check.late", "check.late", "message.reached", "message.reached", "check.changed", "check.state"}
 	start := time.Now()
 	for done := 0; done < total; {
 		tx, err := s.w.BeginTx(ctx, nil)
@@ -51,6 +51,9 @@ func TestTheLogIsQuickAtThreeMillionEntries(t *testing.T) {
 				kind = "signin"
 			}
 			check := fmt.Sprintf("chk_%d", r.Intn(5000))
+			if kind == "check.late" && r.Intn(2) == 0 {
+				check = "chk_always_late" // a third of a million lines, on one check
+			}
 			person := fmt.Sprintf("per_%d", r.Intn(50))
 			at := int64(done) * 1000
 			_, err := stmt.ExecContext(ctx, ws, at, at, projectOf(), kind, check, check, person, person)
@@ -87,6 +90,9 @@ func TestTheLogIsQuickAtThreeMillionEntries(t *testing.T) {
 		{"administrator, what was done", admin, LogFilter{What: "done"}},
 		{"administrator, one person", admin, LogFilter{PersonID: "per_7"}},
 		{"administrator, one check", admin, LogFilter{CheckID: "chk_42"}},
+		{"administrator, an always-late check", admin, LogFilter{CheckID: "chk_always_late"}},
+		{"administrator, an always-late check, late too", admin, LogFilter{CheckID: "chk_always_late", Late: true}},
+		{"editor of the big project, late too", access(Editor, "prj_big"), LogFilter{Late: true}},
 		{"administrator, a name", admin, LogFilter{Name: "chk_42"}},
 		{"administrator, a name nothing has", admin, LogFilter{Name: "nothing"}},
 		{"administrator, one project", admin, LogFilter{ProjectID: "prj_small"}},
@@ -99,6 +105,9 @@ func TestTheLogIsQuickAtThreeMillionEntries(t *testing.T) {
 		{"viewer of a small project", access(Viewer, "prj_small"), LogFilter{}},
 		{"viewer of a project with nothing", access(Viewer, "prj_empty"), LogFilter{}},
 		{"reader of one person they may not read", access(Viewer, "prj_small"), LogFilter{PersonID: "per_7"}},
+		{"viewer of a project with nothing, late too", access(Viewer, "prj_empty"), LogFilter{Late: true}},
+		{"administrator, a name, late too", admin, LogFilter{Name: "chk_always_late", Late: true}},
+		{"administrator, a name with only late lines", admin, LogFilter{Name: "chk_always_late"}},
 	}
 	run := func(label string) {
 		for _, c := range cases {

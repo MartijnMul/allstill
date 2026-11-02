@@ -395,7 +395,7 @@ func TestTheLogsQueriesUseTheirIndexes(t *testing.T) {
 	raw, err := os.ReadFile("queries/log.sql")
 	must(t, err)
 	queries := regexp.MustCompile(`(?s)-- name: (LogEntries\w+) :many\n(.*?);`).FindAllStringSubmatch(string(raw), -1)
-	if len(queries) < 8 {
+	if len(queries) != 12 {
 		t.Fatalf("%d queries found", len(queries))
 	}
 	args := regexp.MustCompile(`sqlc\.arg\((\w+)\)`)
@@ -406,6 +406,8 @@ func TestTheLogsQueriesUseTheirIndexes(t *testing.T) {
 				return "1000"
 			case "sqlc.arg(batch)":
 				return "200"
+			case "sqlc.arg(late)":
+				return "0"
 			}
 			return "'x'"
 		})
@@ -423,11 +425,17 @@ func TestTheLogsQueriesUseTheirIndexes(t *testing.T) {
 		if strings.Contains(text, "TEMP B-TREE") {
 			t.Errorf("%s sorts: %s", q[1], text)
 		}
-		if q[1] != "LogEntriesAll" && !strings.Contains(text, "USING INDEX") && !strings.Contains(text, "USING COVERING INDEX") {
-			t.Errorf("%s uses no index: %s", q[1], text)
+		want, ok := map[string]string{
+			"LogEntriesAll": "INTEGER PRIMARY KEY", "LogEntriesOfProject": "log_entries_project (", "LogEntriesAbout": "log_entries_about (",
+			"LogEntriesNamed": "log_entries_name (", "LogEntriesBy": "log_entries_by (", "LogEntriesConcerning": "log_entries_person (",
+			"LogEntriesOwn": "log_entries_own (", "LogEntriesOfKind": "log_entries_kind (", "LogEntriesOfGroup": "log_entries_group (",
+			"LogEntriesLateOfProject": "log_entries_project_late (", "LogEntriesLateAbout": "log_entries_about_late (", "LogEntriesLateNamed": "log_entries_name_late (",
+		}[q[1]]
+		if !ok {
+			t.Errorf("%s: which index should it use?", q[1])
 		}
-		if q[1] == "LogEntriesAll" && !strings.Contains(text, "INTEGER PRIMARY KEY") {
-			t.Errorf("%s: %s", q[1], text)
+		if !strings.Contains(text, want) {
+			t.Errorf("%s uses %s, want %s", q[1], text, want)
 		}
 	}
 }
@@ -482,10 +490,102 @@ func TestAPageCutShort(t *testing.T) {
 		t.Errorf("%+v", p)
 	}
 	// And a list cut short with nothing to show still goes on.
-	viewerOfOther := w.both
-	p, err = w.s.ReadLog(ctx, viewerOfOther, LogFilter{What: "signins"})
+	p, err = w.s.ReadLog(ctx, w.both, LogFilter{What: "reached"})
 	must(t, err)
 	if p.Older == 0 || len(p.Entries) != 0 {
 		t.Errorf("%+v", p)
+	}
+}
+
+// Late lines stay out of every list until asked for, also the ones written before they
+// had a kind of their own, and also when narrowed to the check.
+func TestLateLinesAreAskedFor(t *testing.T) {
+	w := newLogWorld(t)
+	ctx := t.Context()
+	_, err := w.s.Ping(ctx, ping(w.uuid, check.Success, "", w.at))
+	must(t, err)
+	_, err = w.s.ProcessDue(ctx, w.at.Add(61*time.Minute))
+	must(t, err)
+	_, err = w.s.Ping(ctx, ping(w.uuid, check.Success, "", w.at.Add(62*time.Minute)))
+	must(t, err)
+	// As rc24 and rc25 wrote them.
+	_, err = w.s.w.ExecContext(ctx, `INSERT INTO log_entries (workspace_id, happened_at, recorded_at, project_id, kind, about_kind, about_id, about_name, by_kind, details)
+		VALUES (?, 1, 1, ?, 'check.state', 'check', ?, 'backup.sh', 'allstill', '{"from":"up","to":"late"}'),
+		       (?, 1, 1, ?, 'check.state', 'check', ?, 'backup.sh', 'job', '{"from":"late","to":"up"}')`, w.ws, w.project, w.checkID, w.ws, w.project, w.checkID)
+	must(t, err)
+	isLate := func(e LogEntry) bool { return e.isLate() }
+	for name, f := range map[string]LogFilter{
+		"the list": {Limit: 200}, "a check": {CheckID: w.checkID, Limit: 200}, "a name": {Name: "backup.sh", Limit: 200},
+		"a project": {ProjectID: w.project, Limit: 200}, "what happened": {What: "happened", Limit: 200},
+	} {
+		if es := w.read(t, w.editor, f); slices.ContainsFunc(es, isLate) {
+			t.Errorf("%s: %v", name, kindsSeen(es))
+		}
+		f.Late = true
+		es := w.read(t, w.editor, f)
+		n := 0
+		for _, e := range es {
+			if e.isLate() {
+				n++
+			}
+		}
+		if n != 4 {
+			t.Errorf("%s, asked for: %d late lines in %v", name, n, kindsSeen(es))
+		}
+	}
+	// Asked for, they still keep to what else was asked.
+	if es := w.read(t, w.editor, LogFilter{What: "done", Late: true, Limit: 200}); slices.ContainsFunc(es, isLate) {
+		t.Errorf("%v", kindsSeen(es))
+	}
+	// A viewer may read them, as any other state change.
+	if es := w.read(t, w.viewer, LogFilter{CheckID: w.checkID, Late: true}); !slices.ContainsFunc(es, isLate) {
+		t.Errorf("%v", kindsSeen(es))
+	}
+	// A late check that goes on to go down is no late line.
+	_, err = w.s.ProcessDue(ctx, w.at.Add(10*time.Hour))
+	must(t, err)
+	es := w.read(t, w.editor, LogFilter{CheckID: w.checkID})
+	if !slices.ContainsFunc(es, func(e LogEntry) bool { return e.Kind == "check.state" && e.Details["to"] == "down" }) {
+		t.Errorf("%v", kindsSeen(es))
+	}
+}
+
+// However many late lines a job has written, what is older still shows when narrowed to
+// the check: those lines use up nothing of what a page may read (R17a, R28).
+func TestLateLinesDoNotHideAnOlderOutage(t *testing.T) {
+	w := newLogWorld(t)
+	ctx := t.Context()
+	was := logScanLimit
+	logScanLimit = 20
+	t.Cleanup(func() { logScanLimit = was })
+	_, err := w.s.Ping(ctx, ping(w.uuid, check.Fail, "", w.at))
+	must(t, err)
+	_, err = w.s.Ping(ctx, ping(w.uuid, check.Success, "", w.at.Add(time.Minute)))
+	must(t, err)
+	_, err = w.s.SettleIncidents(ctx, w.at.Add(20*time.Minute), 10*time.Minute)
+	must(t, err)
+	last := w.at.Add(time.Minute)
+	for range 30 {
+		_, err := w.s.ProcessDue(ctx, last.Add(time.Hour+time.Second))
+		must(t, err)
+		last = last.Add(time.Hour + 2*time.Second)
+		_, err = w.s.Ping(ctx, ping(w.uuid, check.Success, "", last))
+		must(t, err)
+	}
+	isDown := func(e LogEntry) bool { return e.Details["to"] == "down" }
+	if es := w.read(t, w.editor, LogFilter{CheckID: w.checkID}); !slices.ContainsFunc(es, isDown) {
+		t.Errorf("by its check: %v", kindsSeen(es))
+	}
+	if es := w.read(t, w.editor, LogFilter{Name: "backup.sh"}); !slices.ContainsFunc(es, isDown) {
+		t.Errorf("by its name: %v", kindsSeen(es))
+	}
+	if es := w.read(t, w.editor, LogFilter{ProjectID: w.project}); !slices.ContainsFunc(es, isDown) {
+		t.Errorf("by its project: %v", kindsSeen(es))
+	}
+	if es := w.read(t, w.editor, LogFilter{}); !slices.ContainsFunc(es, isDown) {
+		t.Errorf("in the list: %v", kindsSeen(es))
+	}
+	if es := w.read(t, w.dan, LogFilter{}); !slices.ContainsFunc(es, isDown) {
+		t.Errorf("in an administrator's list: %v", kindsSeen(es))
 	}
 }

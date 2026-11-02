@@ -43,6 +43,7 @@ type logChip struct{ Label, Clear string }
 type logData struct {
 	Rows     []logRow
 	Name     string
+	Late     bool
 	Projects []logOption
 	Whats    []logOption
 	Keep     []logOption // what the filter form keeps as it is
@@ -82,6 +83,7 @@ func (s *Server) logPage(w http.ResponseWriter, r *http.Request, v viewer) {
 		Name: strings.TrimSpace(in.Get("name")), What: in.Get("what"), Group: in.Get("group"),
 	}
 	f.Before, _ = strconv.ParseInt(in.Get("before"), 10, 64)
+	f.Late = in.Get("late") == "1"
 	switch f.What {
 	case "happened", "done", "reached", "signins":
 	default:
@@ -102,7 +104,7 @@ func (s *Server) logPage(w http.ResponseWriter, r *http.Request, v viewer) {
 		visible[c.ID] = true
 	}
 	now := s.Now()
-	d := logData{Rows: logRows(entries.Entries, v, now, visible, f.ProjectID == ""), Name: f.Name}
+	d := logData{Rows: logRows(entries.Entries, v, now, visible, f.ProjectID == ""), Name: f.Name, Late: f.Late}
 	d.Projects = []logOption{{"", "All projects", f.ProjectID == ""}}
 	for _, p := range v.Access.Projects {
 		d.Projects = append(d.Projects, logOption{p.ID, p.Name, p.ID == f.ProjectID})
@@ -156,6 +158,9 @@ func (s *Server) logPage(w http.ResponseWriter, r *http.Request, v viewer) {
 			d.Nothing = "Nothing matches this."
 		default:
 			d.Nothing = "Nothing here yet."
+		}
+		if !f.Late && (f.What == "" || f.What == "happened") && len(in) > 0 {
+			d.Nothing += " Tick the box above to see checks that were briefly late."
 		}
 	}
 	nav, err := s.nav(ctx, v, "")
@@ -295,7 +300,7 @@ func (w logWriter) write() {
 	e, d := w.e, w.e.Details
 	by := party(e.By)
 	switch e.Kind {
-	case "check.state":
+	case "check.state", "check.late":
 		to, from := detailString(d, "to"), detailString(d, "from")
 		w.row.Class = stateClass[to]
 		words := stateWords[to]

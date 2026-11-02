@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/store"
 )
 
@@ -193,6 +194,8 @@ func TestEveryKindIsASentence(t *testing.T) {
 		{"check.state", map[string]any{"from": "up", "to": "down", "reason": "No ping within the grace period."}, "allstill", "check", "backup.sh went down: no ping within the grace period. By allstill."},
 		{"check.state", map[string]any{"from": "down", "to": "up"}, "job", "check", "backup.sh came back up. By a job."},
 		{"check.state", map[string]any{"from": "new", "to": "up"}, "probe", "check", "backup.sh is up. By the probe inside."},
+		{"check.late", map[string]any{"from": "up", "to": "late", "reason": "The ping is overdue."}, "allstill", "check", "backup.sh is late: the ping is overdue. By allstill."},
+		{"check.late", map[string]any{"from": "late", "to": "up"}, "job", "check", "backup.sh came back up. By a job."},
 		{"check.flapping", nil, "allstill", "check", "backup.sh keeps changing, so its changes are not written until it settles."},
 		{"check.steady", map[string]any{"state": "up"}, "allstill", "check", "backup.sh has settled, is up."},
 		{"checks.unjudged", map[string]any{"count": 12.0, "from": 0.0, "to": 0.0}, "allstill", "project", "12 checks"},
@@ -321,5 +324,54 @@ func TestAnEditorsLogPageNamesNoOutsider(t *testing.T) {
 	f.register(t, ada, f.ada)
 	if page := logPageOf(t, ada, "?check="+f.checkID); !strings.Contains(page, ">Ada<") {
 		t.Errorf("%s", page)
+	}
+}
+
+// Late lines stay out of a page and a check's history until the box is ticked, which
+// stays ticked, and going further back keeps it (R17a).
+func TestTheLateBox(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	ada := f.browser(t)
+	f.register(t, ada, f.ada)
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
+	c, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "often", Interval: time.Minute, Grace: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := time.Now().Add(-5 * time.Hour)
+	if _, err := f.st.Ping(ctx, store.PingIn{CheckUUID: c.PingUUID, Kind: check.Success, ExitStatus: -1, Method: "POST", At: last}); err != nil {
+		t.Fatal(err)
+	}
+	for range 30 {
+		if _, err := f.st.ProcessDue(ctx, last.Add(time.Minute+time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		last = last.Add(time.Minute + 2*time.Second)
+		if _, err := f.st.Ping(ctx, store.PingIn{CheckUUID: c.PingUUID, Kind: check.Success, ExitStatus: -1, Method: "POST", At: last}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const lateLine = "is late"
+	if page := logPageOf(t, ada, "?check="+c.ID); strings.Contains(page, lateLine) || strings.Contains(page, "name=\"late\" value=\"1\" checked") {
+		t.Errorf("%s", page)
+	}
+	if page := logPageOf(t, ada, "?check="+c.ID+"&late=0"); strings.Contains(page, lateLine) {
+		t.Errorf("late=0: %s", page)
+	}
+	if page := string(ada.ok("GET", "/checks/"+c.ID, nil)); strings.Contains(page, lateLine) {
+		t.Errorf("history: %s", page)
+	}
+	page := logPageOf(t, ada, "?check="+c.ID+"&late=1")
+	if !strings.Contains(page, lateLine) || !strings.Contains(page, "name=\"late\" value=\"1\" checked") {
+		t.Errorf("%s", page)
+	}
+	i := strings.Index(page, ">Older<")
+	if i < 0 {
+		t.Fatalf("no way back in\n%s", page)
+	}
+	start := strings.LastIndex(page[:i], `href="`)
+	if link := page[start:i]; !strings.Contains(link, "late=1") {
+		t.Errorf("%s", link)
 	}
 }
