@@ -84,7 +84,7 @@ Flags:
 		return err
 	}
 	defer st.Close()
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "compare")
 	if err != nil {
 		return err
 	}

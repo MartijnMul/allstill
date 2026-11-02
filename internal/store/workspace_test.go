@@ -24,18 +24,18 @@ func TestAccessFollowsMembership(t *testing.T) {
 	if again, _ := s.Workspace(ctx); again != ws {
 		t.Fatalf("a second workspace: %s, %s", ws, again)
 	}
-	operator, _ := s.CreatePerson(ctx, ws, NewPerson{Name: "Operator", WorkspaceAdmin: true})
-	colleague, _ := s.CreatePerson(ctx, ws, NewPerson{Name: "Colleague", Email: "colleague@example.com"})
-	own, _, _ := s.CreateProject(ctx, ws, "Own company")
-	customer, key, err := s.CreateProject(ctx, ws, "Customer")
+	operator, _ := s.CreatePerson(ctx, Command("test"), ws, NewPerson{Name: "Operator", WorkspaceAdmin: true})
+	colleague, _ := s.CreatePerson(ctx, Command("test"), ws, NewPerson{Name: "Colleague", Email: "colleague@example.com"})
+	own, _, _ := s.CreateProject(ctx, Command("test"), ws, "Own company")
+	customer, key, err := s.CreateProject(ctx, Command("test"), ws, "Customer")
 	if err != nil || len(key) != 22 {
 		t.Fatalf("project: %v, key %q", err, key)
 	}
-	s.CreateProject(ctx, ws, "Home lab")
-	if err := s.SetMember(ctx, ws, customer, colleague, Viewer); err != nil {
+	s.CreateProject(ctx, Command("test"), ws, "Home lab")
+	if err := s.SetMember(ctx, Command("test"), ws, customer, colleague, Viewer); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetMember(ctx, ws, customer, colleague, Editor); err != nil {
+	if err := s.SetMember(ctx, Command("test"), ws, customer, colleague, Editor); err != nil {
 		t.Fatal(err)
 	}
 
@@ -95,9 +95,9 @@ func TestAnAdministratorIsOwnerEvenAsAMember(t *testing.T) {
 	s := open(t)
 	ctx := t.Context()
 	ws, _ := s.Workspace(ctx)
-	admin, _ := s.CreatePerson(ctx, ws, NewPerson{Name: "Admin", WorkspaceAdmin: true})
-	p, _, _ := s.CreateProject(ctx, ws, "P")
-	s.SetMember(ctx, ws, p, admin, Viewer)
+	admin, _ := s.CreatePerson(ctx, Command("test"), ws, NewPerson{Name: "Admin", WorkspaceAdmin: true})
+	p, _, _ := s.CreateProject(ctx, Command("test"), ws, "P")
+	s.SetMember(ctx, Command("test"), ws, p, admin, Viewer)
 	a, _ := s.AccessOfPerson(ctx, ws, admin)
 	if r, _ := a.Role(p); r != Owner {
 		t.Fatalf("role %s", r)
@@ -114,8 +114,8 @@ func TestMoveCheckKeepsItsHistory(t *testing.T) {
 	if _, err := f.s.Ping(ctx, ping(c.PingUUID, check.Success, "", t0)); err != nil {
 		t.Fatal(err)
 	}
-	other, key, _ := f.s.CreateProject(ctx, f.ws, "Customer")
-	if err := f.s.MoveCheck(ctx, f.ws, c.ID, other, time.Now()); err != nil {
+	other, key, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Customer")
+	if err := f.s.MoveCheck(ctx, Command("test"), f.ws, c.ID, other, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.get(t, c.ID); got.ProjectID != other || got.Version != 2 || got.State != "up" {
@@ -143,10 +143,10 @@ func TestMoveCheckKeepsItsHistory(t *testing.T) {
 	// A slug the other project uses is refused, and so is a project that does not exist.
 	back, _ := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "Printer", Slug: "printer", Interval: time.Hour, Grace: time.Hour})
 	var invalid *InvalidError
-	if err := f.s.MoveCheck(ctx, f.ws, back.ID, other, time.Now()); !errors.As(err, &invalid) {
+	if err := f.s.MoveCheck(ctx, Command("test"), f.ws, back.ID, other, time.Now()); !errors.As(err, &invalid) {
 		t.Fatalf("a taken slug: %v", err)
 	}
-	if err := f.s.MoveCheck(ctx, f.ws, back.ID, "prj_none", time.Now()); !errors.Is(err, ErrNotFound) {
+	if err := f.s.MoveCheck(ctx, Command("test"), f.ws, back.ID, "prj_none", time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("no such project: %v", err)
 	}
 }
@@ -154,17 +154,17 @@ func TestMoveCheckKeepsItsHistory(t *testing.T) {
 func TestRenameProject(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	other, _, _ := f.s.CreateProject(ctx, f.ws, "Customer")
-	if err := f.s.RenameProject(ctx, f.ws, f.project, "Customer"); err == nil {
+	other, _, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Customer")
+	if err := f.s.RenameProject(ctx, Command("test"), f.ws, f.project, "Customer"); err == nil {
 		t.Fatal("two projects with one name")
 	}
-	if err := f.s.RenameProject(ctx, f.ws, other, "Shop"); err != nil {
+	if err := f.s.RenameProject(ctx, Command("test"), f.ws, other, "Shop"); err != nil {
 		t.Fatal(err)
 	}
 	if id, err := f.s.ProjectByName(ctx, f.ws, "Shop"); err != nil || id != other {
 		t.Fatalf("by its new name: %s, %v", id, err)
 	}
-	if err := f.s.RenameProject(ctx, f.ws, "prj_none", "Gone"); !errors.Is(err, ErrNotFound) {
+	if err := f.s.RenameProject(ctx, Command("test"), f.ws, "prj_none", "Gone"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("no such project: %v", err)
 	}
 }
@@ -173,7 +173,7 @@ func TestRenameProject(t *testing.T) {
 func TestAlertsFollowTheRole(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	person, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Bob"}, []string{f.project}, Viewer)
+	person, err := f.s.CreateMember(ctx, Command("test"), f.ws, NewPerson{Name: "Bob"}, []string{f.project}, Viewer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,17 +196,17 @@ func TestAlertsFollowTheRole(t *testing.T) {
 		role Role
 		want int64
 	}{{Editor, 1}, {Owner, 1}, {Viewer, 0}, {Viewer, 0}, {Owner, 1}} {
-		if err := f.s.SetMember(ctx, f.ws, f.project, person, c.role); err != nil {
+		if err := f.s.SetMember(ctx, Command("test"), f.ws, f.project, person, c.role); err != nil {
 			t.Fatal(err)
 		}
 		if got := alerts(); got != c.want {
 			t.Errorf("as %s: alerts %d", c.role, got)
 		}
 	}
-	if err := f.s.RemoveMember(ctx, f.ws, f.project, person); err != nil {
+	if err := f.s.RemoveMember(ctx, Command("test"), f.ws, f.project, person); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.RemoveMember(ctx, f.ws, f.project, person); !errors.Is(err, ErrNotFound) {
+	if err := f.s.RemoveMember(ctx, Command("test"), f.ws, f.project, person); !errors.Is(err, ErrNotFound) {
 		t.Errorf("again: %v", err)
 	}
 	if a, _ := f.s.AccessOfPerson(ctx, f.ws, person); len(a.Projects) != 0 {
@@ -239,21 +239,21 @@ func TestGettingAlertsDuringAnIncident(t *testing.T) {
 		}
 		return false
 	}
-	added, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Added"}, []string{f.project}, Editor)
+	added, err := f.s.CreateMember(ctx, Command("test"), f.ws, NewPerson{Name: "Added"}, []string{f.project}, Editor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !due(added) {
 		t.Error("someone added as an editor was not told")
 	}
-	viewer, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Viewer"}, []string{f.project}, Viewer)
+	viewer, err := f.s.CreateMember(ctx, Command("test"), f.ws, NewPerson{Name: "Viewer"}, []string{f.project}, Viewer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if due(viewer) {
 		t.Error("a viewer is to be told")
 	}
-	if err := f.s.SetMember(ctx, f.ws, f.project, viewer, Editor); err != nil {
+	if err := f.s.SetMember(ctx, Command("test"), f.ws, f.project, viewer, Editor); err != nil {
 		t.Fatal(err)
 	}
 	if !due(viewer) {
@@ -266,10 +266,10 @@ func TestGettingAlertsDuringAnIncident(t *testing.T) {
 	if due(viewer) {
 		t.Fatal("still due after the sender looked")
 	}
-	if err := f.s.SetMember(ctx, f.ws, f.project, viewer, Viewer); err != nil {
+	if err := f.s.SetMember(ctx, Command("test"), f.ws, f.project, viewer, Viewer); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.SetMember(ctx, f.ws, f.project, viewer, Editor); err != nil {
+	if err := f.s.SetMember(ctx, Command("test"), f.ws, f.project, viewer, Editor); err != nil {
 		t.Fatal(err)
 	}
 	if !due(viewer) {

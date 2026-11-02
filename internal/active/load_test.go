@@ -49,8 +49,8 @@ func TestLoad(t *testing.T) {
 	}
 	defer st.Close()
 	ws, _ := st.Workspace(ctx)
-	project, _, _ := st.CreateProject(ctx, ws, "Sites")
-	admin, _ := st.AdminAccess(ctx, ws)
+	project, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Sites")
+	admin, _ := st.AdminAccess(ctx, ws, "test")
 
 	// One site, under a thousand host names, over TLS: each attempt
 	// resolves nothing, but connects and shakes hands anew.

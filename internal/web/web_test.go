@@ -48,12 +48,12 @@ func setup(t *testing.T) fixture {
 	t.Cleanup(func() { st.Close() })
 	f := fixture{path: path, st: st}
 	f.ws, _ = st.Workspace(ctx)
-	f.ada, _ = st.CreatePerson(ctx, f.ws, store.NewPerson{Name: "Ada", Email: "ada@example.com", WorkspaceAdmin: true, TimeZone: "Europe/Amsterdam"})
-	f.bob, _ = st.CreatePerson(ctx, f.ws, store.NewPerson{Name: "Bob", Email: "bob@example.com"})
-	f.project, _, _ = st.CreateProject(ctx, f.ws, "Backups")
-	other, _, _ := st.CreateProject(ctx, f.ws, "Customer")
-	st.SetMember(ctx, f.ws, f.project, f.bob, store.Viewer)
-	admin, _ := st.AdminAccess(ctx, f.ws)
+	f.ada, _ = st.CreatePerson(ctx, store.Command("test"), f.ws, store.NewPerson{Name: "Ada", Email: "ada@example.com", WorkspaceAdmin: true, TimeZone: "Europe/Amsterdam"})
+	f.bob, _ = st.CreatePerson(ctx, store.Command("test"), f.ws, store.NewPerson{Name: "Bob", Email: "bob@example.com"})
+	f.project, _, _ = st.CreateProject(ctx, store.Command("test"), f.ws, "Backups")
+	other, _, _ := st.CreateProject(ctx, store.Command("test"), f.ws, "Customer")
+	st.SetMember(ctx, store.Command("test"), f.ws, f.project, f.bob, store.Viewer)
+	admin, _ := st.AdminAccess(ctx, f.ws, "test")
 	c, err := st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "nightly-backup", Cron: "0 3 * * *", TimeZone: "Europe/Amsterdam", Grace: time.Hour})
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func (b *browser) ok(method, path string, body any) []byte {
 // register makes a passkey through a link and returns it, signed in.
 func (f fixture) register(t *testing.T, b *browser, personID string) *authenticator {
 	t.Helper()
-	token, err := f.st.CreatePasskeyLink(t.Context(), f.ws, personID, time.Now())
+	token, err := f.st.CreatePasskeyLink(t.Context(), store.Command("test"), f.ws, personID, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestFromLinkToDashboard(t *testing.T) {
 	if w := b.do("GET", "/", nil); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/login" {
 		t.Fatalf("signed out: %d %v", w.Code, w.Header())
 	}
-	token, _ := f.st.CreatePasskeyLink(t.Context(), f.ws, f.ada, time.Now())
+	token, _ := f.st.CreatePasskeyLink(t.Context(), store.Command("test"), f.ws, f.ada, time.Now())
 	var link map[string]string
 	json.Unmarshal(b.ok("POST", "/setup/link", map[string]string{"token": token}), &link)
 	if link["name"] != "Ada" || link["signed_in_as"] != "" {
@@ -229,8 +229,8 @@ func TestAMemberSeesTheirProjectsOnly(t *testing.T) {
 		t.Fatal("a viewer sees the ping URL")
 	}
 	// An editor sees it.
-	carol, _ := f.st.CreatePerson(t.Context(), f.ws, store.NewPerson{Name: "Carol"})
-	f.st.SetMember(t.Context(), f.ws, f.project, carol, store.Editor)
+	carol, _ := f.st.CreatePerson(t.Context(), store.Command("test"), f.ws, store.NewPerson{Name: "Carol"})
+	f.st.SetMember(t.Context(), store.Command("test"), f.ws, f.project, carol, store.Editor)
 	ed := f.browser(t)
 	f.register(t, ed, carol)
 	if page := string(ed.ok("GET", "/checks/"+f.checkID, nil)); !strings.Contains(page, uuid) {
@@ -293,6 +293,18 @@ func TestACopiedPasskeyIsRefused(t *testing.T) {
 	if w := b.signIn(a); w.Code != http.StatusForbidden {
 		t.Fatalf("the record was rewritten after the refusal: %d %s", w.Code, w.Body)
 	}
+	var signedIn, copied int
+	for _, l := range f.logLines(t) {
+		switch l[0] {
+		case "signin":
+			signedIn++
+		case "passkey.looks_copied":
+			copied++
+		}
+	}
+	if signedIn == 0 || copied == 0 {
+		t.Errorf("%d sign-ins and %d copied passkeys in the log: %v", signedIn, copied, f.logLines(t))
+	}
 	a.count = 11 // the original keeps working
 	if w := b.signIn(a); w.Code != http.StatusOK {
 		t.Fatalf("the original after the copy: %d %s", w.Code, w.Body)
@@ -319,8 +331,8 @@ func TestAPasskeyForAnotherSiteIsRefused(t *testing.T) {
 func TestAChallengeBelongsToItsLink(t *testing.T) {
 	f := setup(t)
 	b := f.browser(t)
-	mine, _ := f.st.CreatePasskeyLink(t.Context(), f.ws, f.bob, time.Now())
-	theirs, _ := f.st.CreatePasskeyLink(t.Context(), f.ws, f.ada, time.Now())
+	mine, _ := f.st.CreatePasskeyLink(t.Context(), store.Command("test"), f.ws, f.bob, time.Now())
+	theirs, _ := f.st.CreatePasskeyLink(t.Context(), store.Command("test"), f.ws, f.ada, time.Now())
 	a := &authenticator{t: t, origin: site}
 	opts := b.ok("POST", "/setup/begin", map[string]string{"token": mine})
 	w := b.do("POST", "/setup/finish", map[string]any{"token": theirs, "credential": a.create(opts)})
@@ -363,7 +375,7 @@ func TestSigningInReplacesTheSession(t *testing.T) {
 	f.register(t, b, f.ada)
 	first := b.cookies["__Host-allstill-session"].Value
 
-	token, _ := f.st.CreatePasskeyLink(t.Context(), f.ws, f.bob, time.Now())
+	token, _ := f.st.CreatePasskeyLink(t.Context(), store.Command("test"), f.ws, f.bob, time.Now())
 	var link map[string]string
 	json.Unmarshal(b.ok("POST", "/setup/link", map[string]string{"token": token}), &link)
 	if link["name"] != "Bob" || link["signed_in_as"] != "Ada" {
@@ -449,7 +461,7 @@ func TestMessagesShowWhatWouldHaveBeenSent(t *testing.T) {
 	}
 
 	// A critical check, so quiet hours do not hold the alert back whenever the test runs.
-	if err := f.st.SetAlerting(ctx, f.ws, f.checkID, "now", true, time.Now()); err != nil {
+	if err := f.st.SetAlerting(ctx, store.Command("test"), f.ws, f.checkID, "now", true, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.st.Ping(ctx, store.PingIn{CheckUUID: strings.TrimPrefix(f.pingURL, site+"/ping/"), Kind: check.Fail, ExitStatus: 3, Method: "POST", At: time.Now()}); err != nil {
@@ -523,7 +535,7 @@ func TestWhatALimitedPersonIsNotTold(t *testing.T) {
 // Someone with nothing to see yet is not told to run a command.
 func TestAnEmptyOverviewByRole(t *testing.T) {
 	f := setup(t)
-	alone, err := f.st.CreateMember(t.Context(), f.ws, store.NewPerson{Name: "Alone"}, nil, store.Viewer)
+	alone, err := f.st.CreateMember(t.Context(), store.Command("test"), f.ws, store.NewPerson{Name: "Alone"}, nil, store.Viewer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -667,7 +679,7 @@ func TestTheAttentionViewClaimsOnlyWhatItKnows(t *testing.T) {
 	if page := string(b.ok("GET", "/?show=attention", nil)); !strings.Contains(page, "Nothing needs attention") {
 		t.Fatal("the attention view of checks that are all well does not say so")
 	}
-	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
 	site, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "shop.example.com", Kind: "http", Interval: time.Minute,
 		Settings: map[string]any{"url": "https://shop.example.com/"}})
 	if err != nil {

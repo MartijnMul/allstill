@@ -88,7 +88,7 @@ func TestAPausedCheckResolvesItsIncident(t *testing.T) {
 	before := statusOf(row)
 	after := before
 	after.State, after.Since = check.Paused, t0.Add(time.Minute)
-	if err := saveStatus(ctx, q, row, before, after); err != nil {
+	if err := saveStatus(ctx, q, row, before, after, causedBy(byAllstill)); err != nil {
 		t.Fatal(err)
 	}
 	tx.Commit()

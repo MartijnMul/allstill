@@ -352,7 +352,7 @@ func TestDigestListsWarnings(t *testing.T) {
 	if _, listed, _ = f.s.DigestOf(t.Context(), f.viewer.PersonID, t0.Add(-time.Hour)); len(listed) != 0 {
 		t.Errorf("a viewer, who gets no alerts, is told: %+v", listed)
 	}
-	if err := f.s.SetAlerting(t.Context(), f.ws, id, "none", false, t0); err != nil {
+	if err := f.s.SetAlerting(t.Context(), Command("test"), f.ws, id, "none", false, t0); err != nil {
 		t.Fatal(err)
 	}
 	if _, listed, _ = f.s.DigestOf(t.Context(), f.editor.PersonID, t0.Add(-time.Hour)); len(listed) != 0 {

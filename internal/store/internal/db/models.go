@@ -115,6 +115,30 @@ type Installation struct {
 	Value string
 }
 
+type LogEntry struct {
+	ID             int64
+	WorkspaceID    string
+	HappenedAt     int64
+	RecordedAt     int64
+	ProjectID      string
+	ProjectName    string
+	Kind           string
+	AboutKind      string
+	AboutID        string
+	AboutName      string
+	ByKind         string
+	ByID           string
+	ByName         string
+	ByOutsider     int64
+	PersonID       string
+	PersonName     string
+	PersonOutsider int64
+	IncidentID     string
+	Hidden         int64
+	GroupID        string
+	Details        string
+}
+
 type Membership struct {
 	WorkspaceID string
 	ProjectID   string

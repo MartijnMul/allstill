@@ -29,7 +29,7 @@ SELECT * FROM channels WHERE id = ? AND person_id = ?;
 -- name: DeleteChannel :execrows
 DELETE FROM channels WHERE id = ? AND person_id = ?;
 
--- name: DeleteChannelByID :exec
+-- name: DeleteChannelByID :execrows
 DELETE FROM channels WHERE id = ?;
 
 -- Only while the channel still holds the subscription or address the test

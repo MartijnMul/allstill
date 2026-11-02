@@ -27,6 +27,7 @@ const (
 	Channel   = "chn"
 	Probe     = "prb"
 	Delivery  = "dlv"
+	LogGroup  = "grp"
 )
 
 // Crockford's base32, lower case: no i, l, o or u, so ids read aloud well.

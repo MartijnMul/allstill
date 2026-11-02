@@ -67,14 +67,15 @@ func (s *Store) PersonByEmail(ctx context.Context, workspaceID, email string) (P
 
 // CreatePasskeyLink returns a one-time link token that lets a person add a
 // passkey. Their earlier unused links stop working.
-func (s *Store) CreatePasskeyLink(ctx context.Context, workspaceID, personID string, at time.Time) (string, error) {
+func (s *Store) CreatePasskeyLink(ctx context.Context, by Actor, workspaceID, personID string, at time.Time) (string, error) {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	if _, err := q.Person(ctx, db.PersonParams{WorkspaceID: workspaceID, ID: personID}); errors.Is(err, sql.ErrNoRows) {
+	p, err := q.Person(ctx, db.PersonParams{WorkspaceID: workspaceID, ID: personID})
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	} else if err != nil {
 		return "", err
@@ -88,6 +89,12 @@ func (s *Store) CreatePasskeyLink(ctx context.Context, workspaceID, personID str
 		CreatedAt: at.UnixMilli(), ExpiresAt: at.Add(LinkLifetime).UnixMilli(),
 	})
 	if err != nil {
+		return "", err
+	}
+	if err := writeLog(ctx, q, logEntry{
+		WorkspaceID: workspaceID, At: at, Kind: "passkey.link_made", AboutKind: "person", AboutID: personID, AboutName: p.Name,
+		By: by, Person: Actor{ID: personID, Name: p.Name},
+	}); err != nil {
 		return "", err
 	}
 	return token, tx.Commit()
@@ -194,6 +201,9 @@ func (s *Store) AddPasskey(ctx context.Context, linkToken string, k NewPasskey, 
 	if err != nil {
 		return "", err
 	}
+	if err := logOwnSignIn(ctx, q, l.WorkspaceID, l.PersonID, "passkey.added", at); err != nil {
+		return "", err
+	}
 	return token, tx.Commit()
 }
 
@@ -220,7 +230,36 @@ func (s *Store) SignIn(ctx context.Context, workspaceID, personID, passkeyID str
 	if err != nil {
 		return "", err
 	}
+	if err := logOwnSignIn(ctx, q, workspaceID, personID, "signin", at); err != nil {
+		return "", err
+	}
 	return token, tx.Commit()
+}
+
+// logOwnSignIn writes what a person did to sign in, which concerns only them and
+// administrators.
+func logOwnSignIn(ctx context.Context, q *db.Queries, workspaceID, personID, kind string, at time.Time) error {
+	who, err := personActor(ctx, q, workspaceID, personID)
+	if err != nil {
+		return err
+	}
+	return writeLog(ctx, q, logEntry{
+		WorkspaceID: workspaceID, At: at, Kind: kind, AboutKind: "person", AboutID: personID, AboutName: who.Name, By: who, Person: who,
+	})
+}
+
+// PasskeyLooksCopied records that a passkey's sign counter went backwards. That
+// takes a valid passkey, unlike a failed sign-in, which anyone can cause (R9).
+func (s *Store) PasskeyLooksCopied(ctx context.Context, workspaceID, personID string, at time.Time) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := logOwnSignIn(ctx, db.New(tx), workspaceID, personID, "passkey.looks_copied", at); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func createSession(ctx context.Context, q *db.Queries, workspaceID, personID, passkeyID, userAgent string, at time.Time) (string, error) {

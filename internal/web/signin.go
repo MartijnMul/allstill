@@ -268,6 +268,9 @@ func (s *Server) loginFinish(w http.ResponseWriter, r *http.Request) {
 		// The passkey's counter went backwards: a copy of it may exist. Keep
 		// the record as it was, so the real one keeps working.
 		s.Log.Warn("a passkey's sign counter went backwards; the sign-in was refused", "person", who.ID)
+		if err := s.Store.PasskeyLooksCopied(r.Context(), who.WorkspaceID, who.ID, at); err != nil {
+			s.Log.Error("recording a passkey that looks copied", "error", err)
+		}
 		jsonError(w, http.StatusForbidden, "This passkey looks copied, so it was refused. Use another passkey or ask for a new link.")
 		return
 	}

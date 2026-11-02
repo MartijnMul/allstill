@@ -52,8 +52,8 @@ func TestImport(t *testing.T) {
 	}
 	defer st.Close()
 	ws, _ := st.Workspace(ctx)
-	project, _, _ := st.CreateProject(ctx, ws, "Imported")
-	admin, _ := st.AdminAccess(ctx, ws)
+	project, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Imported")
+	admin, _ := st.AdminAccess(ctx, ws, "test")
 
 	results, err := Import(ctx, st, admin, project, checks)
 	if err != nil {

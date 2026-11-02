@@ -353,7 +353,7 @@ Flags:
 	if err != nil {
 		return err
 	}
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "add-check")
 	if err != nil {
 		return err
 	}
@@ -501,7 +501,7 @@ Flags:
 	} else if err != nil {
 		return err
 	}
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "set-check")
 	if err != nil {
 		return err
 	}
@@ -620,14 +620,14 @@ func setPingCheck(ctx context.Context, fs *flag.FlagSet, st *store.Store, admin 
 }
 
 // oneCheck finds a check by project and name, for the commands.
-func oneCheck(ctx context.Context, st *store.Store, ws, project, name string) (store.Access, store.CheckView, error) {
+func oneCheck(ctx context.Context, st *store.Store, command, ws, project, name string) (store.Access, store.CheckView, error) {
 	projectID, err := st.ProjectByName(ctx, ws, project)
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Access{}, store.CheckView{}, fmt.Errorf("no project is named %q", project)
 	} else if err != nil {
 		return store.Access{}, store.CheckView{}, err
 	}
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, command)
 	if err != nil {
 		return store.Access{}, store.CheckView{}, err
 	}
@@ -673,7 +673,7 @@ func checkCommand(ctx context.Context, name, help string, args []string, stdout,
 		return err
 	}
 	defer st.Close()
-	admin, c, err := oneCheck(ctx, st, ws, *project, *check)
+	admin, c, err := oneCheck(ctx, st, name, ws, *project, *check)
 	if err != nil {
 		return err
 	}

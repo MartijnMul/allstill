@@ -14,7 +14,7 @@ import (
 func aProbe(t *testing.T, f fixture) (Probe, string) {
 	t.Helper()
 	ctx := t.Context()
-	admin, err := f.s.AdminAccess(ctx, f.ws)
+	admin, err := f.s.AdminAccess(ctx, f.ws, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func aProbe(t *testing.T, f fixture) (Probe, string) {
 func TestAProbeHasAKeyAndACheckOfItsOwn(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	if _, _, err := f.s.CreateProbe(ctx, f.editor, "inside", f.project, nil); !errors.Is(err, ErrForbidden) {
 		t.Errorf("an editor made a probe: %v", err)
 	}
@@ -77,8 +77,8 @@ func TestAProbeStaysWithinItsProjects(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
 	p, id := aProbe(t, f)
-	other, _, _ := f.s.CreateProject(ctx, f.ws, "Customer")
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	other, _, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Customer")
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	settings := map[string]any{"url": "https://example.com/"}
 	var invalid *InvalidError
 
@@ -95,7 +95,7 @@ func TestAProbeStaysWithinItsProjects(t *testing.T) {
 	if err := f.s.SetActiveCheckOn(ctx, f.viewer, id, time.Minute, settings, "", t0); !errors.Is(err, ErrForbidden) {
 		t.Errorf("a viewer: %v", err)
 	}
-	if err := f.s.MoveCheck(ctx, f.ws, id, other, t0); !errors.As(err, &invalid) || invalid.Field != "probe" {
+	if err := f.s.MoveCheck(ctx, Command("test"), f.ws, id, other, t0); !errors.As(err, &invalid) || invalid.Field != "probe" {
 		t.Errorf("moved out of its projects while on the probe: %v", err)
 	}
 	if _, err := f.s.CreateCheck(ctx, f.editor, f.project, NewCheck{Name: "y", Interval: time.Hour, Grace: time.Hour, ProbeID: p.ID}); !errors.As(err, &invalid) {
@@ -105,7 +105,7 @@ func TestAProbeStaysWithinItsProjects(t *testing.T) {
 	if err := f.s.SetActiveCheckOn(ctx, admin, id, time.Minute, settings, "", t0); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.MoveCheck(ctx, f.ws, id, other, t0); err != nil {
+	if err := f.s.MoveCheck(ctx, Command("test"), f.ws, id, other, t0); err != nil {
 		t.Error(err)
 	}
 }
@@ -114,7 +114,7 @@ func TestAProbeStaysWithinItsProjects(t *testing.T) {
 func TestACheckRunsInOnePlace(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	p, id := aProbe(t, f)
 	server, err := f.s.ActiveChecks(ctx)
 	if err != nil || len(server) != 0 {
@@ -347,9 +347,9 @@ func TestAProbesOwnCheckStaysWithinItsProjects(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
 	p, _ := aProbe(t, f)
-	other, _, _ := f.s.CreateProject(ctx, f.ws, "Customer")
+	other, _, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Customer")
 	var invalid *InvalidError
-	if err := f.s.MoveCheck(ctx, f.ws, p.CheckID, other, t0); !errors.As(err, &invalid) || invalid.Field != "probe" {
+	if err := f.s.MoveCheck(ctx, Command("test"), f.ws, p.CheckID, other, t0); !errors.As(err, &invalid) || invalid.Field != "probe" {
 		t.Errorf("%v", err)
 	}
 }
@@ -359,7 +359,7 @@ func TestAProbesOwnCheckStaysWithinItsProjects(t *testing.T) {
 func TestSetActiveCheckOnIsOneChange(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	p, _ := aProbe(t, f)
 	c, err := f.s.CreateCheck(ctx, admin, f.project, NewCheck{Name: "site", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "https://example.com/"}})
 	if err != nil {
@@ -377,8 +377,8 @@ func TestSetActiveCheckOnIsOneChange(t *testing.T) {
 	if got := f.get(t, c.ID); got.ProbeID.String != p.ID || got.IntervalSeconds.Int64 != 120 {
 		t.Errorf("%+v", got)
 	}
-	other, _, _ := f.s.CreateProject(ctx, f.ws, "Customer")
-	admin, _ = f.s.AdminAccess(ctx, f.ws)
+	other, _, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Customer")
+	admin, _ = f.s.AdminAccess(ctx, f.ws, "test")
 	elsewhere, err := f.s.CreateCheck(ctx, admin, other, NewCheck{Name: "x", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "https://example.com/"}})
 	if err != nil {
 		t.Fatal(err)
@@ -395,7 +395,7 @@ func TestSetActiveCheckOnIsOneChange(t *testing.T) {
 func TestAMoveStartsTheFailuresOver(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	p, _ := aProbe(t, f)
 	id := f.httpCheck(t)
 	f.attempt(t, id, check.Failed, t0)
@@ -432,7 +432,7 @@ func TestOverWhenHeard(t *testing.T) {
 			f := setup(t)
 			ctx := t.Context()
 			p, id := aProbe(t, f)
-			admin, _ := f.s.AdminAccess(ctx, f.ws)
+			admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 			start := t0.Add(-3 * time.Hour)
 			if err := f.s.SetActiveCheckOn(ctx, admin, id, time.Minute, map[string]any{"url": "http://10.0.0.5/", "fail_after": 1}, p.ID, start); err != nil {
 				t.Fatal(err)

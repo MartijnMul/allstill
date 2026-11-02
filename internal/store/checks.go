@@ -47,7 +47,10 @@ type NewCheck struct {
 	PingUUID    string
 	Paused      bool
 	ProbeID     string // the probe that runs it; by default the server
-	Settings    map[string]any
+	// Urgency, when set, says how fast its problems reach people, with Critical.
+	Urgency  string
+	Critical bool
+	Settings map[string]any
 	// Kind is ping (the default), or http or tcp for a check Allstill runs
 	// itself, on Interval, with a grace of at least the interval.
 	Kind string
@@ -161,7 +164,12 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 	if err := n.validate(); err != nil {
 		return CreatedCheck{}, err
 	}
-	q := db.New(s.w)
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return CreatedCheck{}, err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
 	if viaPerson(a) {
 		if len(n.Description) > MaxDescription {
 			return CreatedCheck{}, &InvalidError{"description", fmt.Sprintf("at most %d characters", MaxDescription)}
@@ -178,7 +186,25 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 			return CreatedCheck{}, err
 		}
 	}
-	return insertCheck(ctx, q, a.WorkspaceID, projectID, n)
+	created, err := insertCheck(ctx, q, a.WorkspaceID, projectID, n)
+	if err != nil {
+		return CreatedCheck{}, err
+	}
+	c, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: a.WorkspaceID, ID: created.ID})
+	if err != nil {
+		return CreatedCheck{}, err
+	}
+	at := time.UnixMilli(c.CreatedAt)
+	if n.Urgency != "" {
+		if err := changeAlerting(ctx, q, a, c, n.Urgency, n.Critical, at); err != nil {
+			return CreatedCheck{}, err
+		}
+	}
+	// One form is one entry, also when it sets how the check alerts (R6).
+	if err := logCheck(ctx, q, a.Actor, c, "check.created", "", at, map[string]any{"kind": c.Kind}); err != nil {
+		return CreatedCheck{}, err
+	}
+	return created, tx.Commit()
 }
 
 // insertCheck writes a check that has been validated.
@@ -231,19 +257,19 @@ func insertCheck(ctx context.Context, q *db.Queries, workspaceID, projectID stri
 // with it; a ping by slug needs the new project's ping key. A slug the new
 // project already uses is refused. It is for the administrator's command line:
 // it checks no caller's access. at is when it moves.
-func (s *Store) MoveCheck(ctx context.Context, workspaceID, checkID, toProjectID string, at time.Time) error {
+func (s *Store) MoveCheck(ctx context.Context, by Actor, workspaceID, checkID, toProjectID string, at time.Time) error {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := moveCheck(ctx, db.New(tx), workspaceID, checkID, toProjectID, at); err != nil {
+	if err := moveCheck(ctx, db.New(tx), by, workspaceID, checkID, toProjectID, at); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
-func moveCheck(ctx context.Context, q *db.Queries, workspaceID, checkID, toProjectID string, at time.Time) error {
+func moveCheck(ctx context.Context, q *db.Queries, by Actor, workspaceID, checkID, toProjectID string, at time.Time) error {
 	from, err := q.ProjectOfCheck(ctx, db.ProjectOfCheckParams{WorkspaceID: workspaceID, ID: checkID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -281,7 +307,10 @@ func moveCheck(ctx context.Context, q *db.Queries, workspaceID, checkID, toProje
 		return err
 	}
 	// An open incident goes along: the new project's people follow it from now.
-	if open, err := q.OpenIncidentOfCheck(ctx, checkID); err == nil {
+	open, err := q.OpenIncidentOfCheck(ctx, checkID)
+	incident := err == nil
+	incidentID := open.ID
+	if err == nil {
 		if err := q.MoveIncidentCheck(ctx, db.MoveIncidentCheckParams{ProjectID: toProjectID, CheckID: checkID}); err != nil {
 			return err
 		}
@@ -304,7 +333,24 @@ func moveCheck(ctx context.Context, q *db.Queries, workspaceID, checkID, toProje
 			return err
 		}
 	}
-	return nil
+	// Each project keeps what happened in it, and reads of the other only when it
+	// can see it. Who arrives down should not read a recovery from nowhere (R25).
+	fromName, err := q.NameOfProject(ctx, from)
+	if err != nil {
+		return err
+	}
+	toName, err := q.NameOfProject(ctx, toProjectID)
+	if err != nil {
+		return err
+	}
+	if err := logCheck(ctx, q, by, db.Check{WorkspaceID: workspaceID, ProjectID: from, ID: checkID, Name: moved.Name}, "check.moved_out", incidentID, at, map[string]any{
+		"to_project_id": toProjectID, "to_project": toName,
+	}); err != nil {
+		return err
+	}
+	return logCheck(ctx, q, by, db.Check{WorkspaceID: workspaceID, ProjectID: toProjectID, ID: checkID, Name: moved.Name}, "check.moved_in", incidentID, at, map[string]any{
+		"from_project_id": from, "from_project": fromName, "state": moved.State, "incident_open": incident,
+	})
 }
 
 // Attempt is one attempt of an active check, as its runner saw it.
@@ -313,7 +359,8 @@ type Attempt struct {
 	Started  time.Time
 	Measured map[string]float64 // such as status, ms and cert_days
 	// ProbeID is the probe that made it: only who runs the check can judge it.
-	ProbeID string
+	ProbeID   string
+	ProbeName string
 	// Arrived is when Allstill learned of it, when that is later than it ended.
 	Arrived time.Time
 	// Revision, when set, names the settings it was made under: under others, it
@@ -415,7 +462,11 @@ func recordAttempt(ctx context.Context, q *db.Queries, workspaceID, checkID stri
 			return check.Status{}, err
 		}
 	}
-	if err := saveStatusAt(ctx, q, c, before, after, cmp.Or(a.Arrived, after.Since)); err != nil {
+	by := byAllstill
+	if a.ProbeID != "" {
+		by = byProbe(a.ProbeID, a.ProbeName)
+	}
+	if err := saveStatusAt(ctx, q, c, before, after, cmp.Or(a.Arrived, after.Since), causedBy(by)); err != nil {
 		return check.Status{}, err
 	}
 	return after, nil

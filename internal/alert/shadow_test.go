@@ -21,7 +21,7 @@ func TestSwitchingAlertsOn(t *testing.T) {
 	// In shadow mode, at night: its down waits for 07:00.
 	w.at("22 03:00", backup, check.Fail)
 	w.set("22 05:00")
-	quiet, err := w.st.SetAlerts(t.Context(), true)
+	quiet, err := w.st.SetAlerts(t.Context(), store.Command("test"), true)
 	if err != nil || quiet != 1 {
 		t.Fatalf("%d quiet, %v", quiet, err)
 	}
@@ -89,7 +89,7 @@ func TestSwitchingOnAgainKeepsWhatWasHeard(t *testing.T) {
 		alertsOn(w)
 		w.at("12:00", backup, check.Fail) // really pushed
 		for _, on := range steps {
-			if _, err := w.st.SetAlerts(t.Context(), on); err != nil {
+			if _, err := w.st.SetAlerts(t.Context(), store.Command("test"), on); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -107,15 +107,15 @@ func TestALaterFollowerOfAShadowIncident(t *testing.T) {
 	w := newWorld(t)
 	backup := w.check("Shop", "backup")
 	w.at("12:00", backup, check.Fail) // in shadow mode
-	if _, err := w.st.SetAlerts(t.Context(), true); err != nil {
+	if _, err := w.st.SetAlerts(t.Context(), store.Command("test"), true); err != nil {
 		t.Fatal(err)
 	}
-	bo, _ := w.st.CreatePerson(t.Context(), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
-	lab, _, _ := w.st.CreateProject(t.Context(), w.ws, "Lab")
-	w.st.SetMember(t.Context(), w.ws, lab, bo, store.Editor)
+	bo, _ := w.st.CreatePerson(t.Context(), store.Command("test"), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
+	lab, _, _ := w.st.CreateProject(t.Context(), store.Command("test"), w.ws, "Lab")
+	w.st.SetMember(t.Context(), store.Command("test"), w.ws, lab, bo, store.Editor)
 	views, _ := w.st.Checks(t.Context(), w.access)
 	w.set("12:10")
-	if err := w.st.MoveCheck(t.Context(), w.ws, views[0].ID, lab, w.now); err != nil {
+	if err := w.st.MoveCheck(t.Context(), store.Command("test"), w.ws, views[0].ID, lab, w.now); err != nil {
 		t.Fatal(err)
 	}
 	w.at("12:10", "", "")

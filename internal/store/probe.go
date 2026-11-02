@@ -103,6 +103,20 @@ func (s *Store) CreateProbe(ctx context.Context, a Access, name, project string,
 			return "", "", err
 		}
 	}
+	at := time.Now()
+	ownCheck, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: a.WorkspaceID, ID: c.ID})
+	if err != nil {
+		return "", "", err
+	}
+	if err := logCheck(ctx, q, a.Actor, ownCheck, "check.created", "", at, map[string]any{"kind": ownCheck.Kind}); err != nil {
+		return "", "", err
+	}
+	if err := writeLog(ctx, q, logEntry{
+		WorkspaceID: a.WorkspaceID, At: at, Kind: "probe.created", AboutKind: "probe", AboutID: probeID, AboutName: name, By: a.Actor,
+		Details: map[string]any{"serves": projects},
+	}); err != nil {
+		return "", "", err
+	}
 	return probeID, key, tx.Commit()
 }
 
@@ -112,15 +126,30 @@ func (s *Store) RekeyProbe(ctx context.Context, a Access, name string) (string, 
 	if !a.Admin {
 		return "", ErrForbidden
 	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
 	key, keyHash := newProbeKey()
-	n, err := db.New(s.w).UpdateProbeKey(ctx, db.UpdateProbeKeyParams{KeyHash: keyHash, WorkspaceID: a.WorkspaceID, Name: name})
+	n, err := q.UpdateProbeKey(ctx, db.UpdateProbeKeyParams{KeyHash: keyHash, WorkspaceID: a.WorkspaceID, Name: name})
 	if err != nil {
 		return "", err
 	}
 	if n == 0 {
 		return "", ErrNotFound
 	}
-	return key, nil
+	probe, err := q.ProbeByName(ctx, db.ProbeByNameParams{WorkspaceID: a.WorkspaceID, Name: name})
+	if err != nil {
+		return "", err
+	}
+	if err := writeLog(ctx, q, logEntry{
+		WorkspaceID: a.WorkspaceID, At: time.Now(), Kind: "probe.rekeyed", AboutKind: "probe", AboutID: probe.ID, AboutName: name, By: a.Actor,
+	}); err != nil {
+		return "", err
+	}
+	return key, tx.Commit()
 }
 
 func newProbeKey() (key string, keyHash []byte) {
@@ -250,7 +279,7 @@ func (s *Store) ApplyProbeRuns(ctx context.Context, p Probe, runs []ProbeRun, se
 			res.Ignored++
 		}
 	}
-	own, err := s.applyPing(ctx, q, PingIn{CheckUUID: p.PingUUID, Kind: check.Success, ExitStatus: -1, Method: "POST", UserAgent: "Allstill probe", At: at})
+	own, err := s.applyPing(ctx, q, PingIn{CheckUUID: p.PingUUID, Kind: check.Success, ExitStatus: -1, Method: "POST", UserAgent: "Allstill probe", At: at}, byProbe(p.ID, p.Name))
 	if err != nil {
 		return ProbeRuns{}, err
 	}
@@ -282,11 +311,12 @@ func applyProbeRun(ctx context.Context, q *db.Queries, p Probe, r ProbeRun, cloc
 		return false, nil
 	}
 	a := Attempt{
-		Attempt:  check.Attempt{Outcome: r.Outcome, Reason: r.Reason, At: ended},
-		Started:  ended.Add(-time.Duration(r.Values["ms"]) * time.Millisecond),
-		Measured: r.Values,
-		ProbeID:  p.ID,
-		Arrived:  at,
+		Attempt:   check.Attempt{Outcome: r.Outcome, Reason: r.Reason, At: ended},
+		Started:   ended.Add(-time.Duration(r.Values["ms"]) * time.Millisecond),
+		Measured:  r.Values,
+		ProbeID:   p.ID,
+		ProbeName: p.Name,
+		Arrived:   at,
 	}
 	if clockOff {
 		a.Outcome, a.Reason = check.Unjudged, ClockOffReason

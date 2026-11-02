@@ -19,8 +19,8 @@ func TestSetAlerts(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws, _ := st.Workspace(ctx)
-	st.CreatePerson(ctx, ws, store.NewPerson{Name: "Ada", WorkspaceAdmin: true})
-	st.CreateProject(ctx, ws, "Backups")
+	st.CreatePerson(ctx, store.Command("test"), ws, store.NewPerson{Name: "Ada", WorkspaceAdmin: true})
+	st.CreateProject(ctx, store.Command("test"), ws, "Backups")
 	st.Close()
 
 	var out bytes.Buffer

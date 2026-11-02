@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -60,15 +61,16 @@ func (s *Store) Ping(ctx context.Context, in PingIn) (PingOut, error) {
 		return PingOut{}, err
 	}
 	defer tx.Rollback()
-	out, err := s.applyPing(ctx, db.New(tx), in)
+	out, err := s.applyPing(ctx, db.New(tx), in, byJob)
 	if err != nil {
 		return PingOut{}, err
 	}
 	return out, tx.Commit()
 }
 
-// applyPing is Ping, inside a transaction.
-func (s *Store) applyPing(ctx context.Context, q *db.Queries, in PingIn) (PingOut, error) {
+// applyPing is Ping, inside a transaction. by is who the log says it was by: a
+// job, or a probe for its own check.
+func (s *Store) applyPing(ctx context.Context, q *db.Queries, in PingIn, by Actor) (PingOut, error) {
 	var out PingOut
 	c, err := s.findCheck(ctx, q, in, &out)
 	if err != nil {
@@ -149,8 +151,22 @@ func (s *Store) applyPing(ctx context.Context, q *db.Queries, in PingIn) (PingOu
 	if err != nil {
 		return PingOut{}, err
 	}
-	if err := saveStatus(ctx, q, c, before, after); err != nil {
+	why := causedBy(by)
+	if out.Created {
+		why = byTheAction
+	}
+	if err := saveStatus(ctx, q, c, before, after, why); err != nil {
 		return PingOut{}, err
+	}
+	if out.Created {
+		// One entry for making the check and what the ping said of it (R6).
+		incidentID, err := openIncidentID(ctx, q, c.ID)
+		if err != nil {
+			return PingOut{}, err
+		}
+		if err := logCheck(ctx, q, by, c, "check.created", incidentID, in.At, map[string]any{"kind": c.Kind, "state": after.State}); err != nil {
+			return PingOut{}, err
+		}
 	}
 	out.Deadline = after.Deadline
 	return out, nil
@@ -284,7 +300,7 @@ func (s *Store) processBatch(ctx context.Context, now time.Time, batch int64) (i
 	for _, c := range due {
 		cfg, err := configOf(c)
 		if err != nil {
-			if err := saveStatus(ctx, q, c, statusOf(c), unreadable(statusOf(c), err, now)); err != nil {
+			if err := saveStatus(ctx, q, c, statusOf(c), unreadable(statusOf(c), err, now), causedBy(byAllstill)); err != nil {
 				return 0, err
 			}
 			continue
@@ -304,7 +320,7 @@ func (s *Store) processBatch(ctx context.Context, now time.Time, batch int64) (i
 				return 0, err
 			}
 		}
-		if err := saveStatus(ctx, q, c, before, after); err != nil {
+		if err := saveStatus(ctx, q, c, before, after, causedBy(byAllstill)); err != nil {
 			return 0, err
 		}
 	}
@@ -363,6 +379,13 @@ func (s *Store) Recover(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	// One line per project says what the log leaves out of its list (R18). A clock
+	// that jumped comes here too, so the line does not say the server was down.
+	type unjudged struct {
+		workspaceID, projectID, group string
+		count                         int
+	}
+	var lines []*unjudged
 	for _, c := range due {
 		before := statusOf(c)
 		after := before
@@ -371,7 +394,26 @@ func (s *Store) Recover(ctx context.Context, now time.Time) error {
 		} else {
 			after = check.OnRestart(cfg, before, lastAlive, now)
 		}
-		if err := saveStatus(ctx, q, c, before, after); err != nil {
+		why := causedBy(byAllstill)
+		if after.State == check.Unknown && before.State != check.Unknown {
+			i := slices.IndexFunc(lines, func(l *unjudged) bool { return l.projectID == c.ProjectID })
+			if i < 0 {
+				i = len(lines)
+				lines = append(lines, &unjudged{c.WorkspaceID, c.ProjectID, id.New(id.LogGroup), 0})
+			}
+			lines[i].count++
+			why.group = lines[i].group
+		}
+		if err := saveStatus(ctx, q, c, before, after, why); err != nil {
+			return err
+		}
+	}
+	for _, l := range lines {
+		if err := writeLog(ctx, q, logEntry{
+			WorkspaceID: l.workspaceID, At: now, ProjectID: l.projectID, Kind: "checks.unjudged",
+			AboutKind: "project", AboutID: l.projectID, By: byAllstill, Group: l.group,
+			Details: map[string]any{"from": lastAlive.UnixMilli(), "to": now.UnixMilli(), "count": l.count},
+		}); err != nil {
 			return err
 		}
 	}
@@ -464,14 +506,14 @@ func openRuns(ctx context.Context, q *db.Queries, checkID string) ([]check.OpenR
 }
 
 // saveStatus writes a check's new status, and when its state changed, an
-// event and the change to its incident.
-func saveStatus(ctx context.Context, q *db.Queries, c db.Check, before, after check.Status) error {
-	return saveStatusAt(ctx, q, c, before, after, after.Since)
+// event, the change to its incident and the line in the log.
+func saveStatus(ctx context.Context, q *db.Queries, c db.Check, before, after check.Status, why cause) error {
+	return saveStatusAt(ctx, q, c, before, after, after.Since, why)
 }
 
 // saveStatusAt is saveStatus for a change Allstill learned of at a time of its
 // own, as with a probe's runs.
-func saveStatusAt(ctx context.Context, q *db.Queries, c db.Check, before, after check.Status, when time.Time) error {
+func saveStatusAt(ctx context.Context, q *db.Queries, c db.Check, before, after check.Status, when time.Time, why cause) error {
 	if after == before {
 		return nil
 	}
@@ -484,6 +526,9 @@ func saveStatusAt(ctx context.Context, q *db.Queries, c db.Check, before, after 
 		return err
 	}
 	if err := incidentStep(ctx, q, c, after, when); err != nil {
+		return err
+	}
+	if err := logStateChange(ctx, q, c, before, after, when, why); err != nil {
 		return err
 	}
 	return q.CreateEvent(ctx, db.CreateEventParams{

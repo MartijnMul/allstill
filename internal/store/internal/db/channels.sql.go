@@ -238,13 +238,16 @@ func (q *Queries) DeleteChannel(ctx context.Context, arg DeleteChannelParams) (i
 	return result.RowsAffected()
 }
 
-const deleteChannelByID = `-- name: DeleteChannelByID :exec
+const deleteChannelByID = `-- name: DeleteChannelByID :execrows
 DELETE FROM channels WHERE id = ?
 `
 
-func (q *Queries) DeleteChannelByID(ctx context.Context, id string) error {
-	_, err := q.db.ExecContext(ctx, deleteChannelByID, id)
-	return err
+func (q *Queries) DeleteChannelByID(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteChannelByID, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const emailChannelsOfPerson = `-- name: EmailChannelsOfPerson :many

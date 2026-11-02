@@ -31,8 +31,8 @@ func TestServeAndRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws, _ := st.Workspace(ctx)
-	person, _ := st.CreatePerson(ctx, ws, store.NewPerson{Name: "Operator", WorkspaceAdmin: true})
-	project, _, _ := st.CreateProject(ctx, ws, "Servers")
+	person, _ := st.CreatePerson(ctx, store.Command("test"), ws, store.NewPerson{Name: "Operator", WorkspaceAdmin: true})
+	project, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Servers")
 	access, _ := st.AccessOfPerson(ctx, ws, person)
 	c, err := st.CreateCheck(ctx, access, project, store.NewCheck{Name: "Backup", Interval: time.Hour, Grace: time.Hour})
 	if err != nil {
@@ -162,8 +162,8 @@ func TestMoveChecksAndRenameProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lab, _, _ := st.CreateProject(ctx, ws, "Imported")
-	admin, _ := st.AdminAccess(ctx, ws)
+	lab, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Imported")
+	admin, _ := st.AdminAccess(ctx, ws, "test")
 	for _, c := range []store.NewCheck{
 		{Name: "printer-api", Tags: []string{"customer"}},
 		{Name: "dashboard", Tags: []string{"customer", "web"}},
@@ -222,7 +222,7 @@ func TestMoveChecksAndRenameProject(t *testing.T) {
 
 	st, ws, _ = openStore(ctx, dbPath)
 	defer st.Close()
-	admin, _ = st.AdminAccess(ctx, ws)
+	admin, _ = st.AdminAccess(ctx, ws, "test")
 	checks, _ := st.Checks(ctx, admin)
 	got := map[string]string{}
 	for _, c := range checks {
@@ -232,6 +232,18 @@ func TestMoveChecksAndRenameProject(t *testing.T) {
 	for name, project := range want {
 		if got[name] != project {
 			t.Errorf("%s is in %q, want %q", name, got[name], project)
+		}
+	}
+}
+
+// Someone typing 0 asks for the log not to be kept, which is not on offer: to the
+// store, zero would mean the default of 400 days (intent/activity-log/spec.md, R35).
+func TestTheLogCannotBeKeptTooShort(t *testing.T) {
+	for _, days := range []string{"0", "-1", "29"} {
+		var stderr bytes.Buffer
+		err := run(t.Context(), []string{"serve", "-db", filepath.Join(t.TempDir(), "a.db"), "-keep-log", days}, &bytes.Buffer{}, &stderr)
+		if err == nil || !strings.Contains(err.Error(), "at least 30 days") {
+			t.Errorf("-keep-log %s: %v", days, err)
 		}
 	}
 }

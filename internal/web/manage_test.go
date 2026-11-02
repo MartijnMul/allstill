@@ -4,6 +4,7 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"html"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +47,7 @@ func (b *browser) get(path string) *httptest.ResponseRecorder {
 // member signs in a new person with a role in the fixture's project.
 func (f fixture) member(t *testing.T, role store.Role) *browser {
 	t.Helper()
-	id, err := f.st.CreateMember(t.Context(), f.ws, store.NewPerson{Name: "Member " + string(role), TimeZone: "Asia/Tokyo"}, []string{f.project}, role)
+	id, err := f.st.CreateMember(t.Context(), store.Command("test"), f.ws, store.NewPerson{Name: "Member " + string(role), TimeZone: "Asia/Tokyo"}, []string{f.project}, role)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +84,7 @@ func (f fixture) created(t *testing.T, b *browser, form url.Values) store.CheckV
 
 func (f fixture) view(t *testing.T, id string) store.CheckView {
 	t.Helper()
-	admin, _ := f.st.AdminAccess(t.Context(), f.ws)
+	admin, _ := f.st.AdminAccess(t.Context(), f.ws, "test")
 	c, err := f.st.Check(t.Context(), admin, id)
 	if err != nil {
 		t.Fatal(err)
@@ -156,12 +158,12 @@ func selected(page, name string) string {
 // Case 1: someone with a passkey link and no shell adds a check and connects a job.
 func TestANewPersonAddsACheck(t *testing.T) {
 	f := setup(t)
-	id, err := f.st.CreateMember(t.Context(), f.ws, store.NewPerson{Name: "Ada", TimeZone: "Asia/Tokyo"}, nil, store.Viewer)
+	id, err := f.st.CreateMember(t.Context(), store.Command("test"), f.ws, store.NewPerson{Name: "Ada", TimeZone: "Asia/Tokyo"}, nil, store.Viewer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	empty, _, _ := f.st.CreateProject(t.Context(), f.ws, "Empty")
-	if err := f.st.SetMember(t.Context(), f.ws, empty, id, store.Editor); err != nil {
+	empty, _, _ := f.st.CreateProject(t.Context(), store.Command("test"), f.ws, "Empty")
+	if err := f.st.SetMember(t.Context(), store.Command("test"), f.ws, empty, id, store.Editor); err != nil {
 		t.Fatal(err)
 	}
 	b := f.browser(t)
@@ -395,7 +397,7 @@ func TestTheTry(t *testing.T) {
 func TestAChangeSavesOnlyWhatItsFormShows(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
 	created, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{Name: "imported", Kind: "http", Interval: time.Hour, Settings: map[string]any{
 		"url": "https://example.com/secret-token", "follow_redirects": true, "kept_from_an_import": "yes", "warn_days": 14,
 	}})
@@ -616,11 +618,11 @@ func TestTheActionsOnACheck(t *testing.T) {
 func TestMovingACheck(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	id, _ := f.st.CreateMember(ctx, f.ws, store.NewPerson{Name: "Both"}, []string{f.project}, store.Editor)
-	other, _, _ := f.st.CreateProject(ctx, f.ws, "Other")
-	looks, _, _ := f.st.CreateProject(ctx, f.ws, "Looks")
-	f.st.SetMember(ctx, f.ws, other, id, store.Editor)
-	f.st.SetMember(ctx, f.ws, looks, id, store.Viewer)
+	id, _ := f.st.CreateMember(ctx, store.Command("test"), f.ws, store.NewPerson{Name: "Both"}, []string{f.project}, store.Editor)
+	other, _, _ := f.st.CreateProject(ctx, store.Command("test"), f.ws, "Other")
+	looks, _, _ := f.st.CreateProject(ctx, store.Command("test"), f.ws, "Looks")
+	f.st.SetMember(ctx, store.Command("test"), f.ws, other, id, store.Editor)
+	f.st.SetMember(ctx, store.Command("test"), f.ws, looks, id, store.Viewer)
 	b := f.browser(t)
 	f.register(t, b, id)
 
@@ -648,12 +650,12 @@ func TestMovingACheck(t *testing.T) {
 func TestProbesInTheForms(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
 	probeID, _, err := f.st.CreateProbe(ctx, admin, "web-1", f.project, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	elsewhere, _, _ := f.st.CreateProject(ctx, f.ws, "Elsewhere")
+	elsewhere, _, _ := f.st.CreateProject(ctx, store.Command("test"), f.ws, "Elsewhere")
 	if _, _, err := f.st.CreateProbe(ctx, admin, "far-1", elsewhere, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -792,12 +794,12 @@ func TestChangesAreLogged(t *testing.T) {
 func TestTheOverviewsWords(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	alone, _, _ := f.st.CreateProject(ctx, f.ws, "Sites")
-	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	alone, _, _ := f.st.CreateProject(ctx, store.Command("test"), f.ws, "Sites")
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
 	if _, err := f.st.CreateCheck(ctx, admin, alone, store.NewCheck{Name: "shop", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "https://shop.example.com/"}}); err != nil {
 		t.Fatal(err)
 	}
-	id, _ := f.st.CreateMember(ctx, f.ws, store.NewPerson{Name: "Sites only"}, []string{alone}, store.Viewer)
+	id, _ := f.st.CreateMember(ctx, store.Command("test"), f.ws, store.NewPerson{Name: "Sites only"}, []string{alone}, store.Viewer)
 	b := f.browser(t)
 	f.register(t, b, id)
 	page := string(b.ok("GET", "/", nil))
@@ -805,7 +807,7 @@ func TestTheOverviewsWords(t *testing.T) {
 		t.Errorf("%s", page)
 	}
 	// A viewer of a failing check is not told it needs them.
-	if err := f.st.SetMember(ctx, f.ws, f.project, id, store.Viewer); err != nil {
+	if err := f.st.SetMember(ctx, store.Command("test"), f.ws, f.project, id, store.Viewer); err != nil {
 		t.Fatal(err)
 	}
 	uuid := strings.TrimPrefix(f.pingURL, site+"/ping/")
@@ -824,7 +826,7 @@ func TestTheOverviewsWords(t *testing.T) {
 func TestAnUntouchedFormChangesNothing(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
 	made := map[string]store.NewCheck{
 		"cron": {Name: "spaced", Cron: "0 5 * * * ", TimeZone: "Europe/Amsterdam", Grace: time.Hour, Description: "two\r\nlines "},
 		"secs": {Name: "seconds", Interval: 90 * time.Second, Grace: 90 * time.Second},
@@ -880,7 +882,7 @@ func TestAnEditorOfAnotherProject(t *testing.T) {
 			t.Errorf("%s: %d", action, code)
 		}
 	}
-	admin, _ := f.st.AdminAccess(t.Context(), f.ws)
+	admin, _ := f.st.AdminAccess(t.Context(), f.ws, "test")
 	hidden, _ := f.st.Check(t.Context(), admin, f.hidden)
 	if code := b.post("/checks/new", f.typed("ping", "project", hidden.ProjectID)).Code; code != http.StatusNotFound {
 		t.Errorf("adding to it: %d", code)
@@ -900,7 +902,7 @@ func TestANewInstallation(t *testing.T) {
 	}
 	t.Cleanup(func() { st.Close() })
 	ws, _ := st.Workspace(ctx)
-	ada, _ := st.CreatePerson(ctx, ws, store.NewPerson{Name: "Ada", WorkspaceAdmin: true})
+	ada, _ := st.CreatePerson(ctx, store.Command("test"), ws, store.NewPerson{Name: "Ada", WorkspaceAdmin: true})
 	base, _ := ParseBaseURL(site)
 	srv, err := New(st, ws, base, slog.New(slog.DiscardHandler))
 	if err != nil {
@@ -934,7 +936,7 @@ func TestLookupsAreLimited(t *testing.T) {
 func TestAProbesOwnCheckPages(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
 	if _, _, err := f.st.CreateProbe(ctx, admin, "web-1", f.project, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -970,5 +972,81 @@ func TestSavingNothing(t *testing.T) {
 	}
 	if page := string(b.ok("GET", "/checks/"+f.checkID, nil)); !strings.Contains(page, "Nothing changed") {
 		t.Errorf("%s", page)
+	}
+}
+
+// logLines reads what people did from the log, in order, for the tests here.
+func (f fixture) logLines(t *testing.T) [][2]string {
+	t.Helper()
+	conn, err := sql.Open("sqlite", f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	rows, err := conn.QueryContext(t.Context(), `SELECT kind, by_name FROM log_entries WHERE by_kind = 'person' ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var out [][2]string
+	for rows.Next() {
+		var l [2]string
+		if err := rows.Scan(&l[0], &l[1]); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, l)
+	}
+	return out
+}
+
+// Every route that changes a check is in the log by the person who used it, and one
+// form is one entry (intent/activity-log/spec.md, R6, R15).
+func TestAChangeInTheDashboardIsInTheLog(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	// Someone who may edit both projects can move a check between them.
+	person, err := f.st.CreateMember(ctx, store.Command("test"), f.ws, store.NewPerson{Name: "Grace"}, []string{f.project}, store.Editor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := f.st.CreateProject(ctx, store.Command("test"), f.ws, "Elsewhere")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.st.SetMember(ctx, store.Command("test"), f.ws, other, person, store.Editor); err != nil {
+		t.Fatal(err)
+	}
+	b := f.browser(t)
+	f.register(t, b, person)
+	before := len(f.logLines(t))
+	id := "/checks/" + f.checkID
+	post := func(path string, form url.Values) {
+		t.Helper()
+		if w := b.post(path, form); w.Code != http.StatusSeeOther {
+			t.Fatalf("%s: %d: %s", path, w.Code, w.Body)
+		}
+	}
+	fields := fieldsOf(t, string(b.ok("GET", id+"/edit", nil)))
+	fields.Set("name", "renamed")
+	post(id+"/edit", fields)
+	post(id+"/pause", nil)
+	post(id+"/resume", nil)
+	post(id+"/ping-url", nil)
+	post("/checks/new", f.typed("ping", "name", "added with its alerting", "urgency", "digest"))
+	post(id+"/move", url.Values{"project": {other}})
+	post(id+"/delete", nil)
+	var got []string
+	for _, l := range f.logLines(t)[before:] {
+		if l[1] != "Grace" {
+			t.Errorf("%v", l)
+		}
+		got = append(got, l[0])
+	}
+	want := []string{
+		"check.changed", "check.paused", "check.resumed", "check.ping_url_replaced", "check.created",
+		"check.moved_out", "check.moved_in", "check.deleted",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }

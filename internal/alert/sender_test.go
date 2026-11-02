@@ -35,7 +35,7 @@ func newWorld(t *testing.T) *world {
 	}
 	t.Cleanup(func() { st.Close() })
 	ws, _ := st.Workspace(ctx)
-	admin, err := st.CreatePerson(ctx, ws, store.NewPerson{Name: "Ada", TimeZone: "Europe/Amsterdam", WorkspaceAdmin: true})
+	admin, err := st.CreatePerson(ctx, store.Command("test"), ws, store.NewPerson{Name: "Ada", TimeZone: "Europe/Amsterdam", WorkspaceAdmin: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func newWorld(t *testing.T) *world {
 	if err := st.RecordDigest(ctx, admin, time.Date(2026, 10, 21, 12, 0, 0, 0, ams), nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := st.AdminAccess(ctx, ws)
+	a, _ := st.AdminAccess(ctx, ws, "test")
 	w := &world{t: t, st: st, ws: ws, admin: admin, access: a}
 	w.sender = &Sender{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return w.now }}
 	return w
@@ -55,11 +55,11 @@ func (w *world) check(project, name string) string {
 	ctx := w.t.Context()
 	p, err := w.st.ProjectByName(ctx, w.ws, project)
 	if err != nil {
-		p, _, err = w.st.CreateProject(ctx, w.ws, project)
+		p, _, err = w.st.CreateProject(ctx, store.Command("test"), w.ws, project)
 		if err != nil {
 			w.t.Fatal(err)
 		}
-		w.access, _ = w.st.AdminAccess(ctx, w.ws)
+		w.access, _ = w.st.AdminAccess(ctx, w.ws, "test")
 	}
 	c, err := w.st.CreateCheck(ctx, w.access, p, store.NewCheck{Name: name, Interval: 24 * time.Hour, Grace: time.Hour})
 	if err != nil {
@@ -197,14 +197,14 @@ func TestACheckMovedDuringAnIncident(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 	// A colleague follows only the customer's project.
-	colleague, _ := w.st.CreatePerson(ctx, w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
+	colleague, _ := w.st.CreatePerson(ctx, store.Command("test"), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
 	printer := w.check("Imported", "printer")
-	customer, _, _ := w.st.CreateProject(ctx, w.ws, "Customer")
-	w.st.SetMember(ctx, w.ws, customer, colleague, store.Editor)
+	customer, _, _ := w.st.CreateProject(ctx, store.Command("test"), w.ws, "Customer")
+	w.st.SetMember(ctx, store.Command("test"), w.ws, customer, colleague, store.Editor)
 	w.at("12:00", printer, check.Fail)
 
 	views, _ := w.st.Checks(ctx, w.access)
-	if err := w.st.MoveCheck(ctx, w.ws, views[0].ID, customer, w.now); err != nil {
+	if err := w.st.MoveCheck(ctx, store.Command("test"), w.ws, views[0].ID, customer, w.now); err != nil {
 		t.Fatal(err)
 	}
 	w.at("12:01", "", "")
@@ -220,7 +220,7 @@ func TestASettingChangedWhileWaitingIsFollowed(t *testing.T) {
 	backup := w.check("Shop", "backup")
 	w.at("22 03:00", backup, check.Fail)
 	views, _ := w.st.Checks(t.Context(), w.access)
-	if err := w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "digest", false, w.now); err != nil {
+	if err := w.st.SetAlerting(t.Context(), store.Command("test"), w.ws, views[0].ID, "digest", false, w.now); err != nil {
 		t.Fatal(err)
 	}
 	w.at("22 07:00", "", "")
@@ -234,10 +234,10 @@ func TestFromNoneToNowDuringAnIncident(t *testing.T) {
 	w := newWorld(t)
 	laptop := w.check("Lab", "laptop")
 	views, _ := w.st.Checks(t.Context(), w.access)
-	w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "none", false, w.now)
+	w.st.SetAlerting(t.Context(), store.Command("test"), w.ws, views[0].ID, "none", false, w.now)
 	w.at("12:00", laptop, check.Fail)
 	w.want()
-	w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "now", false, w.now)
+	w.st.SetAlerting(t.Context(), store.Command("test"), w.ws, views[0].ID, "now", false, w.now)
 	w.at("12:01", "", "")
 	w.want("alert shadow: down laptop is down")
 }
@@ -291,7 +291,7 @@ func probeOf(t *testing.T, w *world, critical bool) (store.Probe, string) {
 		t.Fatal(err)
 	}
 	if critical {
-		if err := w.st.SetAlerting(ctx, w.ws, c.ID, "now", true, w.now); err != nil {
+		if err := w.st.SetAlerting(ctx, store.Command("test"), w.ws, c.ID, "now", true, w.now); err != nil {
 			t.Fatal(err)
 		}
 	}

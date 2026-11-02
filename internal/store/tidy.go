@@ -3,6 +3,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -15,15 +16,27 @@ import (
 // Retention says how much history each check keeps: its newest Runs runs,
 // with their pings, and the output of its newest Output runs. Output is what
 // fills the disk: a run may carry up to 100 kB of it. Pings outside any run
-// follow the same two numbers.
+// follow the same two numbers. Log is how long the log is kept, zero for the
+// default.
 type Retention struct {
 	Runs   int
 	Output int
+	Log    time.Duration
 }
 
 // DefaultRetention keeps about three years of a nightly backup, and the
 // output of its last hundred nights.
-var DefaultRetention = Retention{Runs: 1000, Output: 100}
+var DefaultRetention = Retention{Runs: 1000, Output: 100, Log: DefaultLogAge}
+
+const (
+	// DefaultLogAge is how long the log is kept: over a year, so a year can be
+	// compared with the one before.
+	DefaultLogAge = 400 * 24 * time.Hour
+	// MinLogAge is the least it can be set to, so a slip cannot wipe the record.
+	MinLogAge = 30 * 24 * time.Hour
+)
+
+func (r Retention) logAge() time.Duration { return cmp.Or(r.Log, DefaultLogAge) }
 
 // Check says whether a retention keeps enough for the dashboard's charts.
 func (r Retention) Check() error {
@@ -32,6 +45,8 @@ func (r Retention) Check() error {
 		return fmt.Errorf("keep at least %d runs, for the charts", RecentRuns)
 	case r.Output < 0 || r.Output > r.Runs:
 		return fmt.Errorf("keep the output of 0 to %d runs, no more runs than are kept", r.Runs)
+	case r.Log != 0 && r.Log < MinLogAge:
+		return fmt.Errorf("keep the log for at least %d days", int(MinLogAge/(24*time.Hour)))
 	}
 	return nil
 }
@@ -56,8 +71,9 @@ const (
 
 // Tidy removes history beyond the store's Retention, for some checks at a
 // time, from where the last call stopped. It returns true while a round over
-// all checks is not finished; at the end of a round it also removes old
-// events. Each statement is its own short transaction, so pings never wait
+// all checks is not finished; at the end of a round it also removes old events
+// and log entries, and closes what the log says of checks that have settled. Each
+// statement is its own short transaction, so pings never wait
 // long for the write lock. A check that cannot be tidied does not stop the
 // others; its error is returned with the rest of the call's work done.
 func (s *Store) Tidy(ctx context.Context, now time.Time) (more bool, err error) {
@@ -83,12 +99,26 @@ func (s *Store) Tidy(ctx context.Context, now time.Time) (more bool, err error) 
 		return true, errors.Join(errs...)
 	}
 	s.tidyAfter = ""
-	for {
-		n, err := w.DeleteEventsBefore(ctx, db.DeleteEventsBeforeParams{Before: now.Add(-EventLifetime).UnixMilli(), Batch: tidyBatch})
-		if err != nil || n < tidyBatch {
-			return false, errors.Join(append(errs, err)...)
+	for _, remove := range []func() (int64, error){
+		func() (int64, error) {
+			return w.DeleteEventsBefore(ctx, db.DeleteEventsBeforeParams{Before: now.Add(-EventLifetime).UnixMilli(), Batch: tidyBatch})
+		},
+		func() (int64, error) {
+			return w.DeleteLogEntriesBefore(ctx, db.DeleteLogEntriesBeforeParams{Before: now.Add(-r.logAge()).UnixMilli(), Batch: tidyBatch})
+		},
+	} {
+		if err := batches(remove); err != nil {
+			errs = append(errs, err)
 		}
 	}
+	if err := s.closeFlapping(ctx, now); err != nil {
+		errs = append(errs, err)
+	}
+	// The queries of the log choose their indexes better with statistics to go on.
+	if _, err := s.w.ExecContext(ctx, "PRAGMA optimize"); err != nil {
+		errs = append(errs, err)
+	}
+	return false, errors.Join(errs...)
 }
 
 // batches repeats a batched statement until it changes fewer rows than a batch.

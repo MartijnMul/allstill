@@ -130,8 +130,13 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	logDays, err := envInt("ALLSTILL_KEEP_LOG", int(store.DefaultLogAge/(24*time.Hour)))
+	if err != nil {
+		return err
+	}
 	keepRuns := fs.Int("keep-runs", runs, "how many of its newest runs each check keeps, with their pings (ALLSTILL_KEEP_RUNS)")
 	keepOutput := fs.Int("keep-output", output, "of how many of its newest runs each check keeps the output (ALLSTILL_KEEP_OUTPUT)")
+	keepLog := fs.Int("keep-log", logDays, "how many days the log is kept (ALLSTILL_KEEP_LOG)")
 	mailSettings := smtpFlags(fs)
 	shadow := fs.Bool("shadow", os.Getenv("ALLSTILL_SHADOW") == "1", "record alerts without sending them, whatever the setting in the database, such as to serve a copy of it (ALLSTILL_SHADOW=1)")
 	allowPrivate := fs.String("allow-private", os.Getenv("ALLSTILL_ALLOW_PRIVATE"), "private ranges the checks Allstill runs may reach, such as 10.0.0.0/8, comma-separated; they are open to every project's checks (ALLSTILL_ALLOW_PRIVATE)")
@@ -151,7 +156,11 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	if err := active.CheckContact(*contact); err != nil {
 		return fmt.Errorf("-contact: %w", err)
 	}
-	retention := store.Retention{Runs: *keepRuns, Output: *keepOutput}
+	if *keepLog < 1 {
+		// To Retention, zero means the default: not what someone typing 0 asks for.
+		return fmt.Errorf("-keep-log: keep the log for at least %d days", int(store.MinLogAge/(24*time.Hour)))
+	}
+	retention := store.Retention{Runs: *keepRuns, Output: *keepOutput, Log: time.Duration(*keepLog) * 24 * time.Hour}
 	if err := retention.Check(); err != nil {
 		return err
 	}

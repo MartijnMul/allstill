@@ -134,6 +134,18 @@ allstill admin create-user -name "Bob" -email bob@example.com -project Customer 
 
 `allstill admin set-member -email bob@example.com -project Customer -role editor` changes a role from their next click, and `-role none` takes someone out of a project. `-project` can be repeated when adding someone; `set-member` adds them to one more. Someone in no project can still sign in, and sees no checks.
 
+## What the log records
+
+Allstill writes down what happens as it happens, from the day this version first runs. Nothing before that can be recovered. There is no page to read it on yet; it comes with a later version.
+
+- **What happened to checks:** each change of state with a reason in Allstill's own wording, not the detail a check's page shows, as that can hold what a JSON field said or a probe's own text. A run that changes nothing is not written. A check that changes state more than 30 times in an hour writes one line saying so, and no more state changes until it has held for an hour.
+- **What was done:** checks added, changed, paused, resumed, moved or deleted, a ping URL replaced, alerting changed; projects, people and roles; passkey links and passkeys; sign-ins; devices and email addresses confirmed, handed on or removed; probes; alerts turned on or off. By whom: a person's name, a probe's name, a job, Allstill itself, or "a command on the server" with the command's name, which says how but not who.
+- **Left out:** URLs, tokens, settings other than a few the check's page shows anyway, output, email addresses, IP addresses and user agents. Names are copied as typed, so a check named after a secret keeps it in the log until the entry is removed. A failed sign-in is not written, as anyone can cause one; it stays in the server's log.
+
+It is a lasting record of what named people did and when they signed in. If you run Allstill for a company in the EU, that is personal data, and in some places monitoring of staff: you answer for it, and `-keep-log` is how long you keep it. No command removes someone from it yet.
+
+It stops mistakes, and nothing in the dashboard or the commands changes or removes an entry. It is not proof against someone holding the database, and restoring a backup takes the log back with it, unnoticed.
+
 ## Sites, ports and certificates
 
 Allstill can also look at an address itself, instead of waiting for a ping: a site, an API's health endpoint, a port that should be open, and the TLS certificate in front of any of them ([intent/http-checks](../intent/http-checks/spec.md)). Each attempt is a run with how long it took, its status code and the certificate's days left where it has them, and from there a check behaves as any other: incidents, calm alerts, the digest.
@@ -195,6 +207,7 @@ Other assistants that support Agent Skills read the same file from a folder of t
 - **The database and every copy are secrets.** They hold every check's ping URL and the URLs Allstill fetches, with any token in them ([ADR 0004](adr/0004-what-a-check-fetches.md)): give a health endpoint a token that can only read its health. With Web Push they also hold the key Allstill signs phone alerts with and where each phone is reached ([ADR 0003](adr/0003-web-push-secrets.md)): whoever has a copy can ping any check, and can send every subscribed phone a notification that looks like Allstill's. `allstill backup` writes a copy only its owner can read; keep copies that way. Never serve a copy with alerts on, or it alerts everyone a second time.
 - **Upgrades.** Before a new version changes the database, it copies it next to itself, as `allstill.db.before-0003` for example. Delete the copy once the new version works.
 - **History.** Each check keeps its newest 1000 runs, and the output of its newest 100; `-keep-runs` and `-keep-output` change that.
+- **The log.** Allstill keeps a record of what happened to checks and what was done, for 400 days; `-keep-log` (`ALLSTILL_KEEP_LOG`) changes that, to at least 30 days. See [What the log records](#what-the-log-records).
 - **Watch Allstill itself** from somewhere else, such as one check at another service that Allstill's host pings. `GET /health` answers 200 while Allstill keeps up with sending and 503 when it has fallen more than two minutes behind, cannot read its database, or is offline for the checks it runs (its canary does not answer), so an outside monitor can watch the sending too; it needs no sign-in and says nothing about any check.
 
 ## Check a release

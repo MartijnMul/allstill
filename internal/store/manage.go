@@ -169,11 +169,27 @@ func (s *Store) UpdateCheck(ctx context.Context, a Access, checkID string, ch Ch
 	if moved || addressOf(updated.Settings) != addressOf(c.Settings) {
 		after.FailStreak = 0
 	}
-	if err := saveStatus(ctx, q, updated, before, after); err != nil {
+	if err := saveStatus(ctx, q, updated, before, after, byTheAction); err != nil {
 		return time.Time{}, err
 	}
+	changes := changesOf(c, updated)
 	if ch.Urgency != nil {
-		if err := changeAlerting(ctx, q, a, c, *ch.Urgency, ch.Critical != nil && *ch.Critical, at); err != nil {
+		critical := ch.Critical != nil && *ch.Critical
+		if err := changeAlerting(ctx, q, a, c, *ch.Urgency, critical, at); err != nil {
+			return time.Time{}, err
+		}
+		changes = append(changes, alertingChanges(c, *ch.Urgency, critical)...)
+	}
+	if len(changes) > 0 {
+		details := map[string]any{"changes": changes}
+		if after.State != before.State {
+			details["from"], details["to"] = before.State, after.State
+		}
+		incidentID, err := openIncidentID(ctx, q, c.ID)
+		if err != nil {
+			return time.Time{}, err
+		}
+		if err := logCheck(ctx, q, a.Actor, updated, "check.changed", incidentID, at, details); err != nil {
 			return time.Time{}, err
 		}
 	}
@@ -301,15 +317,15 @@ func addressOf(settings string) string {
 // without a recovery message, and a check Allstill runs stops being run. A ping
 // resumes a check that jobs ping. at is when it changes.
 func (s *Store) PauseCheck(ctx context.Context, a Access, checkID string, at time.Time) error {
-	return s.setState(ctx, a, checkID, at, check.OnPause)
+	return s.setState(ctx, a, checkID, at, "check.paused", check.OnPause)
 }
 
 // ResumeCheck resumes a paused check, which starts over as new.
 func (s *Store) ResumeCheck(ctx context.Context, a Access, checkID string, at time.Time) error {
-	return s.setState(ctx, a, checkID, at, check.OnResume)
+	return s.setState(ctx, a, checkID, at, "check.resumed", check.OnResume)
 }
 
-func (s *Store) setState(ctx context.Context, a Access, checkID string, at time.Time, change func(check.Status, time.Time) check.Status) error {
+func (s *Store) setState(ctx context.Context, a Access, checkID string, at time.Time, kind string, change func(check.Status, time.Time) check.Status) error {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -326,8 +342,19 @@ func (s *Store) setState(ctx context.Context, a Access, checkID string, at time.
 		return &InvalidError{"state", ownCheckProblem + ", so it cannot be paused"}
 	}
 	before := statusOf(c)
-	if err := saveStatus(ctx, q, c, before, change(before, at)); err != nil {
+	after := change(before, at)
+	// Pausing closes the incident, which its line should still name.
+	incidentID, err := openIncidentID(ctx, q, c.ID)
+	if err != nil {
 		return err
+	}
+	if err := saveStatus(ctx, q, c, before, after, byTheAction); err != nil {
+		return err
+	}
+	if after.State != before.State {
+		if err := logCheck(ctx, q, a.Actor, c, kind, incidentID, at, map[string]any{"from": before.State, "to": after.State}); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -353,12 +380,14 @@ func (s *Store) DeleteCheck(ctx context.Context, a Access, checkID string, at ti
 		return &InvalidError{"state", ownCheckProblem + ", so it cannot be deleted"}
 	}
 	ms := at.UnixMilli()
-	if open, err := q.OpenIncidentOfCheck(ctx, checkID); err == nil {
-		if err := resolve(ctx, q, open.ID, "deleted", ms); err != nil {
+	incidentID, err := openIncidentID(ctx, q, checkID)
+	if err != nil {
+		return err
+	}
+	if incidentID != "" {
+		if err := resolve(ctx, q, incidentID, "deleted", ms); err != nil {
 			return err
 		}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return err
 	}
 	if err := q.MarkCheckDeleted(ctx, db.MarkCheckDeletedParams{
 		DeletedAt: sql.NullInt64{Int64: ms, Valid: true}, UpdatedAt: ms, WorkspaceID: a.WorkspaceID, ID: checkID,
@@ -369,6 +398,9 @@ func (s *Store) DeleteCheck(ctx context.Context, a Access, checkID string, at ti
 		WorkspaceID: a.WorkspaceID, ProjectID: sql.NullString{String: c.ProjectID, Valid: true},
 		Type: "check.removed", SubjectID: checkID, CreatedAt: ms,
 	}); err != nil {
+		return err
+	}
+	if err := logCheck(ctx, q, a.Actor, c, "check.deleted", incidentID, at, map[string]any{"state": c.State}); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -392,6 +424,9 @@ func (s *Store) RotatePingURL(ctx context.Context, a Access, checkID string, at 
 	}
 	uuid := id.UUID()
 	if err := q.SetPingUUID(ctx, db.SetPingUUIDParams{PingUuid: uuid, UpdatedAt: at.UnixMilli(), WorkspaceID: a.WorkspaceID, ID: checkID}); err != nil {
+		return "", err
+	}
+	if err := logCheck(ctx, q, a.Actor, c, "check.ping_url_replaced", "", at, nil); err != nil {
 		return "", err
 	}
 	return uuid, tx.Commit()
@@ -427,7 +462,7 @@ func (s *Store) MoveCheckAs(ctx context.Context, a Access, checkID, toProjectID 
 			return err
 		}
 	}
-	if err := moveCheck(ctx, q, a.WorkspaceID, checkID, toProjectID, at); err != nil {
+	if err := moveCheck(ctx, q, a.Actor, a.WorkspaceID, checkID, toProjectID, at); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -472,6 +507,9 @@ func (s *Store) SetAlertingAs(ctx context.Context, a Access, checkID, urgency st
 	if err := changeAlerting(ctx, q, a, c, urgency, critical, at); err != nil {
 		return err
 	}
+	if err := logAlerting(ctx, q, a.Actor, c, urgency, critical, at); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -487,6 +525,15 @@ func changeAlerting(ctx context.Context, q *db.Queries, a Access, c db.Check, ur
 		return &InvalidError{"urgency", ownCheckProblem + ", so only an administrator can change this"}
 	}
 	return setAlerting(ctx, q, a.WorkspaceID, c.ID, urgency, critical, at)
+}
+
+// logAlerting writes a change of alerting on its own, when it changed anything.
+func logAlerting(ctx context.Context, q *db.Queries, by Actor, c db.Check, urgency string, critical bool, at time.Time) error {
+	changes := alertingChanges(c, urgency, critical)
+	if len(changes) == 0 {
+		return nil
+	}
+	return logCheck(ctx, q, by, c, "check.changed", "", at, map[string]any{"changes": changes})
 }
 
 // IsProbesOwnCheck says whether a check is a probe's own, which has its own rules

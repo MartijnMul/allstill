@@ -27,8 +27,8 @@ func TestCompareHealthchecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	home, _, _ := st.CreateProject(ctx, ws, "Home")
-	admin, _ := st.AdminAccess(ctx, ws)
+	home, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Home")
+	admin, _ := st.AdminAccess(ctx, ws, "test")
 	uuids := map[string]string{
 		"backup":    "31365bce-8da9-4729-8ff3-aaa71d56b712",
 		"heartbeat": "41365bce-8da9-4729-8ff3-aaa71d56b712",

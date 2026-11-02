@@ -28,8 +28,8 @@ func (f fixture) pingCheck(t *testing.T) (string, string) {
 func TestManagingFollowsTheRole(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
-	other, _, _ := f.s.CreateProject(ctx, f.ws, "Other")
-	stranger, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Stranger"}, []string{other}, Owner)
+	other, _, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Other")
+	stranger, err := f.s.CreateMember(ctx, Command("test"), f.ws, NewPerson{Name: "Stranger"}, []string{other}, Owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,14 +77,14 @@ func TestManagingFollowsTheRole(t *testing.T) {
 	if err := f.s.MoveCheckAs(ctx, f.editor, id, other, t0); !errors.Is(err, ErrNotFound) {
 		t.Errorf("to a project they cannot see: %v", err)
 	}
-	if err := f.s.SetMember(ctx, f.ws, other, f.editor.PersonID, Viewer); err != nil {
+	if err := f.s.SetMember(ctx, Command("test"), f.ws, other, f.editor.PersonID, Viewer); err != nil {
 		t.Fatal(err)
 	}
 	f.editor, _ = f.s.AccessOfPerson(ctx, f.ws, f.editor.PersonID)
 	if err := f.s.MoveCheckAs(ctx, f.editor, id, other, t0); !errors.Is(err, ErrForbidden) {
 		t.Errorf("to a project they only view: %v", err)
 	}
-	if err := f.s.SetMember(ctx, f.ws, other, f.editor.PersonID, Editor); err != nil {
+	if err := f.s.SetMember(ctx, Command("test"), f.ws, other, f.editor.PersonID, Editor); err != nil {
 		t.Fatal(err)
 	}
 	f.editor, _ = f.s.AccessOfPerson(ctx, f.ws, f.editor.PersonID)
@@ -166,7 +166,7 @@ func TestChangingACheck(t *testing.T) {
 		t.Errorf("no such check: %v", err)
 	}
 	// The administrator's command line may keep a long description, as an import.
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	if _, err := f.s.UpdateCheck(ctx, admin, id, Change{Description: ptr(strings.Repeat("x", MaxDescription+1))}, t0); err != nil {
 		t.Errorf("from the command line: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestAProbesRunUnderOldSettingsDoesNotCount(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
 	p, id := aProbe(t, f)
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	checks, err := f.s.ChecksOfProbe(ctx, p.ID)
 	if err != nil || len(checks) != 1 || checks[0].Revision == "" {
 		t.Fatalf("%+v, %v", checks, err)
@@ -501,7 +501,7 @@ func TestAProbesOwnCheckIsProtected(t *testing.T) {
 	ctx := t.Context()
 	p, _ := aProbe(t, f)
 	f.editor, _ = f.s.AccessOfPerson(ctx, f.ws, f.editor.PersonID)
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	var invalid *InvalidError
 	if err := f.s.DeleteCheck(ctx, admin, p.CheckID, t0); !errors.As(err, &invalid) {
 		t.Errorf("deleted: %v", err)
@@ -546,7 +546,7 @@ func TestWhoMayMakeACheckCritical(t *testing.T) {
 	if err := f.s.SetAlertingAs(ctx, f.editor, id, "now", true, t0); !errors.As(err, &invalid) || invalid.Field != "critical" {
 		t.Errorf("an editor: %v", err)
 	}
-	owner, err := f.s.CreateMember(ctx, f.ws, NewPerson{Name: "Owner"}, []string{f.project}, Owner)
+	owner, err := f.s.CreateMember(ctx, Command("test"), f.ws, NewPerson{Name: "Owner"}, []string{f.project}, Owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +570,7 @@ func TestAProjectHasRoomForSoManyChecks(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
 	f.editor, _ = f.s.AccessOfPerson(ctx, f.ws, f.editor.PersonID)
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	site := NewCheck{Name: "site", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "https://shop.example.com/"}}
 	for range MaxActiveChecks {
 		if _, err := f.s.CreateCheck(ctx, admin, f.project, site); err != nil {
@@ -588,12 +588,12 @@ func TestAProjectHasRoomForSoManyChecks(t *testing.T) {
 		t.Errorf("a ping check: %v", err)
 	}
 	// A move does not pass the limit.
-	other, _, _ := f.s.CreateProject(ctx, f.ws, "Other")
-	if err := f.s.SetMember(ctx, f.ws, other, f.editor.PersonID, Editor); err != nil {
+	other, _, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Other")
+	if err := f.s.SetMember(ctx, Command("test"), f.ws, other, f.editor.PersonID, Editor); err != nil {
 		t.Fatal(err)
 	}
 	f.editor, _ = f.s.AccessOfPerson(ctx, f.ws, f.editor.PersonID)
-	admin, _ = f.s.AdminAccess(ctx, f.ws)
+	admin, _ = f.s.AdminAccess(ctx, f.ws, "test")
 	c, err := f.s.CreateCheck(ctx, admin, other, site)
 	if err != nil {
 		t.Fatal(err)
@@ -710,7 +710,7 @@ func TestTheDigestListsPausedChecksThatAlert(t *testing.T) {
 	ctx := t.Context()
 	loud, _ := f.pingCheck(t)
 	silent, _ := f.pingCheck(t)
-	if err := f.s.SetAlerting(ctx, f.ws, silent, "none", false, t0); err != nil {
+	if err := f.s.SetAlerting(ctx, Command("test"), f.ws, silent, "none", false, t0); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{loud, silent} {

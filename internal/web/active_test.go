@@ -16,7 +16,7 @@ const secretURL = "https://shop.example.com/health?key=s3cr3t-t0k3n"
 func (f fixture) httpCheck(t *testing.T) string {
 	t.Helper()
 	ctx := t.Context()
-	admin, _ := f.st.AdminAccess(ctx, f.ws)
+	admin, _ := f.st.AdminAccess(ctx, f.ws, "test")
 	c, err := f.st.CreateCheck(ctx, admin, f.project, store.NewCheck{
 		Name: "shop", Kind: "http", Interval: time.Minute,
 		Settings: map[string]any{"url": secretURL, "location": "https://www.example.com/s3cr3t-l0cat10n"},

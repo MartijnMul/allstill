@@ -157,7 +157,7 @@ Flags:
 		}
 		others = append(others, id)
 	}
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "create-probe")
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func rekeyProbe(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		return err
 	}
 	defer st.Close()
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "rekey-probe")
 	if err != nil {
 		return err
 	}

@@ -72,11 +72,20 @@ func DefaultQuietHours(timeZone string) string {
 
 // CreatePerson adds a person to the workspace and returns their id. They get
 // the default quiet hours.
-func (s *Store) CreatePerson(ctx context.Context, workspaceID string, p NewPerson) (string, error) {
-	return createPerson(ctx, db.New(s.w), workspaceID, p)
+func (s *Store) CreatePerson(ctx context.Context, by Actor, workspaceID string, p NewPerson) (string, error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	personID, err := createPerson(ctx, db.New(tx), by, workspaceID, p)
+	if err != nil {
+		return "", err
+	}
+	return personID, tx.Commit()
 }
 
-func createPerson(ctx context.Context, q *db.Queries, workspaceID string, p NewPerson) (string, error) {
+func createPerson(ctx context.Context, q *db.Queries, by Actor, workspaceID string, p NewPerson) (string, error) {
 	personID := id.New(id.Person)
 	if p.TimeZone == "" {
 		p.TimeZone = "UTC"
@@ -91,29 +100,50 @@ func createPerson(ctx context.Context, q *db.Queries, workspaceID string, p NewP
 		CreatedAt:      now(),
 		QuietHours:     sql.NullString{String: DefaultQuietHours(p.TimeZone), Valid: true},
 	})
-	return personID, err
+	if err != nil {
+		return "", err
+	}
+	return personID, writeLog(ctx, q, logEntry{
+		WorkspaceID: workspaceID, At: time.Now(), Kind: "person.added", AboutKind: "person", AboutID: personID, AboutName: p.Name,
+		By: by, Person: Actor{ID: personID, Name: p.Name}, Details: map[string]any{"administrator": p.WorkspaceAdmin},
+	})
 }
 
 // CreateProject adds a project and returns its id and its ping key. The key is
 // shown once; only its hash is kept.
-func (s *Store) CreateProject(ctx context.Context, workspaceID, name string) (projectID, pingKey string, err error) {
+func (s *Store) CreateProject(ctx context.Context, by Actor, workspaceID, name string) (projectID, pingKey string, err error) {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return "", "", err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
 	projectID, pingKey = id.New(id.Project), id.Key()
 	h := sha256.Sum256([]byte(pingKey))
-	err = db.New(s.w).CreateProject(ctx, db.CreateProjectParams{
+	err = q.CreateProject(ctx, db.CreateProjectParams{
 		ID: projectID, WorkspaceID: workspaceID, Name: name, PingKeyHash: h[:], CreatedAt: now(),
 	})
-	return projectID, pingKey, err
+	if err != nil {
+		return "", "", err
+	}
+	if err := writeLog(ctx, q, logEntry{
+		WorkspaceID: workspaceID, At: time.Now(), ProjectID: projectID, ProjectName: name, Kind: "project.created",
+		AboutKind: "project", AboutID: projectID, AboutName: name, By: by,
+	}); err != nil {
+		return "", "", err
+	}
+	return projectID, pingKey, tx.Commit()
 }
 
 // SetMember gives a person a role in a project. Someone who becomes more than a
 // viewer gets alerts for it, and someone who becomes a viewer stops getting them.
-func (s *Store) SetMember(ctx context.Context, workspaceID, projectID, personID string, role Role) error {
+func (s *Store) SetMember(ctx context.Context, by Actor, workspaceID, projectID, personID string, role Role) error {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := setMember(ctx, db.New(tx), workspaceID, projectID, personID, role); err != nil {
+	if err := setMember(ctx, db.New(tx), by, workspaceID, projectID, personID, role); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -122,14 +152,26 @@ func (s *Store) SetMember(ctx context.Context, workspaceID, projectID, personID 
 // setMember also has the sender look at what is open in the project for someone
 // who gets alerts for it: they should have known since it opened, as when a check
 // moves to a project.
-func setMember(ctx context.Context, q *db.Queries, workspaceID, projectID, personID string, role Role) error {
+func setMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, projectID, personID string, role Role) error {
 	at := now()
-	err := q.AddMember(ctx, db.AddMemberParams{
+	was, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: personID})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	err = q.AddMember(ctx, db.AddMemberParams{
 		WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID, Role: string(role), CreatedAt: at,
 		Alerts: boolInt(role != Viewer),
 	})
-	if err != nil || role == Viewer {
+	if err != nil {
 		return err
+	}
+	if was != string(role) {
+		if err := logMember(ctx, q, by, workspaceID, projectID, personID, "member.set", map[string]any{"from": was, "to": role}); err != nil {
+			return err
+		}
+	}
+	if role == Viewer {
+		return nil
 	}
 	open, err := q.OpenIncidentsOfProject(ctx, db.OpenIncidentsOfProjectParams{WorkspaceID: workspaceID, ProjectID: projectID})
 	if err != nil {
@@ -149,15 +191,41 @@ func setMember(ctx context.Context, q *db.Queries, workspaceID, projectID, perso
 
 // RemoveMember takes a person out of a project, or returns ErrNotFound when they
 // were not in it.
-func (s *Store) RemoveMember(ctx context.Context, workspaceID, projectID, personID string) error {
-	n, err := db.New(s.w).RemoveMember(ctx, db.RemoveMemberParams{WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID})
+func (s *Store) RemoveMember(ctx context.Context, by Actor, workspaceID, projectID, personID string) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	was, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: personID})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	// Written first: once they are out, an administrator would read as never in.
+	if err := logMember(ctx, q, by, workspaceID, projectID, personID, "member.removed", map[string]any{"from": was}); err != nil {
+		return err
+	}
+	n, err := q.RemoveMember(ctx, db.RemoveMemberParams{WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID})
 	if err != nil {
 		return err
 	}
 	if n == 0 {
 		return ErrNotFound
 	}
-	return nil
+	return tx.Commit()
+}
+
+// logMember writes a change to who is in a project.
+func logMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, projectID, personID, kind string, details map[string]any) error {
+	person, err := personActor(ctx, q, workspaceID, personID)
+	if err != nil {
+		return err
+	}
+	return writeLog(ctx, q, logEntry{
+		WorkspaceID: workspaceID, At: time.Now(), ProjectID: projectID, Kind: kind,
+		AboutKind: "person", AboutID: personID, AboutName: person.Name, By: by, Person: person, Details: details,
+	})
 }
 
 // ParseRole reads a role a person can have in a project.
@@ -171,7 +239,7 @@ func ParseRole(s string) (Role, error) {
 
 // CreateMember adds a person who is not an administrator, with a role in these
 // projects and no others, in one change, and returns their id.
-func (s *Store) CreateMember(ctx context.Context, workspaceID string, p NewPerson, projects []string, role Role) (string, error) {
+func (s *Store) CreateMember(ctx context.Context, by Actor, workspaceID string, p NewPerson, projects []string, role Role) (string, error) {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return "", err
@@ -179,12 +247,12 @@ func (s *Store) CreateMember(ctx context.Context, workspaceID string, p NewPerso
 	defer tx.Rollback()
 	q := db.New(tx)
 	p.WorkspaceAdmin = false
-	personID, err := createPerson(ctx, q, workspaceID, p)
+	personID, err := createPerson(ctx, q, by, workspaceID, p)
 	if err != nil {
 		return "", err
 	}
 	for _, projectID := range projects {
-		if err := setMember(ctx, q, workspaceID, projectID, personID, role); err != nil {
+		if err := setMember(ctx, q, by, workspaceID, projectID, personID, role); err != nil {
 			return "", err
 		}
 	}
@@ -205,6 +273,8 @@ type Access struct {
 	PersonID    string
 	Admin       bool
 	Projects    []ProjectAccess
+	// Actor is who the log says acted with this access.
+	Actor Actor
 }
 
 // Role returns the caller's role in a project, and false when they may not see
@@ -233,7 +303,10 @@ func (s *Store) AccessOfPerson(ctx context.Context, workspaceID, personID string
 	if err != nil {
 		return Access{}, err
 	}
-	a := Access{WorkspaceID: workspaceID, PersonID: personID, Admin: p.WorkspaceAdmin == 1}
+	a := Access{
+		WorkspaceID: workspaceID, PersonID: personID, Admin: p.WorkspaceAdmin == 1,
+		Actor: Actor{Kind: "person", ID: personID, Name: p.Name, Admin: p.WorkspaceAdmin == 1},
+	}
 	for _, r := range rows {
 		a.Projects = append(a.Projects, ProjectAccess{ID: r.ID, Name: r.Name, Role: Role(r.Role)})
 	}
@@ -266,13 +339,13 @@ func (s *Store) ProjectByName(ctx context.Context, workspaceID, name string) (st
 
 // AdminAccess is the access of the administrator's command line: every
 // project, as owner. It is for commands run on the server itself, never for a
-// request.
-func (s *Store) AdminAccess(ctx context.Context, workspaceID string) (Access, error) {
+// request. command names the command, for the log.
+func (s *Store) AdminAccess(ctx context.Context, workspaceID, command string) (Access, error) {
 	rows, err := db.New(s.r).AllProjects(ctx, workspaceID)
 	if err != nil {
 		return Access{}, err
 	}
-	a := Access{WorkspaceID: workspaceID, Admin: true}
+	a := Access{WorkspaceID: workspaceID, Admin: true, Actor: Command(command)}
 	for _, r := range rows {
 		a.Projects = append(a.Projects, ProjectAccess{ID: r.ID, Name: r.Name, Role: Owner})
 	}
@@ -280,7 +353,7 @@ func (s *Store) AdminAccess(ctx context.Context, workspaceID string) (Access, er
 }
 
 // RenameProject gives a project a new name, which no other project may have.
-func (s *Store) RenameProject(ctx context.Context, workspaceID, projectID, name string) error {
+func (s *Store) RenameProject(ctx context.Context, by Actor, workspaceID, projectID, name string) error {
 	if name == "" {
 		return &InvalidError{"name", "a project needs a name"}
 	}
@@ -297,12 +370,24 @@ func (s *Store) RenameProject(ctx context.Context, workspaceID, projectID, name 
 	if len(ids) > 0 && ids[0] != projectID {
 		return &InvalidError{"name", fmt.Sprintf("a project named %q exists already", name)}
 	}
+	was, err := q.NameOfProject(ctx, projectID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	n, err := q.RenameProject(ctx, db.RenameProjectParams{Name: name, WorkspaceID: workspaceID, ID: projectID})
 	if err != nil {
 		return err
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	if was != name {
+		if err := writeLog(ctx, q, logEntry{
+			WorkspaceID: workspaceID, At: time.Now(), ProjectID: projectID, ProjectName: name, Kind: "project.renamed",
+			AboutKind: "project", AboutID: projectID, AboutName: name, By: by, Details: map[string]any{"from": was, "to": name},
+		}); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

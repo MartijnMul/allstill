@@ -16,7 +16,7 @@ func key(credentialID string) NewPasskey {
 
 func newPerson(t *testing.T, s *Store, ws, name string) string {
 	t.Helper()
-	id, err := s.CreatePerson(t.Context(), ws, NewPerson{Name: name, Email: strings.ToLower(name) + "@example.com", WorkspaceAdmin: true})
+	id, err := s.CreatePerson(t.Context(), Command("test"), ws, NewPerson{Name: name, Email: strings.ToLower(name) + "@example.com", WorkspaceAdmin: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,11 +29,11 @@ func TestALinkWorksOnce(t *testing.T) {
 	ws, _ := s.Workspace(ctx)
 	ada := newPerson(t, s, ws, "Ada")
 
-	first, err := s.CreatePasskeyLink(ctx, ws, ada, t0)
+	first, err := s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	link, err := s.CreatePasskeyLink(ctx, ws, ada, t0)
+	link, err := s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestALinkWorksOnce(t *testing.T) {
 	if _, err := s.PasskeyLink(ctx, link, t0); !errors.Is(err, ErrLinkUsed) {
 		t.Fatalf("a used link: %v", err)
 	}
-	if _, err := s.CreatePasskeyLink(ctx, ws, "per_nobody", t0); !errors.Is(err, ErrNotFound) {
+	if _, err := s.CreatePasskeyLink(ctx, Command("test"), ws, "per_nobody", t0); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a link for nobody: %v", err)
 	}
 }
@@ -76,8 +76,8 @@ func TestAPasskeyBelongsToOnePerson(t *testing.T) {
 	ctx := t.Context()
 	ws, _ := s.Workspace(ctx)
 	ada, bob := newPerson(t, s, ws, "Ada"), newPerson(t, s, ws, "Bob")
-	l1, _ := s.CreatePasskeyLink(ctx, ws, ada, t0)
-	l2, _ := s.CreatePasskeyLink(ctx, ws, bob, t0)
+	l1, _ := s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
+	l2, _ := s.CreatePasskeyLink(ctx, Command("test"), ws, bob, t0)
 	if _, err := s.AddPasskey(ctx, l1, key("same"), "", t0); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestSessions(t *testing.T) {
 	ctx := t.Context()
 	ws, _ := s.Workspace(ctx)
 	ada := newPerson(t, s, ws, "Ada")
-	link, _ := s.CreatePasskeyLink(ctx, ws, ada, t0)
+	link, _ := s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
 	token, err := s.AddPasskey(ctx, link, key("k1"), strings.Repeat("x", 600), t0)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestSessions(t *testing.T) {
 	}
 
 	// Left alone for 30 days, it ends.
-	link, _ = s.CreatePasskeyLink(ctx, ws, ada, t0)
+	link, _ = s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
 	token, _ = s.AddPasskey(ctx, link, key("k2"), "", t0)
 	if _, err := s.Session(ctx, token, t0.Add(SessionIdle)); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("an idle session: %v", err)
@@ -155,13 +155,13 @@ func TestSessions(t *testing.T) {
 	}
 
 	// A disabled person is signed out everywhere.
-	link, _ = s.CreatePasskeyLink(ctx, ws, ada, t0)
+	link, _ = s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
 	token, _ = s.AddPasskey(ctx, link, key("k3"), "", t0)
 	s.w.Exec("UPDATE people SET disabled_at = 1 WHERE id = ?", ada)
 	if _, err := s.Session(ctx, token, t0); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a disabled person's session: %v", err)
 	}
-	if _, err := s.CreatePasskeyLink(ctx, ws, ada, t0); !errors.Is(err, ErrNotFound) {
+	if _, err := s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a link for a disabled person: %v", err)
 	}
 }
@@ -171,9 +171,9 @@ func TestEndedSessionsAndLinksArePruned(t *testing.T) {
 	ctx := t.Context()
 	ws, _ := s.Workspace(ctx)
 	ada := newPerson(t, s, ws, "Ada")
-	link, _ := s.CreatePasskeyLink(ctx, ws, ada, t0)
+	link, _ := s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
 	s.AddPasskey(ctx, link, key("k1"), "", t0)
-	s.CreatePasskeyLink(ctx, ws, ada, t0)
+	s.CreatePasskeyLink(ctx, Command("test"), ws, ada, t0)
 	if err := s.Alive(ctx, t0.Add(SessionIdle)); err != nil {
 		t.Fatal(err)
 	}

@@ -103,7 +103,7 @@ func createProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if _, err := st.ProjectByName(ctx, ws, fs.Arg(0)); err == nil {
 		return fmt.Errorf("a project named %q exists already", fs.Arg(0))
 	}
-	projectID, key, err := st.CreateProject(ctx, ws, fs.Arg(0))
+	projectID, key, err := st.CreateProject(ctx, store.Command("create-project"), ws, fs.Arg(0))
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func renameProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 	} else if err != nil {
 		return err
 	}
-	if err := st.RenameProject(ctx, ws, projectID, fs.Arg(1)); err != nil {
+	if err := st.RenameProject(ctx, store.Command("rename-project"), ws, projectID, fs.Arg(1)); err != nil {
 		return err
 	}
 	fmt.Fprintf(stdout, "Renamed %s to %s.\n", fs.Arg(0), fs.Arg(1))
@@ -186,7 +186,7 @@ Flags:
 	} else if err != nil {
 		return err
 	}
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "move-checks")
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ Flags:
 	toID, err := st.ProjectByName(ctx, ws, *to)
 	if errors.Is(err, store.ErrNotFound) {
 		var pingKey string
-		if toID, pingKey, err = st.CreateProject(ctx, ws, *to); err != nil {
+		if toID, pingKey, err = st.CreateProject(ctx, store.Command("move-checks"), ws, *to); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "Created project %s. Its ping key, shown only now: %s\n\n", *to, pingKey)
@@ -225,7 +225,7 @@ Flags:
 	}
 	moved := 0
 	for _, c := range moving {
-		if err := st.MoveCheck(ctx, ws, c.ID, toID, time.Now()); err != nil {
+		if err := st.MoveCheck(ctx, store.Command("move-checks"), ws, c.ID, toID, time.Now()); err != nil {
 			fmt.Fprintf(stdout, "not moved  %s: %v\n", c.Name, err)
 			continue
 		}
@@ -272,7 +272,7 @@ Flags:
 	}
 	defer st.Close()
 	on := fs.Arg(0) == "on"
-	quiet, err := st.SetAlerts(ctx, on)
+	quiet, err := st.SetAlerts(ctx, store.Command("set-alerts"), on)
 	if err != nil {
 		return err
 	}
@@ -343,7 +343,7 @@ Flags:
 	} else if err != nil {
 		return err
 	}
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "set-alerting")
 	if err != nil {
 		return err
 	}
@@ -364,7 +364,7 @@ Flags:
 	default:
 		return fmt.Errorf("%s has %d checks named %q", *project, len(ids), *name)
 	}
-	if err := st.SetAlerting(ctx, ws, ids[0], *urgency, *critical, time.Now()); err != nil {
+	if err := st.SetAlerting(ctx, store.Command("set-alerting"), ws, ids[0], *urgency, *critical, time.Now()); err != nil {
 		return err
 	}
 	what := *urgency
@@ -478,7 +478,7 @@ Flags:
 	var personID, what string
 	if len(projects) == 0 {
 		person.WorkspaceAdmin = true
-		personID, err = st.CreatePerson(ctx, ws, person)
+		personID, err = st.CreatePerson(ctx, store.Command("create-user"), ws, person)
 		what = "a workspace administrator"
 	} else {
 		ids := make([]string, len(projects))
@@ -489,13 +489,13 @@ Flags:
 				return err
 			}
 		}
-		personID, err = st.CreateMember(ctx, ws, person, ids, role)
+		personID, err = st.CreateMember(ctx, store.Command("create-user"), ws, person, ids, role)
 		what = fmt.Sprintf("%s of %s", role, strings.Join(projects, ", "))
 	}
 	if err != nil {
 		return err
 	}
-	token, err := st.CreatePasskeyLink(ctx, ws, personID, time.Now())
+	token, err := st.CreatePasskeyLink(ctx, store.Command("create-user"), ws, personID, time.Now())
 	if err != nil {
 		return err
 	}
@@ -561,7 +561,7 @@ Flags:
 		return err
 	}
 	if *roleName == "none" {
-		if err := st.RemoveMember(ctx, ws, projectID, p.ID); errors.Is(err, store.ErrNotFound) {
+		if err := st.RemoveMember(ctx, store.Command("set-member"), ws, projectID, p.ID); errors.Is(err, store.ErrNotFound) {
 			if p.Admin {
 				return fmt.Errorf("%s has no role in %s, and sees it as a workspace administrator", p.Name, *project)
 			}
@@ -571,7 +571,7 @@ Flags:
 		}
 		fmt.Fprintf(stdout, "%s is no longer in %s.\n", p.Name, *project)
 	} else {
-		if err := st.SetMember(ctx, ws, projectID, p.ID, role); err != nil {
+		if err := st.SetMember(ctx, store.Command("set-member"), ws, projectID, p.ID, role); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "%s is now %s of %s.\n", p.Name, role, *project)
@@ -631,7 +631,7 @@ Flags:
 	if err != nil {
 		return err
 	}
-	token, err := st.CreatePasskeyLink(ctx, ws, p.ID, time.Now())
+	token, err := st.CreatePasskeyLink(ctx, store.Command("passkey-link"), ws, p.ID, time.Now())
 	if err != nil {
 		return err
 	}
@@ -710,14 +710,14 @@ Flags:
 	projectID, err := st.ProjectByName(ctx, ws, *project)
 	if errors.Is(err, store.ErrNotFound) {
 		var pingKey string
-		if projectID, pingKey, err = st.CreateProject(ctx, ws, *project); err != nil {
+		if projectID, pingKey, err = st.CreateProject(ctx, store.Command("import healthchecks"), ws, *project); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "Created project %s. Its ping key, shown only now: %s\n\n", *project, pingKey)
 	} else if err != nil {
 		return err
 	}
-	admin, err := st.AdminAccess(ctx, ws)
+	admin, err := st.AdminAccess(ctx, ws, "import healthchecks")
 	if err != nil {
 		return err
 	}

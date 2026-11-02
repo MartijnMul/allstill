@@ -14,13 +14,14 @@ Three steps, each a release candidate that runs on a real installation before th
 Step 1, recording states and actions:
 - `internal/store/migrations/0011_log.sql` (new): `log_entries` as the spec's design says, no foreign keys or checks; an index on project, on what it is about and its name (R28), on by what, on the person, on the incident, on the kind (R27), on the group and on when recorded; the trigger refusing updates; the log's start date under `installation`.
 - `internal/store/queries/log.sql` (new), `internal/store/internal/db` (generated): writing entries, the counts R5 and R16 need, removing old ones.
+- `internal/id/id.go` (changed): a prefix for the group that ties R18's line to what it opens.
 - `internal/store/log.go` (new): `Actor` (a person, key, probe, job, command or Allstill, with whether a person is an administrator with no membership of the project); a builder that writes named fields and cannot fail, dropping details it cannot encode; the list of fields whose values may show (R12); the mapping of a reason to its fixed wording, which returns only its own text and a neutral line for anything it does not know (R1, C4); R16's ceiling.
 - `internal/store/ping.go` (changed): `saveStatus` and `saveStatusAt` take a cause, and write the entry past the return for an unchanged state; `applyPing` takes who a ping is by, so a probe's own check is by that probe; `create=1` and a ping that resumes write theirs; `Recover` writes R18's line per project, with its group.
 - `internal/store/incidents.go` (changed): `SetAlerting` and `SetAlerts` take who is acting.
 - `internal/store/manage.go`, `checks.go`, `probe.go`, `workspace.go`, `signin.go`, `channels.go` (changed): an entry from each action, a required actor where there is no `Access`, one transaction around each action that lacks one (`CreateCheck`, `CreatePerson`, `CreateProject`, `RemoveMember`, `RekeyProbe`, `DeleteChannel`, `Confirm`), nothing written for an action that changed nothing (R8), the method for R9.
 - `internal/store/workspace.go` (changed): `Access` carries the actor; `AccessOfPerson` sets it, and `AdminAccess` takes the command's name.
 - `internal/store/tidy.go` (changed): removing old entries in batches, R16's closing line, `PRAGMA optimize`; `Retention` gains the log's age, with a floor of 30 days in `Check`.
-- `internal/web/manage.go` (changed): adding a check with its alerting becomes one entry (R6).
+- `internal/web/manage.go` (changed): adding a check with its alerting becomes one entry (R6), by `NewCheck` taking the alerting, which also makes it one transaction.
 - `internal/web/signin.go` (changed): recording a passkey that looks copied (R9).
 - `cmd/allstill/admin.go`, `checks.go`, `probe.go`, `compare.go`, `main.go` (changed): each command names itself; `-keep-log` and `ALLSTILL_KEEP_LOG`. An import gets its name through the `Access` it is given.
 - `docs/running.md`, `internal/guide/guide.md`, `AGENTS.md` (changed): that actions and state changes are now recorded, for how long, and that they hold people's names (R37), with no page yet.
@@ -76,7 +77,7 @@ Step 3, the page:
 
 ## Risks
 
-- **The riskiest step is 1.3,** as it changes the path every ping takes. An error there loses pings, which is the one thing the intent forbids. It writes only when a state changes, keeping the ordinary ping's cost as it is; R16's count runs on those writes only. Test: `make check` with the ping path's tests unchanged apart from the new argument of `saveStatus`, and a comparison of pings per second before and after with a benchmark.
+- **The riskiest step is 1.3,** as it changes the path every ping takes. An error there loses pings, which is the one thing the intent forbids. It writes only when a state changes, keeping the ordinary ping's cost as it is; R16's count runs on those writes only. Test: `make check` with the ping path's tests unchanged apart from the new argument of `saveStatus`, and a comparison of pings per second before and after with a benchmark. Measured on 2026-11-02 in six alternating rounds of 3000 pings on a laptop, against the commit before: pings that change no state took about 510 µs before and 580 µs after, and pings that each change the state about 875 µs and 840 µs. The rounds vary by a factor of two or more and overlap, so no difference shows above the noise.
 - **Wrapping existing actions in transactions (1.5)** could change what a failure leaves behind. `create-user` makes a person and then a link in separate steps, and stays that way, with an entry for each.
 - **`Sent` changes shape (2.2),** and a mistake there can send a message twice or lose track of one. Only the entry is new: when and how it sends do not change, and the sender's tests stay unchanged.
 - **`Item` is stored JSON in `deliveries`,** so old rows have no new fields at the moment of the upgrade. Spec design: such a message writes one line for the person with no checks.

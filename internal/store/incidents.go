@@ -3,6 +3,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -363,7 +364,7 @@ func (s *Store) LastMessageAt(ctx context.Context, personID string) (time.Time, 
 // marks every open incident as from shadow mode, in the same transaction:
 // nobody is alerted for it, and the digest lists it (R10). It returns how
 // many open incidents now stay quiet.
-func (s *Store) SetAlerts(ctx context.Context, on bool) (quiet int, err error) {
+func (s *Store) SetAlerts(ctx context.Context, by Actor, on bool) (quiet int, err error) {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -385,6 +386,18 @@ func (s *Store) SetAlerts(ctx context.Context, on bool) (quiet int, err error) {
 	}
 	if err := q.SetInstallationValue(ctx, db.SetInstallationValueParams{Key: "alerts", Value: value}); err != nil {
 		return 0, err
+	}
+	if from := cmp.Or(was, "shadow"); from != value {
+		ws, err := q.Workspace(ctx)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
+		if err := writeLog(ctx, q, logEntry{
+			WorkspaceID: ws.ID, At: time.Now(), Kind: "alerts.mode", AboutKind: "installation", By: by,
+			Details: map[string]any{"from": from, "to": value},
+		}); err != nil {
+			return 0, err
+		}
 	}
 	if on {
 		n, err := q.QuietIncidents(ctx)
@@ -527,13 +540,24 @@ func (s *Store) IncidentsOfCheck(ctx context.Context, checkID string, since time
 // SetAlerting sets how fast a problem with a check reaches people: its
 // urgency (now, digest or none), and whether it breaks through quiet hours.
 // It is for the administrator's command line: it checks no caller's access.
-func (s *Store) SetAlerting(ctx context.Context, workspaceID, checkID, urgency string, critical bool, at time.Time) error {
+func (s *Store) SetAlerting(ctx context.Context, by Actor, workspaceID, checkID, urgency string, critical bool, at time.Time) error {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := setAlerting(ctx, db.New(tx), workspaceID, checkID, urgency, critical, at); err != nil {
+	q := db.New(tx)
+	c, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: workspaceID, ID: checkID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if err := setAlerting(ctx, q, workspaceID, checkID, urgency, critical, at); err != nil {
+		return err
+	}
+	if err := logAlerting(ctx, q, by, c, urgency, critical, at); err != nil {
 		return err
 	}
 	return tx.Commit()

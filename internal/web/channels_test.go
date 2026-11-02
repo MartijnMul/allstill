@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +121,15 @@ func TestADeviceIsAddedTestedAndConfirmed(t *testing.T) {
 	if cs, _ := f.st.Channels(ctx, f.bob); len(cs) != 0 {
 		t.Fatalf("Bob still has %+v", cs)
 	}
+	var got []string
+	for _, l := range f.logLines(t) {
+		if strings.HasPrefix(l[0], "channel.") {
+			got = append(got, l[0]+" by "+l[1])
+		}
+	}
+	if want := []string{"channel.confirmed by Ada", "channel.handed_on by Bob", "channel.removed by Bob"}; !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
 }
 
 func TestABadSubscriptionIsRefused(t *testing.T) {
@@ -221,9 +231,9 @@ func TestAlertProblemsNeedAttention(t *testing.T) {
 	b.ok("POST", "/channels/push", sub)
 	// A project where nobody gets alerts: Bob and Ada only view it, and as a
 	// member Ada follows it through that membership, not as an administrator.
-	lab, _, _ := f.st.CreateProject(ctx, f.ws, "Lab")
-	f.st.SetMember(ctx, f.ws, lab, f.bob, store.Viewer)
-	f.st.SetMember(ctx, f.ws, lab, f.ada, store.Viewer)
+	lab, _, _ := f.st.CreateProject(ctx, store.Command("test"), f.ws, "Lab")
+	f.st.SetMember(ctx, store.Command("test"), f.ws, lab, f.bob, store.Viewer)
+	f.st.SetMember(ctx, store.Command("test"), f.ws, lab, f.ada, store.Viewer)
 	bob := f.browser(t)
 	f.register(t, bob, f.bob)
 

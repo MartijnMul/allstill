@@ -334,7 +334,7 @@ func TestAWaitingPushIsCheckedAgain(t *testing.T) {
 		d.answer(http.StatusServiceUnavailable)
 		w.at("12:00", backup, check.Fail)
 		d.answer(http.StatusCreated)
-		bo, _ := w.st.CreatePerson(t.Context(), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
+		bo, _ := w.st.CreatePerson(t.Context(), store.Command("test"), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
 		k, _ := w.st.VAPIDKey(t.Context(), w.ws)
 		if _, err := w.st.SavePush(t.Context(), w.ws, bo, "Phone", d.subscription(), k.PublicKey()); err != nil {
 			t.Fatal(err)
@@ -477,7 +477,7 @@ func TestAChangeDuringAnOldIncidentIsNotBehind(t *testing.T) {
 	w.at("22 03:00", backup, check.Fail) // waits for the end of quiet hours
 	w.set("22 05:00")
 	views, _ := w.st.Checks(t.Context(), w.access)
-	if err := w.st.SetAlerting(t.Context(), w.ws, views[0].ID, "digest", false, w.now); err != nil {
+	if err := w.st.SetAlerting(t.Context(), store.Command("test"), w.ws, views[0].ID, "digest", false, w.now); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := w.sender.Behind(t.Context()); b != 0 {
@@ -485,11 +485,11 @@ func TestAChangeDuringAnOldIncidentIsNotBehind(t *testing.T) {
 	}
 	w.at("22 05:00", "", "")
 	// Moved to a project with a new person, who becomes a recipient.
-	lab, _, _ := w.st.CreateProject(t.Context(), w.ws, "Lab")
-	bo, _ := w.st.CreatePerson(t.Context(), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
-	w.st.SetMember(t.Context(), w.ws, lab, bo, store.Editor)
+	lab, _, _ := w.st.CreateProject(t.Context(), store.Command("test"), w.ws, "Lab")
+	bo, _ := w.st.CreatePerson(t.Context(), store.Command("test"), w.ws, store.NewPerson{Name: "Bo", TimeZone: "Europe/Amsterdam"})
+	w.st.SetMember(t.Context(), store.Command("test"), w.ws, lab, bo, store.Editor)
 	w.set("22 06:00")
-	if err := w.st.MoveCheck(t.Context(), w.ws, views[0].ID, lab, w.now); err != nil {
+	if err := w.st.MoveCheck(t.Context(), store.Command("test"), w.ws, views[0].ID, lab, w.now); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := w.sender.Behind(t.Context()); b != 0 {

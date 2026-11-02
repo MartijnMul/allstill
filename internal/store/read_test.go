@@ -17,8 +17,8 @@ func TestReadsStayWithinAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, _, _ := f.s.CreateProject(ctx, f.ws, "Elsewhere")
-	admin, _ := f.s.AdminAccess(ctx, f.ws)
+	other, _, _ := f.s.CreateProject(ctx, Command("test"), f.ws, "Elsewhere")
+	admin, _ := f.s.AdminAccess(ctx, f.ws, "test")
 	hidden, err := f.s.CreateCheck(ctx, admin, other, NewCheck{Name: "Hidden", Interval: time.Hour, Grace: time.Hour})
 	if err != nil {
 		t.Fatal(err)

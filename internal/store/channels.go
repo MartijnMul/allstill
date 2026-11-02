@@ -123,6 +123,17 @@ func (s *Store) SavePush(ctx context.Context, workspaceID, personID, name string
 		if err := q.ReplaceChannel(ctx, db.ReplaceChannelParams{PersonID: nullString(personID), Name: name, Config: string(b), ID: old.ID}); err != nil {
 			return Channel{}, err
 		}
+		if old.PersonID.String != personID {
+			// The one who lost it should be able to read that too.
+			if err := logChannel(ctx, q, workspaceID, personID, old.ID, old.Kind, "channel.handed_on", true, time.Now()); err != nil {
+				return Channel{}, err
+			}
+			if old.PersonID.Valid {
+				if err := logChannel(ctx, q, workspaceID, old.PersonID.String, old.ID, old.Kind, "channel.handed_away", false, time.Now()); err != nil {
+					return Channel{}, err
+				}
+			}
+		}
 		old.PersonID, old.Name, old.Config, old.VerifiedAt, old.FailedAt = nullString(personID), name, string(b), sql.NullInt64{}, sql.NullInt64{}
 		return channelOf(old), tx.Commit()
 	case errors.Is(err, sql.ErrNoRows):
@@ -195,11 +206,47 @@ func (s *Store) Channels(ctx context.Context, personID string) ([]Channel, error
 
 // DeleteChannel removes one of the person's channels.
 func (s *Store) DeleteChannel(ctx context.Context, personID, channelID string) error {
-	n, err := db.New(s.w).DeleteChannel(ctx, db.DeleteChannelParams{ID: channelID, PersonID: nullString(personID)})
-	if err == nil && n == 0 {
-		err = ErrNotFound
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
 	}
-	return err
+	defer tx.Rollback()
+	q := db.New(tx)
+	c, err := q.ChannelOfPerson(ctx, db.ChannelOfPersonParams{ID: channelID, PersonID: nullString(personID)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	n, err := q.DeleteChannel(ctx, db.DeleteChannelParams{ID: channelID, PersonID: nullString(personID)})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	if err := logChannel(ctx, q, c.WorkspaceID, personID, c.ID, c.Kind, "channel.removed", true, time.Now()); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// logChannel writes a change to where a person is reached: never the address or
+// the device's name (C2). byThem says the person did it, not Allstill.
+func logChannel(ctx context.Context, q *db.Queries, workspaceID, personID, channelID, channelKind, kind string, byThem bool, at time.Time) error {
+	person, err := personActor(ctx, q, workspaceID, personID)
+	if err != nil {
+		return err
+	}
+	actor := byAllstill
+	if byThem {
+		actor = person
+	}
+	return writeLog(ctx, q, logEntry{
+		WorkspaceID: workspaceID, At: at, Kind: kind, AboutKind: "channel", AboutID: channelID,
+		By: actor, Person: person, Details: map[string]any{"channel": channelKind},
+	})
 }
 
 // TestsPerDay is how many test messages one person may send in a day, and
@@ -268,7 +315,12 @@ func (s *Store) SetConfirm(ctx context.Context, p Pending, token string) error {
 // Confirm marks one of the person's channels as reached, when token is the
 // one in its last test message.
 func (s *Store) Confirm(ctx context.Context, personID, channelID, token string, at time.Time) error {
-	q := db.New(s.w)
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
 	c, err := q.ChannelOfPerson(ctx, db.ChannelOfPersonParams{ID: channelID, PersonID: nullString(personID)})
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -281,7 +333,15 @@ func (s *Store) Confirm(ctx context.Context, personID, channelID, token string, 
 	if len(cfg.Confirm) == 0 || subtle.ConstantTimeCompare(cfg.Confirm, hash(token)) != 1 {
 		return ErrNotFound
 	}
-	return q.ConfirmChannel(ctx, db.ConfirmChannelParams{VerifiedAt: nullMs(at), ID: c.ID})
+	if err := q.ConfirmChannel(ctx, db.ConfirmChannelParams{VerifiedAt: nullMs(at), ID: c.ID}); err != nil {
+		return err
+	}
+	if !c.VerifiedAt.Valid {
+		if err := logChannel(ctx, q, c.WorkspaceID, personID, c.ID, c.Kind, "channel.confirmed", true, at); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // Targets are the person's channels a message may go to now: confirmed
@@ -518,7 +578,11 @@ func (s *Store) Failed(ctx context.Context, p Pending, reason string, gone, chan
 	switch {
 	case p.ChannelID == "":
 	case gone:
-		err = q.DeleteChannelByID(ctx, p.ChannelID)
+		// Another message to it, sent from the same batch, can find it gone already.
+		var n int64
+		if n, err = q.DeleteChannelByID(ctx, p.ChannelID); err == nil && n > 0 {
+			err = logChannel(ctx, q, p.WorkspaceID, p.PersonID, p.ChannelID, p.ChannelKind, "channel.removed", false, at)
+		}
 	case channelFailed:
 		err = q.SetChannelFailed(ctx, db.SetChannelFailedParams{FailedAt: nullMs(at), ID: p.ChannelID})
 	}

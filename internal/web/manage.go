@@ -790,6 +790,9 @@ func (s *Server) addCheck(w http.ResponseWriter, r *http.Request, v viewer) {
 		refuse("")
 		return
 	}
+	if f.Urgency != blank.Urgency || f.Critical {
+		n.Urgency, n.Critical = f.Urgency, f.Critical
+	}
 	created, err := s.Store.CreateCheck(r.Context(), v.Access, f.Project, n)
 	if inv, ok := errors.AsType[*store.InvalidError](err); ok {
 		field, problem := f.fieldOf(inv)
@@ -806,12 +809,6 @@ func (s *Server) addCheck(w http.ResponseWriter, r *http.Request, v viewer) {
 		return
 	}
 	now := s.Now()
-	if f.Urgency != blank.Urgency || f.Critical {
-		if err := s.Store.SetAlertingAs(r.Context(), v.Access, created.ID, f.Urgency, f.Critical, now); err != nil {
-			s.fail(w, r, err)
-			return
-		}
-	}
 	s.changed(v, created.ID, "added")
 	c, err := s.Store.Check(r.Context(), v.Access, created.ID)
 	if err != nil {

@@ -5,9 +5,12 @@ package main
 import (
 	"bytes"
 	"crypto/tls"
+	"database/sql"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -24,8 +27,8 @@ func TestAddAndSetCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws, _ := st.Workspace(ctx)
-	project, _, _ := st.CreateProject(ctx, ws, "Sites")
-	admin, _ := st.AdminAccess(ctx, ws)
+	project, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Sites")
+	admin, _ := st.AdminAccess(ctx, ws, "test")
 	if _, err := st.CreateCheck(ctx, admin, project, store.NewCheck{Name: "backup", Interval: time.Hour, Grace: time.Hour}); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +105,7 @@ func TestAddAndSetTCPCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws, _ := st.Workspace(ctx)
-	st.CreateProject(ctx, ws, "Sites")
+	st.CreateProject(ctx, store.Command("test"), ws, "Sites")
 	st.SetSetting(ctx, "allow_private", "192.0.2.0/24")
 	st.Close()
 	admin := func(args ...string) (string, error) {
@@ -220,8 +223,8 @@ func TestChangingAPingCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws, _ := st.Workspace(ctx)
-	project, _, _ := st.CreateProject(ctx, ws, "Backups")
-	admin, _ := st.AdminAccess(ctx, ws)
+	project, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Backups")
+	admin, _ := st.AdminAccess(ctx, ws, "test")
 	c, err := st.CreateCheck(ctx, admin, project, store.NewCheck{Name: "nightly", Interval: time.Hour, Grace: time.Hour})
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +242,7 @@ func TestChangingAPingCheck(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer st.Close()
-		a, _ := st.AdminAccess(ctx, ws)
+		a, _ := st.AdminAccess(ctx, ws, "test")
 		v, err := st.Check(ctx, a, c.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -309,8 +312,8 @@ func TestPeopleWithARole(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws, _ := st.Workspace(ctx)
-	customer, _, _ := st.CreateProject(ctx, ws, "Customer")
-	other, _, _ := st.CreateProject(ctx, ws, "Other")
+	customer, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Customer")
+	other, _, _ := st.CreateProject(ctx, store.Command("test"), ws, "Other")
 	st.Close()
 	admin := func(args ...string) (string, error) {
 		var out bytes.Buffer
@@ -423,8 +426,8 @@ func TestProbeCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	ws, _ := st.Workspace(ctx)
-	st.CreateProject(ctx, ws, "Customer")
-	st.CreateProject(ctx, ws, "Other")
+	st.CreateProject(ctx, store.Command("test"), ws, "Customer")
+	st.CreateProject(ctx, store.Command("test"), ws, "Other")
 	st.Close()
 	admin := func(args ...string) (string, error) {
 		var out bytes.Buffer
@@ -525,5 +528,114 @@ func TestTryOnceWarnsOfHEAD(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "it fails, HTTP 405 (HTTP 405") || !strings.Contains(out.String(), "answers HEAD with 405") {
 		t.Errorf("%q", out.String())
+	}
+}
+
+// Every command that changes something is in the log, by its own name
+// (intent/activity-log/spec.md, R15).
+func TestCommandsAreInTheLog(t *testing.T) {
+	ctx := t.Context()
+	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	admin := func(args ...string) {
+		t.Helper()
+		var out, stderr bytes.Buffer
+		full := append([]string{"admin", args[0], "-db", dbPath}, args[1:]...)
+		if strings.HasSuffix(args[0], "-probe") { // their name comes first
+			full = append([]string{"admin"}, append(args, "-db", dbPath)...)
+		}
+		if err := run(ctx, full, &out, &stderr); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, stderr.String())
+		}
+	}
+	admin("create-project", "Backups")
+	admin("rename-project", "Backups", "Nightly")
+	admin("create-project", "Other")
+	admin("create-user", "-base-url", "https://allstill.example.com", "-email", "ada@example.com", "-name", "Ada", "-project", "Nightly", "-role", "viewer")
+	admin("set-member", "-email", "ada@example.com", "-project", "Nightly", "-role", "editor")
+	admin("set-member", "-email", "ada@example.com", "-project", "Nightly", "-role", "none")
+	admin("passkey-link", "-base-url", "https://allstill.example.com", "-email", "ada@example.com")
+	admin("set-alerts", "on")
+	admin("create-probe", "inside", "-project", "Nightly")
+	admin("rekey-probe", "inside")
+	st, err := store.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _ := st.Workspace(ctx)
+	project, err := st.ProjectByName(ctx, ws, "Nightly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	access, err := st.AdminAccess(ctx, ws, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateCheck(ctx, access, project, store.NewCheck{Name: "nightly", Interval: time.Hour, Grace: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	admin("add-check", "-project", "Nightly", "-name", "site", "-http", "http://10.0.0.5/", "-probe", "inside")
+	hc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"checks": [{"name": "imported", "uuid": "5bf0c3a1-3b7e-4c8d-9f10-2a6d1e7c4b90", "timeout": 3600, "grace": 3600}]}`)
+	}))
+	defer hc.Close()
+	t.Setenv("HEALTHCHECKS_API_KEY", "a-key")
+	var imported, stderr bytes.Buffer
+	if err := run(ctx, []string{"import", "healthchecks", "-db", dbPath, "-url", hc.URL, "-project", "Imported"}, &imported, &stderr); err != nil {
+		t.Fatalf("%v\n%s", err, stderr.String())
+	}
+	on := []string{"-project", "Nightly", "-check", "nightly"}
+	admin(append([]string{"set-check", "-grace", "2h"}, on...)...)
+	admin(append([]string{"set-alerting", "-urgency", "digest"}, on...)...)
+	admin(append([]string{"pause-check"}, on...)...)
+	admin(append([]string{"resume-check"}, on...)...)
+	admin("move-checks", "-from", "Nightly", "-to", "Other", "-check", "nightly")
+	admin("delete-check", "-project", "Other", "-check", "nightly")
+
+	conn, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	rows, err := conn.QueryContext(ctx, `SELECT kind, by_name FROM log_entries WHERE by_kind = 'command' AND by_name <> 'test' ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var kind, by string
+		if err := rows.Scan(&kind, &by); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, by+": "+kind)
+	}
+	want := []string{
+		"create-project: project.created",
+		"rename-project: project.renamed",
+		"create-project: project.created",
+		"create-user: person.added",
+		"create-user: member.set",
+		"create-user: passkey.link_made",
+		"set-member: member.set",
+		"set-member: member.removed",
+		"passkey-link: passkey.link_made",
+		"set-alerts: alerts.mode",
+		"create-probe: check.created",
+		"create-probe: probe.created",
+		"rekey-probe: probe.rekeyed",
+		"add-check: check.created",
+		"import healthchecks: project.created",
+		"import healthchecks: check.created",
+		"set-check: check.changed",
+		"set-alerting: check.changed",
+		"pause-check: check.paused",
+		"resume-check: check.resumed",
+		"move-checks: check.moved_out",
+		"move-checks: check.moved_in",
+		"delete-check: check.deleted",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

@@ -20,7 +20,7 @@ import (
 func aProbeOf(t *testing.T, f fixture) (key, httpID, tcpID string) {
 	t.Helper()
 	ctx := t.Context()
-	admin, err := f.st.AdminAccess(ctx, f.ws)
+	admin, err := f.st.AdminAccess(ctx, f.ws, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestAProbeFetchesItsChecks(t *testing.T) {
 	if w := probeRequest(f, "GET", "/api/v1/probe/checks", key, nil, map[string]string{"If-None-Match": etag}); w.Code != 304 {
 		t.Errorf("unchanged: %d", w.Code)
 	}
-	admin, _ := f.st.AdminAccess(t.Context(), f.ws)
+	admin, _ := f.st.AdminAccess(t.Context(), f.ws, "test")
 	if err := f.st.SetActiveCheckOn(t.Context(), admin, tcpID, 2*time.Minute, map[string]any{"host": "10.0.0.6", "port": 5432}, "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestAProbeOfAnotherVersionIsTold(t *testing.T) {
 func TestAProbePostsRuns(t *testing.T) {
 	f := setup(t)
 	key, httpID, _ := aProbeOf(t, f)
-	admin, _ := f.st.AdminAccess(t.Context(), f.ws)
+	admin, _ := f.st.AdminAccess(t.Context(), f.ws, "test")
 	var nudged time.Time
 	f.srv.Nudge = func(d time.Time) { nudged = d }
 	state := func() store.CheckView {
