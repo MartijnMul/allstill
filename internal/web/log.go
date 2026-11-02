@@ -229,6 +229,14 @@ func (w logWriter) check() logPart {
 	return p
 }
 
+// signInWords says what a sign-in from the command line is, for its line.
+func signInWords(e store.LogEntry) string {
+	if detailString(e.Details, "scope") == store.ScopeRead {
+		return e.AboutName + ", to read only"
+	}
+	return e.AboutName
+}
+
 // party names who acted or whom an entry concerns, at the start of a sentence.
 func party(p store.LogParty) logPart {
 	switch p.Kind {
@@ -299,6 +307,9 @@ func howWords(d map[string]any) string {
 func (w logWriter) write() {
 	e, d := w.e, w.e.Details
 	by := party(e.By)
+	if via := detailString(d, "via"); via != "" {
+		by.Text += ", with " + via
+	}
 	switch e.Kind {
 	case "check.state", "check.late":
 		to, from := detailString(d, "to"), detailString(d, "from")
@@ -388,6 +399,14 @@ func (w logWriter) write() {
 		w.say(text("A passkey of "), party(e.Person), text(" looks copied, so the sign-in was refused."))
 	case "signin":
 		w.say(by, text(" signed in."))
+	case "token.made":
+		w.say(by, text(" signed in from "+signInWords(e)+"."))
+	case "token.ended":
+		w.say(by, text(" ended the sign-in "+e.AboutName+" of "), party(e.Person), text("."))
+	case "session.ended":
+		w.say(by, text(" ended a browser session of "), party(e.Person), text("."))
+	case "passkey.removed":
+		w.say(by, text(" removed a passkey of "), party(e.Person), text("."))
 	case "channel.confirmed":
 		w.say(by, text(" confirmed "+channelNoun(d)+"."))
 	case "channel.handed_on":

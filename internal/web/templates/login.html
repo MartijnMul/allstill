@@ -2,7 +2,7 @@
 {{define "content"}}
 <main class="center">
   <a class="brand" href="/">{{template "logo"}}</a>
-  <form class="panel box" id="login">
+  <form class="panel box" id="login"{{with .Data}} data-next="{{.}}"{{end}}>
     <h1>Sign in</h1>
     <p>Use the passkey you made for this site, on this device or your phone.</p>
     <button type="submit" class="primary">Sign in with a passkey</button>

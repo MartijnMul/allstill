@@ -42,9 +42,14 @@ Usage:
   allstill probe [flags]                 run checks inside a network the server cannot reach
   allstill import healthchecks [flags]   copy checks from Healthchecks
   allstill compare healthchecks [flags]  where Allstill saw checks differently
+  allstill login URL [flags]             sign in from this machine, with a code you approve anywhere
+  allstill logout                        end the sign-in on this machine
+  allstill whoami                        who you are signed in as, and what you may do
   allstill admin create-user [flags]     add a person, with a link to make a passkey
   allstill admin set-member [flags]      what someone may do in a project
   allstill admin passkey-link [flags]    a new passkey link for someone
+  allstill admin end-sessions [flags]    end all of someone's sign-ins and browser sessions
+  allstill admin remove-passkey [flags]  take away a passkey, with what it approved
   allstill admin create-project NAME     create a project
   allstill admin rename-project NAME NEW rename a project
   allstill admin move-checks [flags]     move checks to another project
@@ -101,6 +106,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return compareCommand(ctx, args[1:], stdout, stderr)
 	case "admin":
 		return adminCommand(ctx, args[1:], stdout, stderr)
+	case "login":
+		return loginCommand(ctx, args[1:], stdout, stderr)
+	case "logout":
+		return logoutCommand(ctx, args[1:], stdout, stderr)
+	case "whoami":
+		return whoamiCommand(ctx, args[1:], stdout, stderr)
 	case "backup":
 		return backup(ctx, args[1:], stdout, stderr)
 	case "guide":
@@ -231,6 +242,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		return err
 	}
 	dashboard.PushKey = key.PublicKey()
+	dashboard.Version = version()
 	dashboard.Wake = func() {
 		select {
 		case wake <- struct{}{}:

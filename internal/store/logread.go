@@ -78,7 +78,7 @@ func logClass(kind string) string {
 		return "happened"
 	case strings.HasPrefix(kind, "message."):
 		return "reached"
-	case kind == "signin", kind == "passkey.added", kind == "passkey.looks_copied":
+	case slices.Contains(logKindsOf["signins"], kind):
 		return "signins"
 	}
 	return "done"
@@ -88,7 +88,7 @@ func logClass(kind string) string {
 var logKindsOf = map[string][]string{
 	"happened": {"check.state", "check.late", "check.flapping", "check.steady", "checks.unjudged"},
 	"reached":  {"message.reached", "message.reached_several", "message.shadow", "message.shadow_several", "message.unreached"},
-	"signins":  {"signin", "passkey.added", "passkey.looks_copied"},
+	"signins":  {"signin", "passkey.added", "passkey.looks_copied", "passkey.removed", "token.made", "token.ended", "session.ended"},
 }
 
 // Who may read a kind of entry in a project they are in; an administrator reads
@@ -104,7 +104,8 @@ var logMinRole = map[string]Role{
 
 // What concerns only the person it is about, outside any project.
 var logOwnKinds = map[string]bool{
-	"signin": true, "passkey.added": true, "passkey.looks_copied": true, "passkey.link_made": true,
+	"signin": true, "passkey.added": true, "passkey.looks_copied": true, "passkey.link_made": true, "passkey.removed": true,
+	"token.made": true, "token.ended": true, "session.ended": true,
 	"channel.confirmed": true, "channel.handed_on": true, "channel.handed_away": true, "channel.removed": true,
 	"message.reached": true, "message.shadow": true,
 }
@@ -189,6 +190,10 @@ func readLogEntry(r db.LogEntry, a Access) (LogEntry, bool) {
 				}
 			}
 		}
+	}
+	// Which sign-in it came through is for those who may read who it was (R39).
+	if e.By.Kind != "person" {
+		delete(details, "via")
 	}
 	e.Details = details
 	return e, true

@@ -90,5 +90,28 @@
     <div class="empty"><svg class="icon" aria-hidden="true"><use href="#i-device"/></svg><p>No devices yet. Open Allstill on your phone and add it here.</p></div>
     {{end}}
   </section>
+
+  <section class="panel" aria-labelledby="signed-in">
+    <div class="panel-head"><h2 id="signed-in">Where you are signed in</h2><span class="count">{{len .SignIns}}</span></div>
+    <div class="table">
+      <table>
+        <caption class="sr">Your browsers and command lines</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          {{range .SignIns}}
+          <tr>
+            <td><span class="two"><span>{{.Name}}{{if .Here}} <span class="tag">This browser</span>{{end}}</span><span>{{.What}}</span><span>Made {{.Made}}, last used {{.Used}}</span></span></td>
+            <td><span class="actions">
+              {{if .Here}}<form action="/logout" method="post"><button type="submit" class="small quiet">Sign out</button></form>
+              {{else if .Browser}}<form action="/sessions/{{.ID}}/end" method="post"><button type="submit" class="small quiet">End</button></form>
+              {{else}}<form action="/sign-ins/{{.ID}}/end" method="post"><button type="submit" class="small quiet">End</button></form>{{end}}
+            </span></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <p class="panel-foot">Something you end stops working at once. A lost device: end it here, and an administrator can take away its passkey on the server.</p>
+  </section>
 </main>
 {{end}}{{end}}

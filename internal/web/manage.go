@@ -106,19 +106,41 @@ func (s *Server) within(key string, limit int) bool {
 	now := s.Now()
 	s.memory.mu.Lock()
 	defer s.memory.mu.Unlock()
-	for id, tries := range s.memory.tries {
-		tries = slices.DeleteFunc(tries, func(t time.Time) bool { return now.Sub(t) >= time.Minute })
-		if len(tries) == 0 {
-			delete(s.memory.tries, id)
-		} else {
-			s.memory.tries[id] = tries
-		}
-	}
+	s.memory.forgetTries(now)
 	if len(s.memory.tries[key]) >= limit {
 		return false
 	}
 	s.memory.tries[key] = append(s.memory.tries[key], now)
 	return true
+}
+
+// withinUnless is within for what counts only when it turns out wrong: right is
+// asked while the count is held, so a burst cannot get past the limit. At the limit
+// it is not asked at all.
+func (s *Server) withinUnless(key string, limit int, right func() bool) (room bool) {
+	now := s.Now()
+	s.memory.mu.Lock()
+	defer s.memory.mu.Unlock()
+	s.memory.forgetTries(now)
+	if len(s.memory.tries[key]) >= limit {
+		return false
+	}
+	if !right() {
+		s.memory.tries[key] = append(s.memory.tries[key], now)
+	}
+	return true
+}
+
+// forgetTries drops what is over a minute old. The caller holds the lock.
+func (m *memory) forgetTries(now time.Time) {
+	for id, tries := range m.tries {
+		tries = slices.DeleteFunc(tries, func(t time.Time) bool { return now.Sub(t) >= time.Minute })
+		if len(tries) == 0 {
+			delete(m.tries, id)
+		} else {
+			m.tries[id] = tries
+		}
+	}
 }
 
 // changed writes who changed what to the server's log, without a URL or a

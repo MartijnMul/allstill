@@ -310,12 +310,15 @@ func (s *Store) EndSession(ctx context.Context, token string) error {
 	return db.New(s.w).DeleteSession(ctx, hash(token))
 }
 
-// prune removes sessions and links that have ended.
+// prune removes sessions, sign-ins and links that have ended.
 func prune(ctx context.Context, q *db.Queries, at time.Time) error {
 	if err := q.DeleteExpiredSessions(ctx, at.UnixMilli()); err != nil {
 		return err
 	}
 	if err := q.DeleteExpiredLinks(ctx, at.UnixMilli()); err != nil {
+		return err
+	}
+	if err := q.DeleteExpiredPersonTokens(ctx, at.UnixMilli()); err != nil {
 		return err
 	}
 	return q.DeleteOldProbeRunsSeen(ctx, at.Add(-keepProbeRunsSeen).UnixMilli())

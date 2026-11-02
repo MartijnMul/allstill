@@ -197,13 +197,18 @@ func linkError(err error) string {
 	return msgUnknownLink
 }
 
-// GET /login
+// GET /login. It can return to the page that approves a sign-in from elsewhere, and
+// to nowhere else, so it cannot be used to send someone to another site.
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
+	next := ""
+	if r.URL.Query().Get("next") == "device" {
+		next = "/device"
+	}
 	if _, err := s.session(r); err == nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, r, cmp(next, "/"), http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, http.StatusOK, "login", page{Title: "Sign in"})
+	s.render(w, r, http.StatusOK, "login", page{Title: "Sign in", Data: next})
 }
 
 // POST /login/begin

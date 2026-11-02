@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/MartijnMul/allstill/internal/email"
 	"github.com/MartijnMul/allstill/internal/store"
@@ -21,6 +22,18 @@ type channelsData struct {
 	CanAdd    bool   // fewer than store.MaxEmails addresses
 	Another   bool   // the person has an address already
 	NoAlerts  bool   // they follow no project, so nothing would reach a device
+	SignIns   []signInRow
+}
+
+// signInRow is a sign-in or a browser session, under Devices (R7).
+type signInRow struct {
+	ID      string
+	Name    string
+	What    string
+	Made    string
+	Used    string
+	Browser bool
+	Here    bool // the browser this page is open in
 }
 
 type channelRow struct {
@@ -77,6 +90,10 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		d.Channels = append(d.Channels, row)
 	}
 	d.CanAdd, d.Another = emails < store.MaxEmails, emails > 0
+	if d.SignIns, err = s.signInRows(r, v, now); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	nav, err := s.nav(ctx, v, "")
 	if err != nil {
 		s.fail(w, r, err)
@@ -84,6 +101,86 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 	}
 	crumbs := []crumb{{"Devices", ""}}
 	s.render(w, r, http.StatusOK, "channels", page{Title: "Devices", Person: v.Name, Crumbs: crumbs, Here: "devices", Nav: nav, Data: d})
+}
+
+// signInRows lists how the person is signed in, the browser this is first.
+func (s *Server) signInRows(r *http.Request, v viewer, now time.Time) ([]signInRow, error) {
+	ctx := r.Context()
+	here, err := s.session(r)
+	if err != nil {
+		return nil, err
+	}
+	sessions, err := s.Store.BrowserSessions(ctx, v.WorkspaceID, v.ID, now)
+	if err != nil {
+		return nil, err
+	}
+	tokens, err := s.Store.PersonTokens(ctx, v.WorkspaceID, v.ID, now)
+	if err != nil {
+		return nil, err
+	}
+	var rows []signInRow
+	for _, b := range sessions {
+		row := signInRow{
+			ID: b.ID, Name: browserName(b.UserAgent), What: "Browser, can do everything you can", Browser: true, Here: b.ID == here.ID,
+			Made: clock(now, b.Created, v.Loc), Used: clock(now, b.LastUsed, v.Loc),
+		}
+		if row.Here {
+			rows = append([]signInRow{row}, rows...)
+		} else {
+			rows = append(rows, row)
+		}
+	}
+	for _, t := range tokens {
+		what := "Command line, can do everything you can"
+		if t.Scope == store.ScopeRead {
+			what = "Command line, can only read"
+		}
+		rows = append(rows, signInRow{ID: t.ID, Name: t.Name, What: what, Made: clock(now, t.Created, v.Loc), Used: clock(now, t.LastUsed, v.Loc)})
+	}
+	return rows, nil
+}
+
+// browserName reads a browser's description, for someone to recognise it. It says
+// what the browser claims, and that is enough here.
+func browserName(userAgent string) string {
+	find := func(names [][2]string) string {
+		for _, n := range names {
+			if strings.Contains(userAgent, n[0]) {
+				return n[1]
+			}
+		}
+		return ""
+	}
+	browser := find([][2]string{{"Edg/", "Edge"}, {"Firefox/", "Firefox"}, {"Chrome/", "Chrome"}, {"Safari/", "Safari"}})
+	system := find([][2]string{{"iPhone", "iPhone"}, {"iPad", "iPad"}, {"Android", "Android"}, {"Mac OS X", "macOS"}, {"Windows", "Windows"}, {"Linux", "Linux"}})
+	switch {
+	case browser != "" && system != "":
+		return browser + " on " + system
+	case browser != "":
+		return browser
+	case system != "":
+		return "A browser on " + system
+	}
+	return "A browser"
+}
+
+// POST /sign-ins/{id}/end ends one of the person's sign-ins from the command line.
+func (s *Server) endSignIn(w http.ResponseWriter, r *http.Request, v viewer) {
+	if err := s.Store.EndPersonToken(r.Context(), v.Access.Actor, v.WorkspaceID, v.ID, r.PathValue("id"), s.Now()); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/channels", http.StatusSeeOther)
+}
+
+// POST /sessions/{id}/end ends another browser of the person. The one they are in
+// signs out instead, which the page offers.
+func (s *Server) endBrowserSession(w http.ResponseWriter, r *http.Request, v viewer) {
+	if err := s.Store.EndBrowserSession(r.Context(), v.Access.Actor, v.WorkspaceID, v.ID, r.PathValue("id"), s.Now()); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/channels", http.StatusSeeOther)
 }
 
 // POST /channels/push: the browser's subscription, sent when a device is

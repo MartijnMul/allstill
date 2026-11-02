@@ -59,6 +59,8 @@ type Server struct {
 	// one attempt, to say what a new address finds (intent/manage-checks/spec.md, R4).
 	Allow []netip.Prefix
 	Try   func(context.Context, active.Check) active.Result
+	// Version is this program's, which the API tells a command line (R45).
+	Version string
 
 	base       *url.URL
 	workspace  string
@@ -67,6 +69,7 @@ type Server struct {
 	ceremonies *ceremonies
 	pages      map[string]*template.Template
 	memory     *memory
+	grants     *grants
 }
 
 // ParseBaseURL checks the address people use to reach Allstill: https, or
@@ -115,10 +118,10 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 	s := &Server{
 		Store: st, Log: log, Now: time.Now,
 		base: base, workspace: workspaceID, secure: base.Scheme == "https",
-		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{}, memory: newMemory(),
+		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{}, memory: newMemory(), grants: newGrants(),
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/parts.html"))
-	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "log", "channels", "error", "check-new", "check-edit", "check-confirm"} {
+	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "log", "channels", "device", "error", "check-new", "check-edit", "check-confirm"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}
@@ -154,6 +157,15 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /channels/{id}/test", s.signedIn(s.testChannel))
 	handle("GET /channels/{id}/confirm", s.signedIn(s.confirmChannel))
 	handle("POST /channels/{id}/delete", s.signedIn(s.deleteChannel))
+	handle("POST /sign-ins/{id}/end", s.signedIn(s.endSignIn))
+	handle("POST /sessions/{id}/end", s.signedIn(s.endBrowserSession))
+	handle("GET /device", s.signedInToDevice(s.devicePage))
+	handle("POST /device", s.signedInToDevice(s.deviceConfirm))
+	handle("POST /device/deny", s.signedInToDevice(s.deviceDeny))
+	handle("POST /device/begin", s.signedInJSON(s.deviceBegin))
+	handle("POST /device/finish", s.signedInJSON(s.deviceFinish))
+	handle("POST /oauth/device_authorization", s.deviceAuthorization)
+	handle("POST /oauth/token", s.oauthToken)
 	handle("GET /health", s.health)
 	handle("GET /login", s.loginPage)
 	handle("POST /login/begin", s.loginBegin)
@@ -169,7 +181,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 		http.ServeFileFS(w, r, static, "sw.js")
 	})))
 	mux.Handle("GET /static/", s.headers(http.StripPrefix("/static/", noListing(http.FileServerFS(static)))))
-	s.registerProbe(mux)
+	s.registerAPI(mux)
 }
 
 // headers sets what every dashboard response carries: no inline script or

@@ -85,10 +85,32 @@ if (login) {
       const options = await post("/login/begin");
       const credential = await navigator.credentials.get(requestOptions(options));
       const done = await post("/login/finish", credentialJSON(credential));
-      location.assign(done.location);
+      location.assign(login.dataset.next ?? done.location);
     } catch (err) {
       alert.textContent = message(err);
       busy(login, false);
+    }
+  });
+}
+
+// Approving a sign-in from elsewhere takes a passkey again, as it opens a way in.
+const allow = document.getElementById("device-allow");
+if (allow) {
+  const alert = allow.querySelector("[role=alert]");
+  allow.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    alert.textContent = "";
+    busy(allow, true);
+    const code = allow.elements.code.value;
+    try {
+      const options = await post("/device/begin", { code });
+      const credential = await navigator.credentials.get(requestOptions(options));
+      await post("/device/finish", { code, credential: credentialJSON(credential) });
+      document.getElementById("device-asked").hidden = true;
+      document.getElementById("device-approved").hidden = false;
+    } catch (err) {
+      alert.textContent = message(err);
+      busy(allow, false);
     }
   });
 }

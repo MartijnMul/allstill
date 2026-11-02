@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# oapi-codegen turns the Probe part of the API description into Go here. `make
-# generate` runs it; `make check` fails when the generated code is out of date.
+# oapi-codegen turns what is served of the API description into Go here, as a named
+# list, as a tag can hold operations that are not served yet. `make generate` runs
+# it; `make check` fails when the generated code is out of date. A new operation
+# goes in ../apiclient/oapi-codegen.yaml too, and in the table in internal/web/api.go.
 package: api
 generate:
   std-http-server: true
@@ -8,4 +10,4 @@ generate:
   models: true
 output: api.gen.go
 output-options:
-  include-tags: [Probe]
+  include-operation-ids: [getProbeChecks, postProbeRuns, getMe, endThisToken]

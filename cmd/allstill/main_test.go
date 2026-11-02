@@ -265,6 +265,8 @@ func TestCommandsNeedADatabase(t *testing.T) {
 		{"admin", "set-alerting", "-db", path, "-project", "Backups", "-check", "nightly", "-urgency", "now"},
 		{"admin", "add-check", "-db", path, "-project", "Sites", "-name", "shop", "-http", "https://shop.example.com"},
 		{"admin", "set-check", "-db", path, "-project", "Sites", "-check", "shop", "-every", "5m"},
+		{"admin", "end-sessions", "-db", path, "-email", "ada@example.com"},
+		{"admin", "remove-passkey", "-db", path, "-email", "ada@example.com"},
 		{"admin", "pause-check", "-db", path, "-project", "Sites", "-check", "shop"},
 		{"admin", "resume-check", "-db", path, "-project", "Sites", "-check", "shop"},
 		{"admin", "delete-check", "-db", path, "-project", "Sites", "-check", "shop"},

@@ -159,3 +159,10 @@ Step 5, projects and people:
 
 - Step 1: until `allstill login` exists in step 2, the message of R34 cannot point to it. It says to run the command on the server, and step 2 adds the pointer.
 - Step 1: `import healthchecks` and `compare healthchecks` now open the database before they contact Healthchecks, so that in the wrong place they stop without using its API key.
+- Step 2: a sign-in that has ended is gone, as a session is, so `person_tokens` has no ended column: when and by whom is in the log. The sign-in is made when someone approves it, with the passkey's counter, not when a command line fetches it, and whoever asked then has a minute to fetch it: the independent pass found that otherwise someone who got a code approved could wait on purpose with nothing to see or end, for up to ten minutes. So its token waits in memory for that minute at most, and a sign-in nobody fetched stays listed until someone ends it or it runs out, with no holder.
+- Step 2: a `read` credential's `Access`, which the plan has in step 3, comes now, as the first sign-ins already need it. `workspace.go` stays as it is, and it lives in `tokens.go`.
+- Step 2: clearing old sign-ins is in `prune`, beside sessions, not `tidy.go`. Grants take the time as an argument, so their tests pass it rather than use `synctest`, which the client's waiting does use.
+- Step 2: `admin remove-passkey` without `-passkey` lists someone's passkeys, and `allstill login` ends the sign-in it replaces, as this machine could no longer end it later.
+- Step 2: the limit on requests per credential comes with reading, in step 3, as the plan has it. `getMe` and `endThisToken` go without until then.
+- Step 2: what the approval page says after a passkey is on that page, not at an address, so no link can show "Signed in" to someone who approved nothing.
+- Step 2: the command line also takes plain http to a loopback address such as `127.0.0.1`, which R9's "the same rule the server has" does not: the server's own address must be a host name for passkeys, a command line's only has to be on this machine.

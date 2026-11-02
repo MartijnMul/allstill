@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# oapi-codegen turns the API description into the command line's client here, in a
+# directory of its own under the licence of the description and its clients (ADR
+# 0002). `make generate` runs it; `make check` fails when the generated code is out
+# of date. It lists what ../api/oapi-codegen.yaml lists, apart from the probe's.
+package: apiclient
+generate:
+  client: true
+  models: true
+output: client.gen.go
+output-options:
+  include-operation-ids: [getMe, endThisToken]

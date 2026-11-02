@@ -424,6 +424,11 @@ form.inline input { flex: 1 1 220px; min-width: 0; }
 .box input { height: 38px; background: var(--sunken); }
 .box button, .box .button { height: 40px; }
 .box .button { align-self: flex-start; }
+.box .stack { display: flex; flex-direction: column; gap: 10px; }
+.device-code { font-family: var(--mono); font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; }
+.device-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 13.5px; }
+.device-facts dt { color: var(--muted); }
+.device-facts dd { margin: 0; text-align: left; overflow-wrap: anywhere; }
 .aside { max-width: 400px; font-size: 13px; color: var(--muted); text-align: center; }
 .alert { color: var(--bad-ink); font-size: 13px; }
 .alert:empty { display: none; }

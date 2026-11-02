@@ -28,7 +28,8 @@ type Actor struct {
 	Kind  string // person, key, probe, job, command or allstill
 	ID    string
 	Name  string
-	Admin bool // a workspace administrator, who may not be a member of the project
+	Admin bool   // a workspace administrator, who may not be a member of the project
+	Via   string // the sign-in a person acted through, from the command line
 }
 
 // Command is the administrator's command line, by the command's name. A shell has
@@ -98,6 +99,12 @@ func writeLog(ctx context.Context, q *db.Queries, e logEntry) error {
 			e.Details = map[string]any{}
 		}
 		e.Details["person_elsewhere"] = true
+	}
+	if e.By.Via != "" {
+		if e.Details == nil {
+			e.Details = map[string]any{}
+		}
+		e.Details["via"] = e.By.Via
 	}
 	return q.CreateLogEntry(ctx, db.CreateLogEntryParams{
 		WorkspaceID: e.WorkspaceID, HappenedAt: e.At.UnixMilli(), RecordedAt: e.Recorded.UnixMilli(),

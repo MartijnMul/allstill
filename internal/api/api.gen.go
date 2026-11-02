@@ -23,19 +23,19 @@ import (
 
 // Defines values for CheckKind.
 const (
-	Http CheckKind = "http"
-	Ping CheckKind = "ping"
-	Tcp  CheckKind = "tcp"
+	CheckKindHttp CheckKind = "http"
+	CheckKindPing CheckKind = "ping"
+	CheckKindTcp  CheckKind = "tcp"
 )
 
 // Valid indicates whether the value is a known member of the CheckKind enum.
 func (e CheckKind) Valid() bool {
 	switch e {
-	case Http:
+	case CheckKindHttp:
 		return true
-	case Ping:
+	case CheckKindPing:
 		return true
-	case Tcp:
+	case CheckKindTcp:
 		return true
 	default:
 		return false
@@ -60,6 +60,24 @@ func (e HttpCheckMethod) Valid() bool {
 	}
 }
 
+// Defines values for MeKind.
+const (
+	ApiKey MeKind = "api_key"
+	Person MeKind = "person"
+)
+
+// Valid indicates whether the value is a known member of the MeKind enum.
+func (e MeKind) Valid() bool {
+	switch e {
+	case ApiKey:
+		return true
+	case Person:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ProbeRunOutcome.
 const (
 	Failed   ProbeRunOutcome = "failed"
@@ -78,6 +96,48 @@ func (e ProbeRunOutcome) Valid() bool {
 	case Unjudged:
 		return true
 	case Warned:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Role.
+const (
+	Editor Role = "editor"
+	Owner  Role = "owner"
+	Viewer Role = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the Role enum.
+func (e Role) Valid() bool {
+	switch e {
+	case Editor:
+		return true
+	case Owner:
+		return true
+	case Viewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Scope.
+const (
+	ScopeManage Scope = "manage"
+	ScopePing   Scope = "ping"
+	ScopeRead   Scope = "read"
+)
+
+// Valid indicates whether the value is a known member of the Scope enum.
+func (e Scope) Valid() bool {
+	switch e {
+	case ScopeManage:
+		return true
+	case ScopePing:
+		return true
+	case ScopeRead:
 		return true
 	default:
 		return false
@@ -149,6 +209,50 @@ type HttpCheckMethod string
 
 // Id An opaque identifier. Never a secret.
 type Id = string
+
+// Me defines model for Me.
+type Me struct {
+	Kind MeKind `json:"kind"`
+
+	// Person Present when a person is signed in.
+	Person   *MePerson   `json:"person,omitempty"`
+	Projects []MeProject `json:"projects"`
+	Scopes   []Scope     `json:"scopes"`
+
+	// ServerVersion The version of the program answering, so a command line can say when the two differ.
+	ServerVersion string `json:"server_version"`
+
+	// SignIn Present when a person is signed in, naming the sign-in this request came through.
+	SignIn *MeSignIn `json:"sign_in,omitempty"`
+}
+
+// MeKind defines model for Me.Kind.
+type MeKind string
+
+// MePerson Present when a person is signed in.
+type MePerson struct {
+	Email *string `json:"email,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id             Id     `json:"id"`
+	Name           string `json:"name"`
+	WorkspaceAdmin *bool  `json:"workspace_admin,omitempty"`
+}
+
+// MeProject defines model for MeProject.
+type MeProject struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+	Role Role   `json:"role"`
+}
+
+// MeSignIn Present when a person is signed in, naming the sign-in this request came through.
+type MeSignIn struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+}
 
 // ProbeCheck A check for a probe to run. `http` or `tcp` holds its settings, by its `kind`.
 type ProbeCheck struct {
@@ -255,6 +359,12 @@ type Problem struct {
 	Type *string `json:"type,omitempty"`
 }
 
+// Role defines model for Role.
+type Role string
+
+// Scope defines model for Scope.
+type Scope string
+
 // Slug defines model for Slug.
 type Slug = string
 
@@ -323,6 +433,9 @@ type ProjectId = Id
 // ProbeProblem Problem Details (RFC 9457).
 type ProbeProblem = Problem
 
+// Unauthorized Problem Details (RFC 9457).
+type Unauthorized = Problem
+
 // GetProbeChecksParams defines parameters for GetProbeChecks.
 type GetProbeChecksParams struct {
 	IfNoneMatch *string `json:"If-None-Match,omitempty"`
@@ -342,6 +455,12 @@ type PostProbeRunsJSONRequestBody = ProbeRunBatch
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// GetMe The signed-in person, or the API key, and the projects it can see
+	// (GET /me)
+	GetMe(w http.ResponseWriter, r *http.Request)
+	// EndThisToken End the sign-in this request came through
+	// (DELETE /me/token)
+	EndThisToken(w http.ResponseWriter, r *http.Request)
 	// GetProbeChecks The checks this probe runs
 	// (GET /probe/checks)
 	GetProbeChecks(w http.ResponseWriter, r *http.Request, params GetProbeChecksParams)
@@ -358,6 +477,34 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EndThisToken operation middleware
+func (siw *ServerInterfaceWrapper) EndThisToken(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EndThisToken(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetProbeChecks operation middleware
 func (siw *ServerInterfaceWrapper) GetProbeChecks(w http.ResponseWriter, r *http.Request) {
@@ -588,6 +735,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/me", wrapper.GetMe)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/me/token", wrapper.EndThisToken)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/probe/checks", wrapper.GetProbeChecks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/probe/runs", wrapper.PostProbeRuns)
 
@@ -595,6 +744,76 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 }
 
 type ProbeProblemApplicationProblemPlusJSONResponse Problem
+
+type UnauthorizedApplicationProblemPlusJSONResponse Problem
+
+type GetMeRequestObject struct {
+}
+
+type GetMeResponseObject interface {
+	VisitGetMeResponse(w http.ResponseWriter) error
+}
+
+type GetMe200JSONResponse Me
+
+func (response GetMe200JSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMe401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetMe401ApplicationProblemPlusJSONResponse) VisitGetMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EndThisTokenRequestObject struct {
+}
+
+type EndThisTokenResponseObject interface {
+	VisitEndThisTokenResponse(w http.ResponseWriter) error
+}
+
+type EndThisToken204Response struct {
+}
+
+func (response EndThisToken204Response) VisitEndThisTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type EndThisToken401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response EndThisToken401ApplicationProblemPlusJSONResponse) VisitEndThisTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
 
 type GetProbeChecksRequestObject struct {
 	Params GetProbeChecksParams
@@ -763,6 +982,12 @@ func (response PostProbeRuns426ApplicationProblemPlusJSONResponse) VisitPostProb
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// GetMe The signed-in person, or the API key, and the projects it can see
+	// (GET /me)
+	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// EndThisToken End the sign-in this request came through
+	// (DELETE /me/token)
+	EndThisToken(ctx context.Context, request EndThisTokenRequestObject) (EndThisTokenResponseObject, error)
 	// GetProbeChecks The checks this probe runs
 	// (GET /probe/checks)
 	GetProbeChecks(ctx context.Context, request GetProbeChecksRequestObject) (GetProbeChecksResponseObject, error)
@@ -808,6 +1033,54 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// GetMe operation middleware
+func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	var request GetMeRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMe(ctx, request.(GetMeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMe")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMeResponseObject); ok {
+		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EndThisToken operation middleware
+func (sh *strictHandler) EndThisToken(w http.ResponseWriter, r *http.Request) {
+	var request EndThisTokenRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EndThisToken(ctx, request.(EndThisTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EndThisToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EndThisTokenResponseObject); ok {
+		if err := validResponse.VisitEndThisTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // GetProbeChecks operation middleware

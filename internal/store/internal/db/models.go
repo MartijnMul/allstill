@@ -183,6 +183,19 @@ type Person struct {
 	DigestAt       sql.NullInt64
 }
 
+type PersonToken struct {
+	ID          string
+	TokenHash   []byte
+	WorkspaceID string
+	PersonID    string
+	PasskeyID   string
+	Name        string
+	Scope       string
+	CreatedAt   int64
+	UsedAt      int64
+	ExpiresAt   int64
+}
+
 type Ping struct {
 	ID            int64
 	WorkspaceID   string

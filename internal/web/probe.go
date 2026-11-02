@@ -27,32 +27,6 @@ const (
 
 type probeContextKey struct{}
 
-// probeAPI implements the generated server interface.
-type probeAPI struct{ s *Server }
-
-// registerProbe adds the probe's endpoints to mux.
-func (s *Server) registerProbe(mux *http.ServeMux) {
-	strict := api.NewStrictHandlerWithOptions(probeAPI{s}, nil, api.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
-				writeProblem(w, problem(http.StatusRequestEntityTooLarge, "Too many runs in one post.", fmt.Sprintf("A post holds at most %d runs and %d bytes.", maxProbeRuns, maxProbeBody)))
-				return
-			}
-			writeProblem(w, problem(http.StatusBadRequest, "The post cannot be read.", ""))
-		},
-		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			s.Log.Error("probe request", "path", r.URL.Path, "error", err)
-			writeProblem(w, problem(http.StatusInternalServerError, "Something went wrong on the server.", ""))
-		},
-	})
-	api.HandlerWithOptions(strict, api.StdHTTPServerOptions{
-		BaseURL: "/api/v1", BaseRouter: mux, Middlewares: []api.MiddlewareFunc{s.probeKey},
-		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			writeProblem(w, problem(http.StatusBadRequest, "The request cannot be read.", "It needs the header Allstill-Probe-Protocol."))
-		},
-	})
-}
-
 func problem(status int, title, detail string) api.Problem {
 	p := api.Problem{Status: status, Title: title}
 	if detail != "" {
@@ -104,7 +78,7 @@ func otherProtocol(version int) *api.Problem {
 }
 
 // GetProbeChecks returns the checks a probe runs.
-func (a probeAPI) GetProbeChecks(ctx context.Context, req api.GetProbeChecksRequestObject) (api.GetProbeChecksResponseObject, error) {
+func (a apiServer) GetProbeChecks(ctx context.Context, req api.GetProbeChecksRequestObject) (api.GetProbeChecksResponseObject, error) {
 	if p := otherProtocol(req.Params.AllstillProbeProtocol); p != nil {
 		return api.GetProbeChecks426ApplicationProblemPlusJSONResponse(*p), nil
 	}
@@ -139,7 +113,7 @@ func (a probeAPI) GetProbeChecks(ctx context.Context, req api.GetProbeChecksRequ
 }
 
 // PostProbeRuns takes a probe's runs, and that it is alive.
-func (a probeAPI) PostProbeRuns(ctx context.Context, req api.PostProbeRunsRequestObject) (api.PostProbeRunsResponseObject, error) {
+func (a apiServer) PostProbeRuns(ctx context.Context, req api.PostProbeRunsRequestObject) (api.PostProbeRunsResponseObject, error) {
 	if p := otherProtocol(req.Params.AllstillProbeProtocol); p != nil {
 		return api.PostProbeRuns426ApplicationProblemPlusJSONResponse(*p), nil
 	}

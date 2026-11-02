@@ -28,6 +28,7 @@ const (
 	Probe     = "prb"
 	Delivery  = "dlv"
 	LogGroup  = "grp"
+	SignIn    = "sgn"
 )
 
 // Crockford's base32, lower case: no i, l, o or u, so ids read aloud well.

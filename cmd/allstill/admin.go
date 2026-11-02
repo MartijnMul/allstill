@@ -3,6 +3,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/client"
 	"github.com/MartijnMul/allstill/internal/importer"
 	"github.com/MartijnMul/allstill/internal/store"
 	"github.com/MartijnMul/allstill/internal/web"
@@ -27,6 +29,8 @@ const adminUsage = `Usage:
   allstill admin create-user -name NAME [-email EMAIL] [-project PROJECT -role ROLE] [flags]
   allstill admin set-member (-email EMAIL | -person ID) -project PROJECT -role ROLE [flags]
   allstill admin passkey-link (-email EMAIL | -person ID) [flags]
+  allstill admin end-sessions (-email EMAIL | -person ID) [-db file]
+  allstill admin remove-passkey (-email EMAIL | -person ID) [-passkey ID] [-db file]
   allstill admin create-project [-db file] NAME
   allstill admin rename-project [-db file] NAME NEW-NAME
   allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
@@ -56,6 +60,10 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return setMember(ctx, args[1:], stdout, stderr)
 	case "passkey-link":
 		return passkeyLink(ctx, args[1:], stdout, stderr)
+	case "end-sessions":
+		return endSessions(ctx, args[1:], stdout, stderr)
+	case "remove-passkey":
+		return removePasskey(ctx, args[1:], stdout, stderr)
 	case "rename-project":
 		return renameProject(ctx, args[1:], stdout, stderr)
 	case "move-checks":
@@ -585,6 +593,123 @@ Flags:
 	return nil
 }
 
+// personNamed finds who -email or -person says, for a command on the server.
+func personNamed(ctx context.Context, st *store.Store, ws, email, personID string) (store.Person, error) {
+	var p store.Person
+	var err error
+	if email != "" {
+		p, err = st.PersonByEmail(ctx, ws, email)
+	} else {
+		p, err = st.Person(ctx, ws, personID)
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return p, fmt.Errorf("no one with %s", cmp.Or(email, personID))
+	}
+	return p, err
+}
+
+func endSessions(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("admin end-sessions", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill admin end-sessions (-email EMAIL | -person ID) [-db file]
+
+Ends all of someone's sign-ins from a command line and their browser sessions, which
+stop working at once. Anyone holding one of their passkeys can still sign in again:
+allstill admin remove-passkey takes that away.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	email := fs.String("email", "", "the person's email address")
+	personID := fs.String("person", "", "the person's id, per_…")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if (*email == "") == (*personID == "") || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -email or -person")
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	p, err := personNamed(ctx, st, ws, *email, *personID)
+	if err != nil {
+		return err
+	}
+	tokens, sessions, err := st.EndEverySignIn(ctx, store.Command("end-sessions"), ws, p.ID, time.Now())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Ended %d sign-ins and %d browser sessions of %s.\n", tokens, sessions, client.Clean(p.Name))
+	return nil
+}
+
+func removePasskey(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	fs := flag.NewFlagSet("admin remove-passkey", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		fmt.Fprint(stderr, `Usage: allstill admin remove-passkey (-email EMAIL | -person ID) [-passkey ID] [-db file]
+
+Takes away one of someone's passkeys, for a lost or stolen device, and ends every
+sign-in and browser session that came from it. Without -passkey it lists theirs.
+Someone left without one needs a new link: allstill admin passkey-link.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	email := fs.String("email", "", "the person's email address")
+	personID := fs.String("person", "", "the person's id, per_…")
+	passkey := fs.String("passkey", "", "the passkey's id, pky_…")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if (*email == "") == (*personID == "") || fs.NArg() != 0 {
+		fs.Usage()
+		return errors.New("give -email or -person")
+	}
+	st, ws, err := openStore(ctx, *dbPath)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	p, err := personNamed(ctx, st, ws, *email, *personID)
+	if err != nil {
+		return err
+	}
+	if *passkey == "" {
+		keys, err := st.Passkeys(ctx, ws, p.ID)
+		if err != nil {
+			return err
+		}
+		if len(keys) == 0 {
+			fmt.Fprintf(stdout, "%s has no passkeys.\n", client.Clean(p.Name))
+			return nil
+		}
+		// A passkey's name is what whoever held its link typed.
+		for _, k := range keys {
+			fmt.Fprintf(stdout, "%s  %s  made %s\n", k.ID, client.Clean(k.Name), k.Created.Format(time.DateOnly))
+		}
+		fmt.Fprintln(stdout, "Give -passkey with the id of the one to remove.")
+		return nil
+	}
+	tokens, sessions, err := st.RemovePasskey(ctx, store.Command("remove-passkey"), ws, p.ID, *passkey, time.Now())
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("%s has no passkey %s", client.Clean(p.Name), client.Clean(*passkey))
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Removed that passkey of %s, which ended %d sign-ins and %d browser sessions.\n", client.Clean(p.Name), tokens, sessions)
+	return nil
+}
+
 func passkeyLink(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("admin passkey-link", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -742,7 +867,7 @@ Flags:
 func openExisting(ctx context.Context, path string) (*store.Store, error) {
 	st, err := store.OpenExisting(ctx, path)
 	if errors.Is(err, store.ErrNoDatabase) {
-		return nil, fmt.Errorf("there is no Allstill database at %s. This command works on the server's database, which the server makes when it first starts: run it on the server, with -db if the database is elsewhere", path)
+		return nil, fmt.Errorf("there is no Allstill database at %s. This command works on the server's database, which the server makes when it first starts: run it on the server, with -db if the database is elsewhere. From anywhere else, sign in with allstill login", path)
 	}
 	return st, err
 }

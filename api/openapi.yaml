@@ -2,10 +2,10 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.9.0
+  version: 0.10.0
   summary: Pings from jobs, and the status of checks, runs and incidents.
   description: |
-    Two surfaces in one document.
+    What jobs, people and programs use, in one document.
 
     **Pings** (tag `Ping`) are what jobs send. They follow Healthchecks.io, so a job
     moves over by changing the base URL. A check's ping URL is its credential: it
@@ -16,7 +16,10 @@ info:
     token: an API key of a project, or an OAuth access token of a person signed in
     through the menu bar app or the CLI. What a token may do is its scope (`read`,
     `manage`) combined with the caller's role in each project (viewer, editor,
-    owner). A request never returns data from a project the caller is not in.
+    owner). A request never returns data from a project the caller is not in. A
+    browser's cookie never counts here, so a web page cannot use someone's session.
+
+    **Signing in** (tag `OAuth`) is the device grant of RFC 8628, served at the root.
 
     Conventions: JSON field names are `snake_case`; times are RFC 3339 in UTC;
     durations are whole seconds; identifiers are opaque strings; a field without a
@@ -41,6 +44,8 @@ tags:
     description: Used by `allstill probe`, which runs checks inside a network the server cannot reach.
   - name: Account
     description: Who is asking.
+  - name: OAuth
+    description: Signing in from a command line, with a code someone approves with a passkey in any browser. Served at the root, like the pings.
   - name: Status
     description: One snapshot of everything the caller can see.
   - name: Projects
@@ -319,6 +324,126 @@ paths:
         $ref: '#/components/requestBodies/PingBody'
       responses: *ping-responses-slug
 
+  # Signing in, outside /api/v1 like the pings. A standard defines these, so they are
+  # left out of the generated handlers.
+
+  /oauth/device_authorization:
+    servers:
+      - url: https://{host}
+        description: The installation itself, outside `/api/v1`
+        variables:
+          host:
+            default: allstill.example.com
+    post:
+      tags: [OAuth]
+      operationId: requestDeviceCode
+      summary: Ask for a code for someone to approve (RFC 8628)
+      description: |
+        Anyone can ask, and asking writes nothing. It is limited over the whole
+        installation, and `verification_uri_complete` is left out on purpose: the code
+        is always typed, so a link cannot arrive with it filled in.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [client_id]
+              properties:
+                client_id:
+                  type: string
+                  const: allstill
+                scope:
+                  description: Left out, it means `manage`.
+                  type: string
+                  enum: [read, manage]
+                device_name:
+                  description: What this machine is called, shown as its own claim to whoever approves it, and on their list of sign-ins.
+                  type: string
+                  maxLength: 100
+      responses:
+        '200':
+          description: The code to show, and how to wait for it.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [device_code, user_code, verification_uri, expires_in, interval]
+                properties:
+                  device_code: {type: string}
+                  user_code:
+                    type: string
+                    examples: [WDJB-MJHT]
+                  verification_uri: {type: string, format: uri}
+                  expires_in:
+                    type: integer
+                    format: int64
+                  interval:
+                    type: integer
+                    format: int64
+        '400': {$ref: '#/components/responses/OAuthError'}
+        '401': {$ref: '#/components/responses/OAuthError'}
+        '429':
+          description: Too many are being asked for. Try again after a while.
+          headers:
+            Retry-After:
+              description: Seconds to wait.
+              schema: {type: integer}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OAuthError'}
+
+  /oauth/token:
+    servers:
+      - url: https://{host}
+        description: The installation itself, outside `/api/v1`
+        variables:
+          host:
+            default: allstill.example.com
+    post:
+      tags: [OAuth]
+      operationId: requestToken
+      summary: Ask what became of a code, and get its token once approved (RFC 8628)
+      description: |
+        Poll no more often than the `interval` given. The answer to a code that was
+        approved is given once. There is no refresh token: a sign-in stays good while it
+        is used, for up to a year, and each request reads whether it still is.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [client_id, grant_type, device_code]
+              properties:
+                client_id:
+                  type: string
+                  const: allstill
+                grant_type:
+                  type: string
+                  const: urn:ietf:params:oauth:grant-type:device_code
+                device_code: {type: string}
+      responses:
+        '200':
+          description: Approved. Keep the token; only its hash is stored.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, token_type, scope]
+                properties:
+                  access_token: {type: string}
+                  token_type:
+                    type: string
+                    const: Bearer
+                  scope:
+                    type: string
+                    enum: [read, manage]
+        '400': {$ref: '#/components/responses/OAuthError'}
+        '401': {$ref: '#/components/responses/OAuthError'}
+
   # Whether Allstill can alert, outside /api/v1 like the pings.
 
   /health:
@@ -360,12 +485,29 @@ paths:
       tags: [Account]
       operationId: getMe
       summary: The signed-in person, or the API key, and the projects it can see
+      description: |
+        A sign-in with the scope `read` acts as a viewer in every project its person
+        can see, also for an administrator, and is described as such here.
       responses:
         '200':
           description: Who is asking, and with which role in which project.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Me'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /me/token:
+    delete:
+      tags: [Account]
+      operationId: endThisToken
+      summary: End the sign-in this request came through
+      description: |
+        What `allstill logout` does. It stops working at once. A sign-in with the scope
+        `read` can do this too, and it is all it can end: other sign-ins are ended under
+        **Devices** in the dashboard.
+      responses:
+        '204':
+          description: It has ended.
         '401': {$ref: '#/components/responses/Unauthorized'}
 
   /status:
@@ -1231,6 +1373,11 @@ components:
           schema: {type: string}
 
   responses:
+    OAuthError:
+      description: RFC 6749's and RFC 8628's way of saying no, or not yet.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/OAuthError'}
     ProbeProblem:
       description: Why the server refused the probe.
       content:
@@ -1365,44 +1512,62 @@ components:
       type: string
       enum: [ping, read, manage]
 
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          description: |
+            `authorization_pending`, `slow_down`, `access_denied`, `expired_token`,
+            `invalid_grant`, `invalid_client`, `invalid_scope`, `invalid_request`,
+            `unsupported_grant_type` or `too_many_requests`.
+          type: string
+        error_description: {type: string}
+
     Me:
       type: object
-      required: [kind, scopes, projects]
+      required: [kind, scopes, projects, server_version]
       properties:
+        server_version:
+          description: The version of the program answering, so a command line can say when the two differ.
+          type: string
+        sign_in: {$ref: '#/components/schemas/MeSignIn'}
         kind:
           type: string
           enum: [person, api_key]
-        person:
-          type: object
-          description: Present when a person is signed in.
-          required: [id, name]
-          properties:
-            id: {$ref: '#/components/schemas/Id'}
-            name: {type: string}
-            email: {type: string, format: email}
-            workspace_admin: {type: boolean}
-            quiet_hours:
-              $ref: '#/components/schemas/QuietHours'
-            digest_time:
-              $ref: '#/components/schemas/TimeOfDay'
-              description: When the person's daily digest goes out, in the time zone of their quiet hours.
+        person: {$ref: '#/components/schemas/MePerson'}
         scopes:
           type: array
           items: {$ref: '#/components/schemas/Scope'}
         projects:
           type: array
-          items:
-            type: object
-            required: [id, name, role]
-            properties:
-              id: {$ref: '#/components/schemas/Id'}
-              name: {type: string}
-              role: {$ref: '#/components/schemas/Role'}
-              alerts:
-                type: boolean
-                description: |
-                  Whether the person gets alerts for the project. On for owners and
-                  editors; a workspace administrator who is no member gets them too.
+          items: {$ref: '#/components/schemas/MeProject'}
+
+    MeSignIn:
+      type: object
+      description: Present when a person is signed in, naming the sign-in this request came through.
+      required: [id, name]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+
+    MePerson:
+      type: object
+      description: Present when a person is signed in.
+      required: [id, name]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        email: {type: string}
+        workspace_admin: {type: boolean}
+
+    MeProject:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
 
     QuietHours:
       type: object

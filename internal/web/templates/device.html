@@ -1,0 +1,47 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="center">
+  <a class="brand" href="/">{{template "logo"}}</a>
+  {{if .Denied}}
+  <div class="panel box">
+    <h1>Refused</h1>
+    <p>Nobody signed in with that code. If you did not start this yourself, someone may be trying to get in: no action is needed, but it is worth telling your administrator.</p>
+    <a class="button" href="/">Go to the dashboard</a>
+  </div>
+  {{else if .Name}}
+  <div class="panel box" id="device-approved" hidden>
+    <h1>Signed in</h1>
+    <p>You can close this page and go back to your command line. It finishes by itself.</p>
+    <a class="button" href="/channels">See your sign-ins</a>
+  </div>
+  <div class="panel box" id="device-asked">
+    <h1>Is this you?</h1>
+    <p>Only go on if you started this yourself, just now, on a machine of yours. If someone sent you this code or asked you to enter it, refuse.</p>
+    <dl class="device-facts">
+      <dt>Code</dt><dd class="mono">{{.Code}}</dd>
+      <dt>Calls itself</dt><dd>{{.Name}} <span class="muted">(anyone can claim a name)</span></dd>
+      <dt>Asked</dt><dd>{{.Asked}}</dd>
+      <dt>May</dt><dd>{{if .ReadOnly}}Only read, as a viewer in every project you can see{{else}}Do everything you can, in your name, until you end it{{end}}</dd>
+    </dl>
+    <form class="stack" id="device-allow">
+      <input type="hidden" name="code" value="{{.Code}}">
+      <button type="submit" class="primary">Allow, with your passkey</button>
+      <p class="alert" role="alert"></p>
+      <noscript><p class="alert">Allowing this with a passkey needs JavaScript.</p></noscript>
+    </form>
+    <form action="/device/deny" method="post">
+      <input type="hidden" name="code" value="{{.Code}}">
+      <button type="submit" class="quiet">Refuse</button>
+    </form>
+  </div>
+  {{else}}
+  <form class="panel box" action="/device" method="post">
+    <h1>Sign in from elsewhere</h1>
+    <p>Enter the code your command line shows. Only do this for a sign-in you started yourself.</p>
+    {{with .Problem}}<p class="alert" role="alert">{{.}}</p>{{end}}
+    <label>Code<input class="device-code" name="code" value="{{.Code}}" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="32" placeholder="WDJB-MJHT" required autofocus></label>
+    <button type="submit" class="primary">Continue</button>
+  </form>
+  {{end}}
+</main>
+{{end}}{{end}}

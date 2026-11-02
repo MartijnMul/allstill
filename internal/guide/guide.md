@@ -13,6 +13,7 @@ There are two ways to watch something:
 - A ping URL is a secret: anyone who has it can report for that check. Keep it in the place the project keeps its secrets. Never put it in the repository, in a log or in a message. If one leaks, someone who may edit the project replaces it on the check's form in the dashboard; the old one stops working at once, so jobs need the new one.
 - You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands only work there. Someone without access to the server who may edit a project can still change its checks: see "In the dashboard" below.
 - Do not switch alerts on or off, and do not promise anything from "Not here yet" below.
+- Do not run `allstill login` or approve a code yourself: signing in takes a person's passkey. If you are given a sign-in on a machine, it should be a read-only one, which a person makes with `allstill login -read-only`.
 - Run `allstill <command> -h` for every flag of a command. If this guide and that help disagree, the help is right.
 
 ## Report a job
@@ -87,6 +88,15 @@ sudo -u allstill allstill admin create-project -db /var/lib/allstill/allstill.db
 
 The examples below leave that part out. Anywhere else, those that use the database stop, saying there is none there.
 
+## Sign in from your own machine
+
+`allstill login https://allstill.example.com` signs a machine in, with no shell on the server and no browser needed there. It prints an address and a short code, and someone approves that code with their passkey in a browser on any device, also a phone. Only approve a code you asked for yourself.
+
+- `allstill whoami` says who is signed in, where, and what they may do. For now that is all a sign-in is for: the commands that use it are still to come.
+- `allstill logout` ends the sign-in on this machine. **Devices** in the dashboard lists every sign-in and browser session, and ends any of them at once.
+- `allstill login -read-only` can only read, as a viewer in every project that person can see, also for an administrator. `allstill login -name` says what to call it; the default is the machine's name.
+- With several installations, the last one signed in to is used, and `allstill whoami -server URL` or `ALLSTILL_SERVER` picks another.
+
 ## Watch a site or a port
 
 On the server, in an existing project:
@@ -130,10 +140,11 @@ A new installation starts in shadow mode: it records what it would have sent und
 - Allstill keeps a log of what happened to checks, who did what and who was reached, for 400 days (`-keep-log`), with people's names in it. **Log** in the dashboard shows it, as far as each person may see it. It stops mistakes, not someone holding the database, and restoring a backup takes it back too.
 - `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` or `none`. `allstill admin set-alerting -critical` breaks through quiet hours. Each call sets both, so give `-urgency` and `-critical` together when you want both.
 - `allstill admin create-user` adds a person, with a link to make a passkey. Without `-project` they are an administrator who sees every project, so for an outside party add `-project Customer -role viewer` (or `editor`, `owner`): they then see only those projects. `allstill admin set-member` changes a role later, and `-role none` takes someone out of a project. `allstill admin passkey-link` gives a new link to someone who lost their devices.
+- After a lost or stolen device: `allstill admin end-sessions` ends all of someone's sign-ins and browser sessions, and `allstill admin remove-passkey` takes away a passkey, with what it approved. Both work on the server, on anyone.
 
 ## Not here yet
 
-- Seeing a check's status from outside the dashboard. The JSON API described in the project's `api/` directory is not served yet, apart from what probes use.
+- Seeing a check's status from outside the dashboard. The JSON API described in the project's `api/` directory is not served yet, apart from what probes use, signing in, and saying who is signed in.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Changing a project's default schedule and grace period.
 - Managing projects, people, probes and who is alerted in the dashboard: for now they are commands, run on the server.

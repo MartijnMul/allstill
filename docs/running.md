@@ -134,18 +134,37 @@ allstill admin create-user -name "Bob" -email bob@example.com -project Customer 
 
 `allstill admin set-member -email bob@example.com -project Customer -role editor` changes a role from their next click, and `-role none` takes someone out of a project. `-project` can be repeated when adding someone; `set-member` adds them to one more. Someone in no project can still sign in, and sees no checks.
 
+## Signing in from the command line
+
+From your own machine, `allstill login https://allstill.example.com` prints an address and a short code. Open the address in a browser on any device, also your phone, sign in, enter the code, and approve it with your passkey. The command line then finishes by itself, so the machine needs no browser. A code works once and is gone after 10 minutes, and you get a few wrong tries a minute.
+
+- **It acts as you, with your role as it is at that moment.** So a change of role counts at once. `-read-only` makes one that can only read, as a viewer in every project you can see, also if you are an administrator: use that for an AI assistant. For now a sign-in can only say who you are (`allstill whoami`): the commands that use it come next.
+- **It is kept in a file only you can read,** in your user's configuration folder, per installation. A file is what `gh` falls back to and how ssh keeps keys: anything running as you can read it. If others can read the file, commands refuse it.
+- **It ends** after 30 days without use and after a year at most, as a browser session does, or at once with `allstill logout`, or under **Devices** in the dashboard, where you see every sign-in and browser session you have with when it was last used.
+- **Never approve a code you did not ask for yourself.** The page says what the machine calls itself and when it asked, but that is only its own claim, and it cannot show where it is, as nothing in Allstill knows a caller's real address behind a proxy. A code is always typed, so a link can never arrive with one filled in. A sign-in you approved by mistake is under **Devices** from that moment: end it there, and whatever was fetched stops working.
+- **A lost or stolen device.** From another device, end its sign-in and browser session under **Devices**. A passkey on it stays good until an administrator removes it on the server:
+
+  ```sh
+  docker exec allstill allstill admin remove-passkey -email ada@example.com                  # lists theirs
+  docker exec allstill allstill admin remove-passkey -email ada@example.com -passkey pky_…   # removes it, and what it approved
+  docker exec allstill allstill admin end-sessions -email ada@example.com                    # ends every sign-in and browser session
+  ```
+
+  Then give them a new passkey with `allstill admin passkey-link`. Read the log for what was done meanwhile.
+- **A proxy in front** must let `/oauth` and `/api` through to clients that are not browsers. Some block those by default, and `allstill login` then fails, saying what it got back. A proxy can also limit by address, which Allstill cannot: asking for codes is limited to 60 a minute over the whole installation, so someone hammering it can keep new sign-ins waiting. Everything already signed in goes on.
+
 ## What the log records
 
 Allstill writes down what happens as it happens, from the day this version first runs, and shows it under **Log** in the dashboard, with the last few lines on a check's page. Nothing before that can be recovered. You can narrow it to a project, a kind of thing, a check by its exact name (also one that has been deleted), or a person by following their name.
 
 - **What happened to checks:** each change of state with a reason in Allstill's own wording, not the detail a check's page shows, as that can hold what a JSON field said or a probe's own text. A run that changes nothing is not written. A check that changes state more than 30 times in an hour writes one line saying so, and no more of those until it has held for an hour, or for a job that only goes late, until it has had no incident for an hour. A check going late and back is written but shows only when you tick the box for it, as a job that pings a moment after its time does that on every run; such a job writes two lines a run, about 80 MB a year if it runs every 5 minutes.
-- **What was done:** checks added, changed, paused, resumed, moved or deleted, a ping URL replaced, alerting changed; projects, people and roles; passkey links and passkeys; sign-ins; devices and email addresses confirmed, handed on or removed; probes; alerts turned on or off. By whom: a person's name, a probe's name, a job, Allstill itself, or "a command on the server" with the command's name, which says how but not who.
+- **What was done:** checks added, changed, paused, resumed, moved or deleted, a ping URL replaced, alerting changed; projects, people and roles; passkey links and passkeys, also one removed; sign-ins, from a browser and from a command line, made and ended; a browser session ended from elsewhere; devices and email addresses confirmed, handed on or removed; probes; alerts turned on or off. By whom: a person's name, with the name of the sign-in if it came from a command line, a probe's name, a job, Allstill itself, or "a command on the server" with the command's name, which says how but not who.
 - **Who was reached:** each message that arrives, per check it mentions: who, what it said, at once or in the digest, and the kind of channel. It is written when the message arrives, not when it is queued, so a message taken back because it was no longer true is not there. In shadow mode a line says the message was recorded and not sent. Someone who cannot be reached is one line per incident, with why in Allstill's own words, until a message reaches them. Test messages are not written.
 - **Who reads what:** nobody reads a project they are not in, and what you may see is judged as it is today, so someone added now can read back and someone removed cannot.
   - A viewer reads what happened and what was done, signed "the team", with no names and nothing about who was reached. The times still show when your team works.
   - An editor or owner also reads names and who was reached, by name and kind of channel only. An administrator who is no member of the project reads as "an administrator". Owners also read changes to roles.
   - An administrator reads everything, including why a message failed. Others' sign-ins, new projects, people, probes and whether alerts are on are for administrators; everyone reads their own sign-ins and devices.
-- **Left out:** URLs, tokens, settings other than a few the check's page shows anyway, output, email addresses, device names, IP addresses and user agents. Names are copied as typed, so a check named after a secret keeps it in the log until the entry is removed. A failed sign-in is not written, as anyone can cause one; it stays in the server's log.
+- **Left out:** URLs, tokens, settings other than a few the check's page shows anyway, output, email addresses, device names, IP addresses and user agents. Names are copied as typed, so a check named after a secret keeps it in the log until the entry is removed. That goes for a sign-in's name too, by default its machine's host name: it stays with what that sign-in did, for those who may read who did it. A failed sign-in is not written, as anyone can cause one; it stays in the server's log.
 
 It is a lasting record of what named people did and when they signed in. If you run Allstill for a company in the EU, that is personal data, and in some places monitoring of staff: you answer for it, and `-keep-log` is how long you keep it. No command removes someone from it yet.
 
