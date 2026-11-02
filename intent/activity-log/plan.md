@@ -27,10 +27,11 @@ Step 1, recording states and actions:
 - `docs/running.md`, `internal/guide/guide.md`, `AGENTS.md` (changed): that actions and state changes are now recorded, for how long, and that they hold people's names (R37), with no page yet.
 
 Step 2, recording who was reached:
-- `internal/store/incidents.go`, `queries/incidents.sql`, `internal/store/internal/db` and `internal/alert/sender.go` (changed): `Item` gains the check's id, name and project, for all lines of a message, also warnings, which `DueRecipients`, `DigestIncidents`, `SilentChecks` and `WarningChecks` must then return; the additions to JSON leave messages already queued readable.
+- `internal/store/incidents.go`, `queries/incidents.sql`, `internal/store/internal/db` and `internal/alert/sender.go` (changed): `Item` gains the check's id, name and project for lines with no incident, such as warnings, which `SilentChecks` and `WarningChecks` then return. A line with an incident finds its checks through `incident_checks` when it is written, not `Item`: that also serves messages already queued, a check that moved since, and an incident of several checks, so `DueRecipients` and `DigestIncidents` stay as they are. The additions to JSON leave messages already queued readable.
 - `internal/store/channels.go` (changed): `Sent` takes the delivery, gets a transaction and writes R3 on a message's first success; `Shadowed` and `fallBack` write theirs (R4, R5), and R19's line per project.
 - `internal/store/incidents.go` (changed): `Record` and `RecordDigest` write R4 for a shadow delivery, and R5 where a person has no channel. The sender records a failure with no channel only once a day and otherwise calls `Record` with no delivery, so it must say which incidents had no way to reach the person, or a second incident that day writes nothing.
 - `internal/alert/push.go`, `mail.go`, `sender.go` (changed): passing the delivery as trimmed, not its id, and what `Record` needs for R5.
+- `internal/store/log.go`, `queries/log.sql` (changed): writing these lines, and why a message failed in Allstill's own words, as an error from sending can hold a device's push address.
 - `docs/running.md` (changed): that this is recorded too, and who may see it.
 
 Step 3, the page:

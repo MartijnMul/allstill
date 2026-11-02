@@ -131,7 +131,7 @@ ORDER BY i.opened_at, i.id;
 -- unknown without a deadline is its normal state while it cannot be judged
 -- (intent/http-checks/spec.md); its settings are checked when it is made.
 -- name: SilentChecks :many
-SELECT c.name, c.state, c.state_reason, pr.name AS project_name
+SELECT c.id, c.project_id, c.name, c.state, c.state_reason, pr.name AS project_name
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = sqlc.arg(person_id)
@@ -146,7 +146,7 @@ ORDER BY pr.name, c.name;
 -- out, for the digest (intent/http-checks/spec.md, R9). A check that never
 -- alerts is shown, not sent.
 -- name: WarningChecks :many
-SELECT c.name, c.state_reason, pr.name AS project_name
+SELECT c.id, c.project_id, c.name, c.state_reason, pr.name AS project_name
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = sqlc.arg(person_id)

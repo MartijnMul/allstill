@@ -300,7 +300,7 @@ func (s *Sender) pushOne(ctx context.Context, d store.Pending, token string, now
 	var err error
 	switch {
 	case outcome == webpush.Sent:
-		err = s.Store.Sent(ctx, d.ID, now)
+		err = s.Store.Sent(ctx, d, now)
 	case outcome == webpush.Gone:
 		err = s.Store.Failed(ctx, d, "the device no longer subscribes; it was removed", true, false, now, s.ways())
 	case outcome == webpush.Retry && d.Attempts == 0:

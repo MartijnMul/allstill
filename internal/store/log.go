@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/check"
+	"github.com/MartijnMul/allstill/internal/id"
 	"github.com/MartijnMul/allstill/internal/store/internal/db"
 )
 
@@ -86,9 +87,17 @@ func writeLog(ctx context.Context, q *db.Queries, e logEntry) error {
 	if err != nil {
 		return err
 	}
-	personOutsider, err := outsider(ctx, q, e.Person, e.ProjectID)
+	personOutsider, err := notInProject(ctx, q, e.Person, e.ProjectID)
 	if err != nil {
 		return err
+	}
+	if personOutsider && !e.Person.Admin {
+		// Not an administrator: someone told of a check that has moved here since,
+		// whose name this project's people do not get to read either (R25).
+		if e.Details == nil {
+			e.Details = map[string]any{}
+		}
+		e.Details["person_elsewhere"] = true
 	}
 	return q.CreateLogEntry(ctx, db.CreateLogEntryParams{
 		WorkspaceID: e.WorkspaceID, HappenedAt: e.At.UnixMilli(), RecordedAt: e.Recorded.UnixMilli(),
@@ -104,6 +113,18 @@ func writeLog(ctx context.Context, q *db.Queries, e logEntry) error {
 // whose name editors and owners do not get to read (R22).
 func outsider(ctx context.Context, q *db.Queries, a Actor, projectID string) (bool, error) {
 	if !a.Admin || projectID == "" {
+		return false, nil
+	}
+	_, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: a.ID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	return false, err
+}
+
+// notInProject says the person an entry concerns has no membership of its project.
+func notInProject(ctx context.Context, q *db.Queries, a Actor, projectID string) (bool, error) {
+	if a.ID == "" || projectID == "" {
 		return false, nil
 	}
 	_, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: a.ID})
@@ -281,6 +302,190 @@ func (s *Store) closeFlapping(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// Who was reached (R3 to R5). A message is written when it arrives, not when it is
+// queued, as until then it can still be taken back, trimmed or turned to shadow.
+
+// logLine is what a message said about one check, or about nothing the log can name.
+type logLine struct {
+	what, checkID, check, projectID, incidentID string
+}
+
+// linesOf names the checks a message's items are about. The title is not copied, as
+// it can hold a reason (R1); an item with neither incident nor check, as in a message
+// queued before the log knew of them, has no check.
+func linesOf(ctx context.Context, q *db.Queries, items []Item) ([]logLine, error) {
+	var lines []logLine
+	for _, it := range items {
+		if it.IncidentID == "" {
+			lines = append(lines, logLine{what: it.What, checkID: it.CheckID, check: it.Check, projectID: it.ProjectID})
+			continue
+		}
+		rows, err := q.ChecksOfIncident(ctx, it.IncidentID)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			lines = append(lines, logLine{what: it.What, incidentID: it.IncidentID})
+		}
+		for _, r := range rows {
+			lines = append(lines, logLine{what: it.What, checkID: r.CheckID, check: r.Name, projectID: r.ProjectID, incidentID: it.IncidentID})
+		}
+	}
+	return lines, nil
+}
+
+// logMessage writes that a message reached a person, or was only recorded in shadow
+// mode: a line per check, and for a project with several, one line that opens to them
+// (R19). A test message is no part of the log.
+func logMessage(ctx context.Context, q *db.Queries, workspaceID, personID, kind, messageKind, channel string, items []Item, at time.Time) error {
+	if messageKind != "alert" && messageKind != "digest" {
+		return nil
+	}
+	person, err := personActor(ctx, q, workspaceID, personID)
+	if err != nil {
+		return err
+	}
+	lines, err := linesOf(ctx, q, items)
+	if err != nil {
+		return err
+	}
+	how := "now"
+	if messageKind == "digest" {
+		how = "digest"
+	}
+	// What cannot be tied to a check is one line, for the person.
+	withoutCheck := 0
+	// Checks, not lines: one digest can say two things of one check, such as that its
+	// incident was closed by pausing and that it is paused.
+	checks, groups := map[string][]string{}, map[string]string{}
+	var projects []string
+	for _, l := range lines {
+		if l.checkID == "" {
+			withoutCheck++
+			continue
+		}
+		if len(checks[l.projectID]) == 0 {
+			projects = append(projects, l.projectID)
+		}
+		if !slices.Contains(checks[l.projectID], l.checkID) {
+			checks[l.projectID] = append(checks[l.projectID], l.checkID)
+		}
+	}
+	for _, p := range projects {
+		if len(checks[p]) > 1 {
+			groups[p] = id.New(id.LogGroup)
+		}
+	}
+	base := func(what string) map[string]any {
+		d := map[string]any{"how": how}
+		if what != "" {
+			d["what"] = what
+		}
+		if channel != "" {
+			d["channel"] = channel
+		}
+		return d
+	}
+	for _, l := range lines {
+		if l.checkID == "" {
+			continue
+		}
+		if err := writeLog(ctx, q, logEntry{
+			WorkspaceID: workspaceID, At: at, ProjectID: l.projectID, Kind: kind, AboutKind: "check", AboutID: l.checkID, AboutName: l.check,
+			By: byAllstill, Person: person, IncidentID: l.incidentID, Hidden: groups[l.projectID] != "", Group: groups[l.projectID], Details: base(l.what),
+		}); err != nil {
+			return err
+		}
+	}
+	for _, p := range projects {
+		if groups[p] == "" {
+			continue
+		}
+		d := base("")
+		d["count"] = len(checks[p])
+		if err := writeLog(ctx, q, logEntry{
+			WorkspaceID: workspaceID, At: at, ProjectID: p, Kind: kind + "_several", AboutKind: "project", AboutID: p,
+			By: byAllstill, Person: person, Group: groups[p], Details: d,
+		}); err != nil {
+			return err
+		}
+	}
+	if withoutCheck > 0 {
+		d := base("")
+		d["count"] = withoutCheck
+		return writeLog(ctx, q, logEntry{WorkspaceID: workspaceID, At: at, Kind: kind, AboutKind: "person", AboutID: personID, AboutName: person.Name, By: byAllstill, Person: person, Details: d})
+	}
+	return nil
+}
+
+// logUnreachedItems writes that a message reached a person by no way at all, for each
+// incident it was about. A line with no incident is not chased: there is nothing that
+// waits on it.
+func logUnreachedItems(ctx context.Context, q *db.Queries, personID string, items []Item, why string, at time.Time) error {
+	for _, it := range items {
+		if it.IncidentID != "" {
+			if err := logUnreached(ctx, q, it.IncidentID, personID, why, at); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// logUnreached writes once that a person cannot be reached about an incident, until
+// a message does reach them. The sender tries again every ten minutes, which must not
+// write six lines an hour (R5).
+func logUnreached(ctx context.Context, q *db.Queries, incidentID, personID, why string, at time.Time) error {
+	last, err := q.LastReachOfIncident(ctx, db.LastReachOfIncidentParams{IncidentID: incidentID, PersonID: personID})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if last == "message.unreached" {
+		return nil
+	}
+	rows, err := q.ChecksOfIncident(ctx, incidentID)
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		person, err := personActor(ctx, q, r.WorkspaceID, personID)
+		if err != nil {
+			return err
+		}
+		if err := writeLog(ctx, q, logEntry{
+			WorkspaceID: r.WorkspaceID, At: at, ProjectID: r.ProjectID, Kind: "message.unreached", AboutKind: "check", AboutID: r.CheckID, AboutName: r.Name,
+			By: byAllstill, Person: person, IncidentID: incidentID, Details: map[string]any{"why": logFailure(why)},
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// logFailure is why a message failed as the log keeps it: an error from sending can
+// hold a device's push address, and what the server said can hold anything.
+func logFailure(reason string) string {
+	switch {
+	case reason == NoChannel:
+		return "the person has no way to be reached"
+	case strings.HasPrefix(reason, "the push service answered"):
+		return "the push service refused it"
+	case reason == "the device no longer subscribes; it was removed":
+		return "the device no longer subscribes"
+	case strings.HasPrefix(reason, "the mail server"):
+		return "the mail server did not take it"
+	case strings.HasPrefix(reason, "email is not set up"), reason == "push is not set up on this server":
+		return "this server is not set up to send it"
+	case reason == "the channel was removed", strings.HasPrefix(reason, "the channel changed hands"):
+		return "the device or address changed"
+	case strings.HasPrefix(reason, "the address was refused"):
+		return "the address was refused"
+	case strings.HasPrefix(reason, "the device subscribed for another key"):
+		return "the device must subscribe again"
+	}
+	return "it could not be sent"
 }
 
 // A reason on a check's page can hold what a JSON field said and what was expected,

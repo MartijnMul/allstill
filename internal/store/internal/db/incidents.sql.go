@@ -902,7 +902,7 @@ func (q *Queries) SettledIncidents(ctx context.Context, arg SettledIncidentsPara
 }
 
 const silentChecks = `-- name: SilentChecks :many
-SELECT c.name, c.state, c.state_reason, pr.name AS project_name
+SELECT c.id, c.project_id, c.name, c.state, c.state_reason, pr.name AS project_name
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = ?1
@@ -915,6 +915,8 @@ ORDER BY pr.name, c.name
 `
 
 type SilentChecksRow struct {
+	ID          string
+	ProjectID   string
 	Name        string
 	State       string
 	StateReason string
@@ -935,6 +937,8 @@ func (q *Queries) SilentChecks(ctx context.Context, personID string) ([]SilentCh
 	for rows.Next() {
 		var i SilentChecksRow
 		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
 			&i.Name,
 			&i.State,
 			&i.StateReason,
@@ -954,7 +958,7 @@ func (q *Queries) SilentChecks(ctx context.Context, personID string) ([]SilentCh
 }
 
 const warningChecks = `-- name: WarningChecks :many
-SELECT c.name, c.state_reason, pr.name AS project_name
+SELECT c.id, c.project_id, c.name, c.state_reason, pr.name AS project_name
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = ?1
@@ -966,6 +970,8 @@ ORDER BY pr.name, c.name
 `
 
 type WarningChecksRow struct {
+	ID          string
+	ProjectID   string
 	Name        string
 	StateReason string
 	ProjectName string
@@ -983,7 +989,13 @@ func (q *Queries) WarningChecks(ctx context.Context, personID string) ([]Warning
 	items := []WarningChecksRow{}
 	for rows.Next() {
 		var i WarningChecksRow
-		if err := rows.Scan(&i.Name, &i.StateReason, &i.ProjectName); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.Name,
+			&i.StateReason,
+			&i.ProjectName,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

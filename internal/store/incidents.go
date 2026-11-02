@@ -168,6 +168,11 @@ type Item struct {
 	IncidentID string `json:"incident_id,omitempty"`
 	What       string `json:"what"` // down, recovered, still_open, resolved_unseen, closed_deleted, closed_paused, silent_check, paused_check or warning
 	Title      string `json:"title"`
+	// A line about a check with no incident says which, for the log, as its title
+	// is free text that can hold a reason.
+	CheckID   string `json:"check_id,omitempty"`
+	Check     string `json:"check,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 // Delivery is one message to one person, as it is recorded: in shadow mode
@@ -192,6 +197,9 @@ type Told struct {
 	Shadow     bool
 	At         time.Time
 	Again      time.Time // zero: nothing left to do
+	// Unreached says the person has no way to be told about the incident now, for
+	// the log, with At.
+	Unreached bool
 }
 
 // Record writes a delivery, if there is one, and what its recipients were
@@ -213,6 +221,16 @@ func record(ctx context.Context, q *db.Queries, d *Delivery, told []Told) error 
 		if err := createDelivery(ctx, q, *d); err != nil {
 			return err
 		}
+		switch d.State {
+		case "shadow":
+			if err := logMessage(ctx, q, d.WorkspaceID, d.PersonID, "message.shadow", d.Kind, "", d.Items, d.At); err != nil {
+				return err
+			}
+		case "failed":
+			if err := logUnreachedItems(ctx, q, d.PersonID, d.Items, d.Error, d.At); err != nil {
+				return err
+			}
+		}
 	}
 	for _, t := range told {
 		var err error
@@ -226,6 +244,11 @@ func record(ctx context.Context, q *db.Queries, d *Delivery, told []Told) error 
 		}
 		if err != nil {
 			return err
+		}
+		if t.Unreached {
+			if err := logUnreached(ctx, q, t.IncidentID, t.PersonID, NoChannel, t.At); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -278,10 +301,12 @@ type DigestEntry struct {
 // new or unknown; one that is paused; or one in warning, with its reason
 // (intent/http-checks/spec.md, R9).
 type ListedCheck struct {
-	Name    string
-	Project string
-	State   string
-	Reason  string
+	ID        string
+	ProjectID string
+	Name      string
+	Project   string
+	State     string
+	Reason    string
 }
 
 // DigestOf returns what may go in a person's digest since a time.
@@ -304,14 +329,14 @@ func (s *Store) DigestOf(ctx context.Context, personID string, since time.Time) 
 	}
 	var checks []ListedCheck
 	for _, c := range silent {
-		checks = append(checks, ListedCheck{Name: c.Name, Project: c.ProjectName, State: c.State, Reason: c.StateReason})
+		checks = append(checks, ListedCheck{ID: c.ID, ProjectID: c.ProjectID, Name: c.Name, Project: c.ProjectName, State: c.State, Reason: c.StateReason})
 	}
 	warning, err := q.WarningChecks(ctx, personID)
 	if err != nil {
 		return nil, nil, err
 	}
 	for _, c := range warning {
-		checks = append(checks, ListedCheck{Name: c.Name, Project: c.ProjectName, State: string(check.Warning), Reason: c.StateReason})
+		checks = append(checks, ListedCheck{ID: c.ID, ProjectID: c.ProjectID, Name: c.Name, Project: c.ProjectName, State: string(check.Warning), Reason: c.StateReason})
 	}
 	return entries, checks, nil
 }

@@ -59,7 +59,7 @@ func (s *Sender) mailOne(ctx context.Context, d store.Pending, token string, now
 	switch outcome {
 	case email.Sent:
 		s.mail.problem.Store(nil)
-		return false, s.Store.Sent(ctx, d.ID, now)
+		return false, s.Store.Sent(ctx, d, now)
 	case email.Retry:
 		// A refusal for now names the recipient (greylisting, a full
 		// mailbox); anything else means the server is out of reach, and the

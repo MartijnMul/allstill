@@ -12,6 +12,51 @@ import (
 	"database/sql"
 )
 
+const checksOfIncident = `-- name: ChecksOfIncident :many
+SELECT ic.workspace_id, ic.check_id,
+       CAST(COALESCE(c.name, ic.check_name) AS TEXT) AS name,
+       CAST(COALESCE(c.project_id, ic.project_id) AS TEXT) AS project_id
+FROM incident_checks ic LEFT JOIN checks c ON c.id = ic.check_id
+WHERE ic.incident_id = ?
+ORDER BY ic.joined_at, ic.check_id
+`
+
+type ChecksOfIncidentRow struct {
+	WorkspaceID string
+	CheckID     string
+	Name        string
+	ProjectID   string
+}
+
+// The checks of an incident as they are now, or as they were when one has gone.
+func (q *Queries) ChecksOfIncident(ctx context.Context, incidentID string) ([]ChecksOfIncidentRow, error) {
+	rows, err := q.db.QueryContext(ctx, checksOfIncident, incidentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ChecksOfIncidentRow{}
+	for rows.Next() {
+		var i ChecksOfIncidentRow
+		if err := rows.Scan(
+			&i.WorkspaceID,
+			&i.CheckID,
+			&i.Name,
+			&i.ProjectID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createLogEntry = `-- name: CreateLogEntry :exec
 
 INSERT INTO log_entries (
@@ -147,6 +192,25 @@ WHERE about_id = ? AND kind IN ('check.flapping', 'check.steady') ORDER BY id DE
 
 func (q *Queries) LastFlappingEntry(ctx context.Context, aboutID string) (string, error) {
 	row := q.db.QueryRowContext(ctx, lastFlappingEntry, aboutID)
+	var kind string
+	err := row.Scan(&kind)
+	return kind, err
+}
+
+const lastReachOfIncident = `-- name: LastReachOfIncident :one
+SELECT kind FROM log_entries
+WHERE incident_id = ? AND incident_id <> '' AND person_id = ? AND kind IN ('message.reached', 'message.unreached')
+ORDER BY id DESC LIMIT 1
+`
+
+type LastReachOfIncidentParams struct {
+	IncidentID string
+	PersonID   string
+}
+
+// Whether a person was last reached about an incident, or last could not be.
+func (q *Queries) LastReachOfIncident(ctx context.Context, arg LastReachOfIncidentParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, lastReachOfIncident, arg.IncidentID, arg.PersonID)
 	var kind string
 	err := row.Scan(&kind)
 	return kind, err

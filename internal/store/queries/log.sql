@@ -40,6 +40,21 @@ WHERE f.kind IN ('check.flapping', 'check.steady') AND f.kind = 'check.flapping'
 -- name: StateSinceOfCheck :one
 SELECT state, state_since, deleted_at, project_id, name FROM checks WHERE id = ?;
 
+-- The checks of an incident as they are now, or as they were when one has gone.
+-- name: ChecksOfIncident :many
+SELECT ic.workspace_id, ic.check_id,
+       CAST(COALESCE(c.name, ic.check_name) AS TEXT) AS name,
+       CAST(COALESCE(c.project_id, ic.project_id) AS TEXT) AS project_id
+FROM incident_checks ic LEFT JOIN checks c ON c.id = ic.check_id
+WHERE ic.incident_id = ?
+ORDER BY ic.joined_at, ic.check_id;
+
+-- Whether a person was last reached about an incident, or last could not be.
+-- name: LastReachOfIncident :one
+SELECT kind FROM log_entries
+WHERE incident_id = ? AND incident_id <> '' AND person_id = ? AND kind IN ('message.reached', 'message.unreached')
+ORDER BY id DESC LIMIT 1;
+
 -- name: DeleteLogEntriesBefore :execrows
 DELETE FROM log_entries WHERE id IN (
     SELECT e.id FROM log_entries e WHERE e.recorded_at < sqlc.arg(before) ORDER BY e.recorded_at LIMIT sqlc.arg(batch)

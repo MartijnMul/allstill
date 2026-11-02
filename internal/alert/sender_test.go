@@ -18,6 +18,7 @@ import (
 // default quiet hours (22:00 to 07:00) and gets alerts for every project.
 type world struct {
 	t      *testing.T
+	path   string
 	st     *store.Store
 	ws     string
 	admin  string
@@ -29,7 +30,8 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	ctx := t.Context()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "allstill.db"))
+	path := filepath.Join(t.TempDir(), "allstill.db")
+	st, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +47,7 @@ func newWorld(t *testing.T) *world {
 		t.Fatal(err)
 	}
 	a, _ := st.AdminAccess(ctx, ws, "test")
-	w := &world{t: t, st: st, ws: ws, admin: admin, access: a}
+	w := &world{t: t, path: path, st: st, ws: ws, admin: admin, access: a}
 	w.sender = &Sender{Store: st, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Now: func() time.Time { return w.now }}
 	return w
 }

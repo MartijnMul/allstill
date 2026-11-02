@@ -535,6 +535,14 @@ func (s *Store) Shadowed(ctx context.Context, p Pending) error {
 	if err := q.FinishDelivery(ctx, db.FinishDeliveryParams{State: "shadow", ID: p.ID}); err != nil {
 		return err
 	}
+	// Unless one of the person's devices got it for real, as for what they heard below.
+	if first, err := firstOfMessage(ctx, q, p.MessageID, "shadow"); err != nil {
+		return err
+	} else if first {
+		if err := logMessage(ctx, q, p.WorkspaceID, p.PersonID, "message.shadow", p.Kind, "", p.Items, time.Now()); err != nil {
+			return err
+		}
+	}
 	// Only what it told: a digest's still-open and resolved-unseen lines
 	// tell nothing.
 	var ids []string
@@ -551,9 +559,45 @@ func (s *Store) Shadowed(ctx context.Context, p Pending) error {
 	return tx.Commit()
 }
 
-// Sent records that a pending delivery went out.
-func (s *Store) Sent(ctx context.Context, deliveryID string, at time.Time) error {
-	return db.New(s.w).FinishDelivery(ctx, db.FinishDeliveryParams{State: "sent", SentAt: nullMs(at), ID: deliveryID})
+// Sent records that a pending delivery went out, holding what it still said. The
+// first of a message to arrive is what the log says reached the person (R3).
+func (s *Store) Sent(ctx context.Context, p Pending, at time.Time) error {
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	if err := q.FinishDelivery(ctx, db.FinishDeliveryParams{State: "sent", SentAt: nullMs(at), ID: p.ID}); err != nil {
+		return err
+	}
+	if first, err := firstOfMessage(ctx, q, p.MessageID, "sent"); err != nil {
+		return err
+	} else if first {
+		if err := logMessage(ctx, q, p.WorkspaceID, p.PersonID, "message.reached", p.Kind, p.ChannelKind, p.Items, at); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// firstOfMessage says a delivery just finished is the first of its message to end
+// in this state, and that none of it arrived if this state is not that it did.
+func firstOfMessage(ctx context.Context, q *db.Queries, messageID, state string) (bool, error) {
+	siblings, err := q.MessageDeliveries(ctx, nullString(messageID))
+	if err != nil {
+		return false, err
+	}
+	n := 0
+	for _, d := range siblings {
+		if d.State == state {
+			n++
+		}
+		if d.State == "sent" && state != "sent" {
+			return false, nil // it arrived, and says so
+		}
+	}
+	return n <= 1, nil
 }
 
 // Failed records that a pending delivery cannot go out, and why. When gone,
@@ -590,7 +634,7 @@ func (s *Store) Failed(ctx context.Context, p Pending, reason string, gone, chan
 		return err
 	}
 	if p.Kind != "test" && reason != NoLongerTrue {
-		if err := fallBack(ctx, q, p, at, ways); err != nil {
+		if err := fallBack(ctx, q, p, reason, at, ways); err != nil {
 			return err
 		}
 	}
@@ -605,7 +649,7 @@ type Ways struct {
 	Push, Mail bool
 }
 
-func fallBack(ctx context.Context, q *db.Queries, p Pending, at time.Time, ways Ways) error {
+func fallBack(ctx context.Context, q *db.Queries, p Pending, reason string, at time.Time, ways Ways) error {
 	siblings, err := q.MessageDeliveries(ctx, nullString(p.MessageID))
 	if err != nil {
 		return err
@@ -638,6 +682,9 @@ func fallBack(ctx context.Context, q *db.Queries, p Pending, at time.Time, ways 
 	if len(next) > 0 {
 		d := Delivery{WorkspaceID: p.WorkspaceID, PersonID: p.PersonID, Kind: p.Kind, Items: p.Items, At: p.CreatedAt}
 		return queue(ctx, q, d, kind, next, p.MessageID, at)
+	}
+	if err := logUnreachedItems(ctx, q, p.PersonID, p.Items, reason, at); err != nil {
+		return err
 	}
 	var downs []string
 	for _, it := range p.Items {

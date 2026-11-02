@@ -44,7 +44,7 @@ type Store interface {
 	FailedLately(ctx context.Context, personID, reason string, since time.Time) (bool, error)
 	PendingDeliveries(ctx context.Context, now time.Time, limit int) ([]store.Pending, error)
 	SetConfirm(ctx context.Context, p store.Pending, token string) error
-	Sent(ctx context.Context, deliveryID string, at time.Time) error
+	Sent(ctx context.Context, p store.Pending, at time.Time) error
 	Failed(ctx context.Context, p store.Pending, reason string, gone, channelFailed bool, at time.Time, ways store.Ways) error
 	Postpone(ctx context.Context, deliveryID string, next time.Time) error
 	Retry(ctx context.Context, deliveryID, reason string, next time.Time) error
@@ -259,7 +259,7 @@ func (s *Sender) alert(ctx context.Context, due []store.Due, shadow bool, now ti
 		// Nowhere to reach this person: it is tried again in a while, and
 		// recorded as failed once a day, not at every try.
 		for _, t := range told {
-			later = append(later, store.Told{IncidentID: t.IncidentID, PersonID: t.PersonID, Again: now.Add(retryNoChannel)})
+			later = append(later, store.Told{IncidentID: t.IncidentID, PersonID: t.PersonID, Again: now.Add(retryNoChannel), Unreached: true, At: now})
 		}
 		// Within a day, less a try, so the overview's day of failures has
 		// no gap (R11).
@@ -387,18 +387,18 @@ func DigestItems(entries []store.DigestEntry, checks []store.ListedCheck, shadow
 	}
 	for _, c := range checks {
 		if c.State == "warning" {
-			items = append(items, store.Item{What: "warning", Title: c.Project + ": " + c.Name + " (" + c.Reason + ")"})
+			items = append(items, store.Item{What: "warning", Title: c.Project + ": " + c.Name + " (" + c.Reason + ")", CheckID: c.ID, Check: c.Name, ProjectID: c.ProjectID})
 			continue
 		}
 		if c.State == "paused" {
-			items = append(items, store.Item{What: "paused_check", Title: c.Project + ": " + c.Name})
+			items = append(items, store.Item{What: "paused_check", Title: c.Project + ": " + c.Name, CheckID: c.ID, Check: c.Name, ProjectID: c.ProjectID})
 			continue
 		}
 		title := c.Project + ": " + c.Name
 		if c.Reason != "" {
 			title += " (" + c.Reason + ")"
 		}
-		items = append(items, store.Item{What: "silent_check", Title: title})
+		items = append(items, store.Item{What: "silent_check", Title: title, CheckID: c.ID, Check: c.Name, ProjectID: c.ProjectID})
 	}
 	// Reminding of a pause is worth a line, not a message of its own every day.
 	if !slices.ContainsFunc(items, func(it store.Item) bool { return it.What != "paused_check" }) {

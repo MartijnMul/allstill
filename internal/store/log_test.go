@@ -947,3 +947,98 @@ func TestTheLogKnowsWhereItStarts(t *testing.T) {
 		t.Fatalf("%q, %v", v, err)
 	}
 }
+
+// A message queued before the log knew of checks' ids still says the person was
+// reached, without tying it to a check it cannot name (plan, step 2).
+func TestAMessageWithoutChecksIsOneLine(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	ada := newPerson(t, f.s, f.ws, "Ada")
+	got := since(t, f.s, func() {
+		must(t, f.s.Sent(ctx, Pending{ID: "none", WorkspaceID: f.ws, PersonID: ada, Kind: "digest", ChannelKind: "email", Items: []Item{
+			{What: "warning", Title: "Shop: web (certificate expires in 3 days)"}, {What: "silent_check", Title: "Shop: backup"},
+		}}, at))
+	})
+	if len(got) != 1 || got[0].Kind != "message.reached" || got[0].PersonID != ada || got[0].ProjectID != "" || strings.Contains(got[0].Details, "certificate") {
+		t.Fatalf("%+v", got)
+	}
+	if d := detailsOfEntry(t, got[0]); d["count"] != float64(2) {
+		t.Errorf("%v", d)
+	}
+	// A test message is no part of the log.
+	if got := since(t, f.s, func() {
+		must(t, f.s.Sent(ctx, Pending{ID: "none", WorkspaceID: f.ws, PersonID: ada, Kind: "test", ChannelKind: "email"}, at))
+	}); len(got) != 0 {
+		t.Errorf("%v", kinds(got))
+	}
+}
+
+// Who is reached is marked as an outsider when they are an administrator with no
+// membership, for R22, and the line names the incident.
+func TestAMessageMarksAnOutsider(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	dan, err := f.s.CreatePerson(ctx, Command("test"), f.ws, NewPerson{Name: "Dan", WorkspaceAdmin: true})
+	must(t, err)
+	_, uuid := f.pingCheck(t)
+	_, err = f.s.Ping(ctx, ping(uuid, check.Fail, "", at))
+	must(t, err)
+	incident := f.incidents(t)[0].ID
+	got := since(t, f.s, func() {
+		must(t, f.s.Sent(ctx, Pending{ID: "none", WorkspaceID: f.ws, PersonID: dan, Kind: "alert", ChannelKind: "webpush", Items: []Item{{IncidentID: incident, What: "down", Title: "nightly is down"}}}, at))
+		must(t, f.s.Sent(ctx, Pending{ID: "none", WorkspaceID: f.ws, PersonID: f.editor.PersonID, Kind: "alert", ChannelKind: "webpush", Items: []Item{{IncidentID: incident, What: "down", Title: "nightly is down"}}}, at))
+	})
+	if got[0].PersonName != "Dan" || got[0].PersonOutsider != 1 || got[0].IncidentID != incident || got[0].AboutName != "nightly" || got[0].ProjectID != f.project {
+		t.Errorf("%+v", got[0])
+	}
+	if got[1].PersonOutsider != 0 {
+		t.Errorf("%+v", got[1])
+	}
+}
+
+// Why a message failed is kept in Allstill's own words: an error can hold a device's
+// push address, and a server's answer anything.
+func TestLogFailure(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{NoChannel, "the person has no way to be reached"},
+		{`Post "https://push.example.com/send/sekret": dial tcp: lookup failed`, "it could not be sent"},
+		{"the push service answered 503 Service Unavailable", "the push service refused it"},
+		{"the mail server refused this address: it does not exist or takes no mail", "the mail server did not take it"},
+		{"the mail server did not take it after four tries", "the mail server did not take it"},
+		{"the device no longer subscribes; it was removed", "the device no longer subscribes"},
+		{"email is not set up correctly on this server; its administrators see why", "this server is not set up to send it"},
+		{"push is not set up on this server", "this server is not set up to send it"},
+		{"the channel was removed", "the device or address changed"},
+		{"the channel changed hands or must be confirmed again", "the device or address changed"},
+		{"the address was refused; send it a test once it works again", "the address was refused"},
+		{"the device subscribed for another key and must subscribe again", "the device must subscribe again"},
+		{"anything at all", "it could not be sent"},
+	} {
+		if got := logFailure(tc.in); got != tc.want {
+			t.Errorf("logFailure(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// A message about a check that moved after it was queued does not name its person to
+// the people of the project it moved to (R25).
+func TestAMessageAboutAMovedCheckNamesNobodyThere(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	at := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
+	other, _, err := f.s.CreateProject(ctx, Command("test"), f.ws, "Other")
+	must(t, err)
+	checkID, uuid := f.pingCheck(t)
+	_, err = f.s.Ping(ctx, ping(uuid, check.Fail, "", at))
+	must(t, err)
+	incident := f.incidents(t)[0].ID
+	must(t, f.s.MoveCheck(ctx, Command("test"), f.ws, checkID, other, at))
+	got := since(t, f.s, func() {
+		must(t, f.s.Sent(ctx, Pending{ID: "none", WorkspaceID: f.ws, PersonID: f.editor.PersonID, Kind: "digest", ChannelKind: "email", Items: []Item{{IncidentID: incident, What: "still_open", Title: "nightly is down"}}}, at))
+	})
+	if got[0].ProjectID != other || got[0].PersonOutsider != 1 || detailsOfEntry(t, got[0])["person_elsewhere"] != true {
+		t.Errorf("%+v", got[0])
+	}
+}
