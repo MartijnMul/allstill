@@ -31,7 +31,7 @@ Step 3, the forms:
 - `internal/web/web.go`, `pages.go` (changed): routes; `ErrForbidden` and `InvalidError` as refusals; empty overview by role; "not checked yet"; for a viewer, who cannot act and gets no alerts, "5 checks need attention" rather than "need you".
 - `docs/running.md`, `internal/guide/guide.md`, `README.md`, `AGENTS.md` (changed): what an editor can reach and read (C2), and "Not here yet".
 
-Step 4, the API, when something is about to use it:
+Step 4, the API, when something is about to use it (replaced by [intent/cli-anywhere](../cli-anywhere/spec.md), C1, which makes keys with commands rather than R22's page):
 - `internal/store/migrations/0011_api_keys.sql` (new), `internal/store/keys.go` (new): keys as an `Access` holding one project.
 - `internal/web/api.go` (new), `internal/web/templates/project.html` (new): the handlers, and a small project page for owners.
 - `internal/api/` (changed): the `Checks` and `Projects` tags, with authentication per operation.
