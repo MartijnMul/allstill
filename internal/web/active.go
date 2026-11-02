@@ -30,6 +30,7 @@ func whole(v viewer, projectID string) bool {
 }
 
 type activeData struct {
+	History  logHistory
 	C        store.CheckView
 	Look     look
 	Since    string
@@ -68,7 +69,7 @@ func tcpOf(c store.CheckView) active.TCP {
 
 func (s *Server) activePage(w http.ResponseWriter, r *http.Request, v viewer, c store.CheckView, d checkData) {
 	now := s.Now()
-	a := activeData{C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Updated: d.Updated, Kind: strings.ToUpper(c.Kind), Notice: d.Notice, Manage: d.Manage}
+	a := activeData{History: d.History, C: c, Look: d.Look, Since: d.Since, Incident: d.Incident, Updated: d.Updated, Kind: strings.ToUpper(c.Kind), Notice: d.Notice, Manage: d.Manage}
 
 	var last store.RunView
 	if len(c.Recent) > 0 {

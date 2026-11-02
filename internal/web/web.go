@@ -118,7 +118,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{}, memory: newMemory(),
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/parts.html"))
-	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "channels", "error", "check-new", "check-edit", "check-confirm"} {
+	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "log", "channels", "error", "check-new", "check-edit", "check-confirm"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}
@@ -147,6 +147,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /checks/{id}/delete", s.signedIn(s.removeCheck))
 	handle("POST /checks/{id}/ping-url", s.signedIn(s.replacePingURL))
 	handle("GET /messages", s.signedIn(s.messagesPage))
+	handle("GET /log", s.signedIn(s.logPage))
 	handle("GET /channels", s.signedIn(s.channelsPage))
 	handle("POST /channels/push", s.signedIn(s.savePush))
 	handle("POST /channels/email", s.signedIn(s.addEmail))

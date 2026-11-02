@@ -216,6 +216,504 @@ func (q *Queries) LastReachOfIncident(ctx context.Context, arg LastReachOfIncide
 	return kind, err
 }
 
+const logEntriesAbout = `-- name: LogEntriesAbout :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesAboutParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesAbout(ctx context.Context, arg LogEntriesAboutParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesAbout, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesAll = `-- name: LogEntriesAll :many
+
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE id < ?1 ORDER BY id DESC LIMIT ?2
+`
+
+type LogEntriesAllParams struct {
+	Before int64
+	Batch  int64
+}
+
+// Each way of reading the log: the newest entries before a number, from one index.
+// Who may see what is judged in one place, on what these return (logread.go), so a
+// filter cannot reach past it.
+func (q *Queries) LogEntriesAll(ctx context.Context, arg LogEntriesAllParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesAll, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesBy = `-- name: LogEntriesBy :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE by_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesByParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesBy(ctx context.Context, arg LogEntriesByParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesBy, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesConcerning = `-- name: LogEntriesConcerning :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE person_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesConcerningParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesConcerning(ctx context.Context, arg LogEntriesConcerningParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesConcerning, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesNamed = `-- name: LogEntriesNamed :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_name = ?1 COLLATE NOCASE AND about_name <> '' AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesNamedParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesNamed(ctx context.Context, arg LogEntriesNamedParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesNamed, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesOfGroup = `-- name: LogEntriesOfGroup :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE group_id = ?1 AND group_id <> '' AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesOfGroupParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesOfGroup(ctx context.Context, arg LogEntriesOfGroupParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesOfGroup, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesOfKind = `-- name: LogEntriesOfKind :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE kind = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesOfKindParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesOfKind(ctx context.Context, arg LogEntriesOfKindParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesOfKind, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesOfProject = `-- name: LogEntriesOfProject :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE project_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesOfProjectParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesOfProject(ctx context.Context, arg LogEntriesOfProjectParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesOfProject, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesOwn = `-- name: LogEntriesOwn :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE person_id = ?1 AND project_id = '' AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesOwnParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+func (q *Queries) LogEntriesOwn(ctx context.Context, arg LogEntriesOwnParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesOwn, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nameOfProject = `-- name: NameOfProject :one
 SELECT name FROM projects WHERE id = ?
 `

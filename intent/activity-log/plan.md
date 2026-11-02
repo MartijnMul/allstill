@@ -35,10 +35,11 @@ Step 2, recording who was reached:
 - `docs/running.md` (changed): that this is recorded too, and who may see it.
 
 Step 3, the page:
-- `internal/store/log.go` and `queries/log.sql` (changed): reading: one static query per project and way of narrowing, one for a person's own entries, one for an administrator, merged in Go; which kinds each role sees, from one function; dropping what a reader may not see (R20 to R25).
+- `internal/store/logread.go` (new) and `queries/log.sql` (changed): reading: one static query per way of narrowing, one per project a reader is in, merged in Go, with each entry judged by one function: whether the reader may see it, and what of it (R20 to R25). Because that judging is in Go, narrowing cannot reach past it, and the queries are all one equality on one index. A page reads at most 50,000 entries, and links on from where it stopped.
+- `internal/store/migrations/0012_log_names.sql` (new): the index on names ignores case (R28), and an index on what concerns a person outside any project.
 - `internal/web/log.go` (new): `GET /log`, its filters from the address and writing each kind as a sentence; a kind it does not know shows what it has.
 - `internal/web/templates/log.html` (new), `templates/layout.html`, where the sidebar's fixed links and icons live, `check.html`, `active.html`, `parts.html`, `static/app.css` (changed): the page, the "History" section, states with their shapes, 375 px and dark mode.
-- `internal/web/web.go`, `nav.go`, `pages.go`, `active.go` (changed): the route, the link in the sidebar, the section on a check's page.
+- `internal/web/web.go`, `pages.go`, `active.go` (changed): the route, and the section on a check's page.
 - `Makefile` (changed): the timed test at 3 million rows.
 - `docs/running.md`, `internal/guide/guide.md`, `README.md` if it lists the pages, `AGENTS.md` (changed): the page, who sees what, and what the log cannot prove.
 
@@ -73,7 +74,7 @@ Step 3, the page:
 - **Calm:** `testing/synctest` or set times for R16's ceiling and closing line; R17's rule per state pair, including unknown to down and down to unknown to up; R18 after a restart and a clock jump.
 - **Messages (R3 to R5):** a table over what can happen to a message: sent at once, sent after retry, trimmed, dropped as no longer true, turned to shadow, falling back to email, no channel, no channel for a second incident the same day, always failing. Each asserts its entries, and that repeated tries write one line.
 - **Who sees what (R20 to R25):** one table per row of the spec's table, per role, in the page's output as well as the store's result, with a viewer in one project and an editor in another, a non-member administrator, access removed, and each filter; a marker name must never appear where it is masked.
-- **Speed (R32):** query plans in `make check` must show no scan or temporary sort for any page. The timed test at 3 million rows takes too long for every run, so it is a make target run before each release candidate of step 3, and its figures go in the commit.
+- **Speed (R32):** query plans in `make check` must show no scan or temporary sort for any page. The timed test at 3 million rows takes too long for every run, so it is a make target run before each release candidate of step 3, and its figures go in the commit. Measured on 2026-11-02 on a laptop, 375 bytes per entry with its indexes: the slowest page, one of an editor or viewer asking for a kind they have none of, took about 130 ms, as it reads its limit of 50,000 entries; every other page took under 15 ms. A first run found two pages over a second, reading a person's lines in other projects, which is why the query for what is their own has an index and a viewer's search for someone else stops at once.
 - **The record (R33 to R35):** an update is refused; an action is rolled back with its entry when the entry's insert is made to fail through a test hook; tidy removes only what is past its age; `Check` refuses under 30 days.
 
 ## Risks

@@ -127,7 +127,7 @@ Ping URLs follow Healthchecks, so a job moves by changing the start of its URL: 
 
 A new installation starts in shadow mode: it records what it would have sent under **Messages** in the dashboard, and sends only test messages. Someone who wants alerts adds a device or an email address under **Devices**. An administrator then switches them on with `allstill admin set-alerts on`, and `shadow` goes back. No command shows which mode it is in, so ask the person before telling them they will be alerted.
 
-- Allstill keeps a log of what happened to checks, who did what and who was reached, for 400 days (`-keep-log`), with people's names in it, and no page to read it on yet.
+- Allstill keeps a log of what happened to checks, who did what and who was reached, for 400 days (`-keep-log`), with people's names in it. **Log** in the dashboard shows it, as far as each person may see it. It stops mistakes, not someone holding the database, and restoring a backup takes it back too.
 - `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` or `none`. `allstill admin set-alerting -critical` breaks through quiet hours. Each call sets both, so give `-urgency` and `-critical` together when you want both.
 - `allstill admin create-user` adds a person, with a link to make a passkey. Without `-project` they are an administrator who sees every project, so for an outside party add `-project Customer -role viewer` (or `editor`, `owner`): they then see only those projects. `allstill admin set-member` changes a role later, and `-role none` takes someone out of a project. `allstill admin passkey-link` gives a new link to someone who lost their devices.
 

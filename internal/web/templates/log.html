@@ -1,0 +1,26 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main">
+  <header class="page-head">
+    <div class="page-title"><h1>Log</h1></div>
+    <p class="lede">What happened, when and by what, newest first.</p>
+  </header>
+
+  <form class="log-filter form" action="/log" method="get">
+    {{range .Keep}}<input type="hidden" name="{{.Value}}" value="{{.Label}}">{{end}}
+    <div class="field grow"><label for="log-name">Check, by its exact name</label><input id="log-name" name="name" type="text" value="{{.Name}}"></div>
+    <div class="field"><label for="log-project">Project</label><select id="log-project" name="project">{{range .Projects}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+    <div class="field"><label for="log-what">What</label><select id="log-what" name="what">{{range .Whats}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></div>
+    <button type="submit" class="button">Show</button>
+  </form>
+  {{if .Chips}}<p class="log-chips">{{range .Chips}}<span class="tag">{{.Label}} <a href="{{.Clear}}" aria-label="Stop narrowing to {{.Label}}">×</a></span> {{end}}</p>{{end}}
+
+  <section class="panel" aria-label="The log">
+    {{if .Rows}}{{template "log-rows" .Rows}}{{else}}
+    <div class="empty"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><p>{{.Nothing}}</p></div>
+    {{end}}
+    {{if .Older}}<div class="panel-foot"><a href="{{.Older}}">Older</a></div>{{end}}
+  </section>
+  {{if .About}}<p class="note log-about">{{.About}}</p>{{end}}
+</main>
+{{end}}{{end}}

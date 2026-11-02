@@ -59,3 +59,34 @@ ORDER BY id DESC LIMIT 1;
 DELETE FROM log_entries WHERE id IN (
     SELECT e.id FROM log_entries e WHERE e.recorded_at < sqlc.arg(before) ORDER BY e.recorded_at LIMIT sqlc.arg(batch)
 );
+
+-- Each way of reading the log: the newest entries before a number, from one index.
+-- Who may see what is judged in one place, on what these return (logread.go), so a
+-- filter cannot reach past it.
+
+-- name: LogEntriesAll :many
+SELECT * FROM log_entries WHERE id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesOfProject :many
+SELECT * FROM log_entries WHERE project_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesAbout :many
+SELECT * FROM log_entries WHERE about_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesNamed :many
+SELECT * FROM log_entries WHERE about_name = sqlc.arg(of) COLLATE NOCASE AND about_name <> '' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesBy :many
+SELECT * FROM log_entries WHERE by_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesConcerning :many
+SELECT * FROM log_entries WHERE person_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesOwn :many
+SELECT * FROM log_entries WHERE person_id = sqlc.arg(of) AND project_id = '' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesOfKind :many
+SELECT * FROM log_entries WHERE kind = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- name: LogEntriesOfGroup :many
+SELECT * FROM log_entries WHERE group_id = sqlc.arg(of) AND group_id <> '' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);

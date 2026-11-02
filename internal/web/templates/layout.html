@@ -54,8 +54,9 @@
         <ul><li><a href="/"><svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg><span class="label">All checks</span></a></li></ul>
         {{end}}
       </nav>
-      <nav class="side-nav side-more" aria-label="Alerts">
+      <nav class="side-nav side-more" aria-label="Log and alerts">
         <ul>
+          <li><a href="/log"{{if eq .Here "log"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><span class="label">Log</span></a></li>
           <li><a href="/messages"{{if eq .Here "messages"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-bell"/></svg><span class="label">Messages</span></a></li>
           <li><a href="/channels"{{if eq .Here "devices"}} aria-current="page"{{end}}><svg class="icon" aria-hidden="true"><use href="#i-device"/></svg><span class="label">Devices</span></a></li>
         </ul>

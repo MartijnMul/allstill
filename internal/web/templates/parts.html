@@ -331,3 +331,24 @@
   </details>
 </section>
 {{end}}
+
+{{/* Lines of the log, newest first. */}}
+{{define "log-rows"}}<ol class="log-list">
+  {{range .}}
+  {{if .Day}}<li class="log-day">{{.Day}}</li>{{end}}
+  <li class="log-row">
+    <time class="mono">{{.Time}}</time>
+    <i class="dot {{.Class}}" aria-hidden="true"></i>
+    <p>{{range .Parts}}{{if .Href}}<a class="log-name" href="{{.Href}}">{{.Text}}</a>{{else if .Name}}<span class="log-name">{{.Text}}</span>{{else}}{{.Text}}{{end}}{{end}}{{with .Open}} <a href="{{.}}">Show them</a>{{end}}{{with .Note}} <span class="muted">({{.}})</span>{{end}}</p>
+    {{with .Project}}<span class="log-project">{{.}}</span>{{end}}
+  </li>
+  {{end}}
+</ol>{{end}}
+
+{{/* The section on a check's page. */}}
+{{define "history"}}<section class="panel" aria-labelledby="history">
+  <div class="panel-head"><h2 id="history">History</h2><a class="hint" href="{{.All}}">All of it</a></div>
+  {{if .Rows}}{{template "log-rows" .Rows}}{{else}}
+  <div class="empty"><svg class="icon" aria-hidden="true"><use href="#i-clock"/></svg><p>Nothing written yet. What happens to this check, and what people do to it, appears here.</p></div>
+  {{end}}
+</section>{{end}}

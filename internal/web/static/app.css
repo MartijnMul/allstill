@@ -391,6 +391,27 @@ form.inline input { flex: 1 1 220px; min-width: 0; }
 .also li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; }
 .also li + li { border-top: 1px solid var(--line-soft); }
 
+/* The log */
+.log-filter.form { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: 12px 14px; max-width: none; margin-bottom: 14px; padding: 0; background: none; box-shadow: none; }
+.log-filter .field { flex: 0 1 200px; align-self: auto; }
+.log-filter .field.grow { flex: 1 1 240px; }
+.log-filter .button { flex: none; height: 36px; }
+.log-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.log-chips .tag a { margin-left: 4px; color: var(--muted); text-decoration: none; }
+.log-list { list-style: none; margin: 0; padding: 0; }
+.log-day { padding: 14px 18px 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.log-row { display: grid; grid-template-columns: 44px 14px minmax(0, 1fr) auto; align-items: baseline; gap: 2px 10px; padding: 8px 18px; border-top: 1px solid var(--line-soft); }
+.log-row time { font-size: 12.5px; color: var(--muted); }
+.log-row p { overflow-wrap: anywhere; }
+.log-name { font-weight: 500; }
+.log-project { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.log-about { margin-top: 12px; }
+@media (max-width: 640px) {
+  .log-row { grid-template-columns: 44px 14px minmax(0, 1fr); }
+  .log-project { grid-column: 3; white-space: normal; }
+  .log-filter.form .field { flex: 1 1 100%; }
+}
+
 /* Sign-in, and pages without the sidebar */
 .center { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 24px 16px; }
 .content .center { min-height: calc(100vh - 80px); }

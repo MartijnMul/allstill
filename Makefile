@@ -10,7 +10,7 @@ GENERATED := internal/store/internal/db
 GENERATED_API := internal/api
 GORELEASER := go run github.com/goreleaser/goreleaser/v2@v2.18.2
 
-.PHONY: help check go-check fmt-check vet staticcheck test load vulncheck generate generated-check \
+.PHONY: help check go-check fmt-check vet staticcheck test load log-speed vulncheck generate generated-check \
 	api-lint hooks hooks-test secrets release-snapshot
 
 help: ## List the commands
@@ -34,6 +34,9 @@ test: ## The tests, with the race detector
 
 load: ## The load test of checks Allstill runs itself, before a release
 	ALLSTILL_LOAD_TEST=1 go test -count=1 -run '^TestLoad$$' -v ./internal/active
+
+log-speed: ## The log's pages at 3 million entries, before a release that changes them
+	ALLSTILL_LOG_SPEED=1 go test -count=1 -timeout 30m -run '^TestTheLogIsQuickAtThreeMillionEntries$$' -v ./internal/store
 
 vulncheck: ## Known vulnerabilities in the code paths we use
 	go tool govulncheck ./...

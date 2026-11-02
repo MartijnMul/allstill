@@ -307,6 +307,7 @@ func rowOf(c store.CheckView, now time.Time, loc *time.Location) row {
 const listedRuns = 10
 
 type checkData struct {
+	History   logHistory
 	C         store.CheckView
 	Look      look
 	Since     string
@@ -393,6 +394,10 @@ func (s *Server) checkPage(w http.ResponseWriter, r *http.Request, v viewer) {
 			d.Incident += " It is back since " + clock(now, inc.RecoveringSince, v.Loc) +
 				", and closes at " + clock(now, inc.RecoveringSince.Add(alert.Settle), v.Loc) + " if it stays so."
 		}
+	}
+	if d.History, err = s.history(r.Context(), v, c.ID); err != nil {
+		s.fail(w, r, err)
+		return
 	}
 	if store.Active(c.Kind) {
 		s.activePage(w, r, v, c, d)
