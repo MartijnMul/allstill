@@ -2,7 +2,7 @@
 # Intent: see what happened, when and by whom
 
 Author: Claude, confirmed by Martijn Mullié (maintainer)
-Status: draft
+Status: accepted
 Started: 2026-11-02
 
 ## Problem
