@@ -109,7 +109,7 @@ func addLink(v viewer, project string) string {
 
 // nav reads the checks for the sidebar of a page other than the overview.
 func (s *Server) nav(ctx context.Context, v viewer, project string) (*navData, error) {
-	checks, err := s.Store.Checks(ctx, v.Access)
+	checks, err := s.Store.CheckStates(ctx, v.Access)
 	if err != nil {
 		return nil, err
 	}

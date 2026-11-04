@@ -95,7 +95,7 @@ func (s *Server) logPage(w http.ResponseWriter, r *http.Request, v viewer) {
 		s.fail(w, r, err)
 		return
 	}
-	checks, err := s.Store.Checks(ctx, v.Access)
+	checks, err := s.Store.CheckStates(ctx, v.Access)
 	if err != nil {
 		s.fail(w, r, err)
 		return

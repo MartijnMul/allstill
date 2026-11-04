@@ -867,7 +867,7 @@ func waitsForPing(c store.CheckView, now time.Time, loc *time.Location) string {
 // sameName warns of another check in the project with the same name. It is not
 // refused, which would trap someone retrying a save that timed out (C10).
 func (s *Server) sameName(ctx context.Context, v viewer, c store.CheckView, n *notice) {
-	checks, err := s.Store.Checks(ctx, v.Access)
+	checks, err := s.Store.CheckStates(ctx, v.Access)
 	if err != nil {
 		s.Log.Error("reading checks", "error", err)
 		return
