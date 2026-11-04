@@ -99,7 +99,7 @@ var logMinRole = map[string]Role{
 	"check.moved_out": Viewer, "check.moved_in": Viewer, "check.deleted": Viewer, "check.ping_url_replaced": Viewer,
 	"project.renamed": Viewer,
 	"message.reached": Editor, "message.reached_several": Editor, "message.shadow": Editor, "message.shadow_several": Editor, "message.unreached": Editor,
-	"member.set": Owner, "member.removed": Owner,
+	"member.set": Owner, "member.removed": Owner, "key.made": Owner, "key.revoked": Owner,
 }
 
 // What concerns only the person it is about, outside any project.

@@ -28,7 +28,7 @@ var notInGuide = []string{
 }
 
 // twoWords are the commands whose second word is a command too.
-var twoWords = []string{"admin", "import", "compare", "checks"}
+var twoWords = []string{"admin", "import", "compare", "checks", "keys"}
 
 // commandName is how a command is called, from the words after `allstill`.
 func commandName(words []string) string {

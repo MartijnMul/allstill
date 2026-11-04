@@ -333,7 +333,7 @@ func (a apiServer) GetCheck(ctx context.Context, req api.GetCheckRequestObject) 
 	if err != nil {
 		return nil, err
 	}
-	return api.GetCheck200JSONResponse(out), nil
+	return api.GetCheck200JSONResponse{Body: out, Headers: api.GetCheck200ResponseHeaders{ETag: etagOf(c)}}, nil
 }
 
 // ListRuns lists a check's runs, newest first.

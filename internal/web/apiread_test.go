@@ -201,11 +201,12 @@ func TestNoSecretInAReadersAnswers(t *testing.T) {
 	paths := []string{
 		"/me", "/status", "/projects", "/projects/" + f.project, "/projects/" + f.project + "/checks",
 		"/checks/" + site.ID, "/checks/" + site.ID + "/runs", "/checks/" + f.checkID, "/checks/" + f.checkID + "/runs",
-		"/log", "/log?check_id=" + site.ID, "/log?name=shop", "/probes",
+		"/log", "/log?check_id=" + site.ID, "/log?name=shop", "/probes", "/keys",
 	}
 	for _, op := range apiOperations {
 		method, path, _ := strings.Cut(op.route, " ")
-		if method != "GET" || op.takes == probeCredential {
+		// Its answer is a ping URL, for those who may have one: apiwrite_test.go.
+		if method != "GET" || op.takes == probeCredential || op.name == "GetPingUrl" {
 			continue
 		}
 		path = strings.TrimPrefix(path, "/api/v1")
@@ -236,6 +237,16 @@ func TestNoSecretInAReadersAnswers(t *testing.T) {
 		// How fast it tells people is for those who may change that, as on the dashboard.
 		if got.Alerting != nil {
 			t.Errorf("%s reads its alerting: %+v", who, got.Alerting)
+		}
+	}
+	// A read-only sign-in cannot have one, whoever holds it.
+	for who, token := range map[string]string{
+		"a viewer":                             tokenFor(t, f, f.bob, store.ScopeManage),
+		"an administrator's read-only sign-in": tokenFor(t, f, f.ada, store.ScopeRead),
+		"a read key":                           keyFor(t, f, f.project, "reader", store.ScopeRead),
+	} {
+		if w := bearer(f, "GET", "/checks/"+f.checkID+"/ping-url", token); w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), job.PingUUID) {
+			t.Errorf("%s asks for a ping URL: %d %s", who, w.Code, w.Body)
 		}
 	}
 	// Someone who may see an address whole reads it whole, and no ping URL even so.

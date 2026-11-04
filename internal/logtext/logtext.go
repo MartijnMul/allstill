@@ -235,6 +235,10 @@ func (w *writer) write() {
 		}
 	case "member.removed":
 		w.say(by, text(" took "), party(e.Person), text(" out of this project."))
+	case "key.made":
+		w.say(by, text(" made the "+detailString(d, "scope")+" key "), Part{Text: e.AboutName, Name: true}, text("."))
+	case "key.revoked":
+		w.say(by, text(" revoked the key "), Part{Text: e.AboutName, Name: true}, text("."))
 	case "passkey.link_made":
 		w.say(by, text(" made a passkey link for "), party(e.Person), text("."))
 	case "passkey.added":

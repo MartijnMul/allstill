@@ -50,6 +50,16 @@ Usage:
   allstill checks [flags]                the checks you can see
   allstill checks show [flags]           one check
   allstill checks runs [flags]           a check's latest runs
+  allstill checks add [flags]            add a job's check, a site or a port
+  allstill checks change [flags]         change a check
+  allstill checks pause [flags]          pause a check
+  allstill checks resume [flags]         resume a paused check
+  allstill checks move [flags]           move a check to another project
+  allstill checks delete [flags]         delete a check with its history
+  allstill checks ping-url [flags]       show a job's ping URL, or replace it
+  allstill keys [flags]                  a project's keys, for scripts
+  allstill keys make NAME [flags]        make a key, and print it once
+  allstill keys revoke NAME [flags]      end a key
   allstill log [flags]                   what happened, when and by whom
   allstill probes [flags]                the probes that serve projects you may edit
   allstill admin create-user [flags]     add a person, with a link to make a passkey
@@ -129,6 +139,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return logCommand(ctx, args[1:], stdout, stderr)
 	case "probes":
 		return probesCommand(ctx, args[1:], stdout, stderr)
+	case "keys":
+		return keysCommand(ctx, args[1:], stdout, stderr)
 	case "backup":
 		return backup(ctx, args[1:], stdout, stderr)
 	case "guide":

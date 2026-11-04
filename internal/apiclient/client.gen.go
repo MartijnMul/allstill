@@ -8,6 +8,7 @@
 package apiclient
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -97,6 +98,51 @@ func (e CheckState) Valid() bool {
 	}
 }
 
+// Defines values for CheckTryResult.
+const (
+	CheckTryResultFails    CheckTryResult = "fails"
+	CheckTryResultNotTried CheckTryResult = "not_tried"
+	CheckTryResultUp       CheckTryResult = "up"
+	CheckTryResultWarning  CheckTryResult = "warning"
+)
+
+// Valid indicates whether the value is a known member of the CheckTryResult enum.
+func (e CheckTryResult) Valid() bool {
+	switch e {
+	case CheckTryResultFails:
+		return true
+	case CheckTryResultNotTried:
+		return true
+	case CheckTryResultUp:
+		return true
+	case CheckTryResultWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckTryWhyNot.
+const (
+	CheckTryWhyNotLimit       CheckTryWhyNot = "limit"
+	CheckTryWhyNotProbe       CheckTryWhyNot = "probe"
+	CheckTryWhyNotUnavailable CheckTryWhyNot = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the CheckTryWhyNot enum.
+func (e CheckTryWhyNot) Valid() bool {
+	switch e {
+	case CheckTryWhyNotLimit:
+		return true
+	case CheckTryWhyNotProbe:
+		return true
+	case CheckTryWhyNotUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CronScheduleKind.
 const (
 	Cron CronScheduleKind = "cron"
@@ -147,16 +193,16 @@ func (e IntervalScheduleKind) Valid() bool {
 
 // Defines values for MeKind.
 const (
-	ApiKey MeKind = "api_key"
-	Person MeKind = "person"
+	MeKindApiKey MeKind = "api_key"
+	MeKindPerson MeKind = "person"
 )
 
 // Valid indicates whether the value is a known member of the MeKind enum.
 func (e MeKind) Valid() bool {
 	switch e {
-	case ApiKey:
+	case MeKindApiKey:
 		return true
-	case Person:
+	case MeKindPerson:
 		return true
 	default:
 		return false
@@ -291,6 +337,60 @@ type Alerting struct {
 // shows the problem but never alerts, for a machine that is often off.
 type AlertingUrgency string
 
+// ApiKey defines model for ApiKey.
+type ApiKey struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id An opaque identifier. Never a secret.
+	Id         Id         `json:"id"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+
+	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// `former_member`. A person's `id` is what to narrow to them with.
+	MadeBy LogParty `json:"made_by"`
+
+	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	MadeVia *string `json:"made_via,omitempty"`
+	Name    string  `json:"name"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id    `json:"project_id"`
+	Scope     Scope `json:"scope"`
+}
+
+// ApiKeyList defines model for ApiKeyList.
+type ApiKeyList struct {
+	Items []ApiKey `json:"items"`
+}
+
+// ApiKeyMade A key that was just made. Its value is shown here and never again.
+type ApiKeyMade struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Key The key's value, a secret. Only its hash is kept.
+	Key        string     `json:"key"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+
+	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// `former_member`. A person's `id` is what to narrow to them with.
+	MadeBy LogParty `json:"made_by"`
+
+	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	MadeVia *string `json:"made_via,omitempty"`
+	Name    string  `json:"name"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id    `json:"project_id"`
+	Scope     Scope `json:"scope"`
+}
+
 // AttentionCheck defines model for AttentionCheck.
 type AttentionCheck struct {
 	// Id An opaque identifier. Never a secret.
@@ -376,6 +476,117 @@ type Check struct {
 	Tcp *TcpCheck `json:"tcp,omitempty"`
 }
 
+// CheckCreated A check that was just made.
+type CheckCreated struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind       CheckKind  `json:"kind"`
+	LastPingAt *time.Time `json:"last_ping_at,omitempty"`
+
+	// LastRun One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+	LastRun        *Run       `json:"last_run,omitempty"`
+	Name           string     `json:"name"`
+	NextExpectedAt *time.Time `json:"next_expected_at,omitempty"`
+
+	// PingUrl The check's secret ping URL, if jobs ping it. Anyone holding it can ping
+	// the check, so nothing else carries it but this, `rotatePingUrl` and
+	// `getPingUrl`.
+	PingUrl *string `json:"ping_url,omitempty"`
+
+	// ProbeName The name of the probe that runs it, if any.
+	ProbeName *string `json:"probe_name,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+
+	// SameName Another check in this project has the same name, which is allowed.
+	SameName *bool `json:"same_name,omitempty"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State CheckState `json:"state"`
+
+	// StateReason Why it is in this state, in a short sentence, such as `The job failed with exit status 3.`
+	StateReason *string   `json:"state_reason,omitempty"`
+	StateSince  time.Time `json:"state_since"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+
+	// Try What one attempt found when an address was added or changed. A try is no run: it
+	// counts for nothing. `result` says how it went, or `not_tried` with `why_not`.
+	Try *CheckTry `json:"try,omitempty"`
+}
+
+// CheckInput A new check. `http` is required for `kind: http` and `tcp` for `kind: tcp`,
+// whose schedule is an interval of 60 seconds to a day.
+type CheckInput struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind CheckKind `json:"kind"`
+	Name string    `json:"name"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+	Tags     *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+}
+
 // CheckKind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
 // Clients show kinds they do not know by name: more will come.
 type CheckKind string
@@ -385,6 +596,12 @@ type CheckPage struct {
 	Items      []Check `json:"items"`
 	NextCursor *string `json:"next_cursor,omitempty"`
 }
+
+// CheckPatch Fields to change; those left out stay as they are. `http` or `tcp`, when sent,
+// replaces what the check runs as a whole, including `probe_id`, so read it first
+// and send it with `If-Match`. An empty `slug`, `description` or `tags` clears it.
+// A check's `kind` does not change.
+type CheckPatch = CheckSettings
 
 // CheckSettings What a check is and how it is judged; the part a client can change.
 type CheckSettings struct {
@@ -429,6 +646,179 @@ type CheckSettings struct {
 // - `paused`: paused by someone, until resumed or pinged.
 // - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
 type CheckState string
+
+// CheckTried A check that was just changed.
+type CheckTried struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind       CheckKind  `json:"kind"`
+	LastPingAt *time.Time `json:"last_ping_at,omitempty"`
+
+	// LastRun One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+	LastRun        *Run       `json:"last_run,omitempty"`
+	Name           string     `json:"name"`
+	NextExpectedAt *time.Time `json:"next_expected_at,omitempty"`
+
+	// ProbeName The name of the probe that runs it, if any.
+	ProbeName *string `json:"probe_name,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+
+	// SameName Another check in this project has the same name, which is allowed.
+	SameName *bool `json:"same_name,omitempty"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State CheckState `json:"state"`
+
+	// StateReason Why it is in this state, in a short sentence, such as `The job failed with exit status 3.`
+	StateReason *string   `json:"state_reason,omitempty"`
+	StateSince  time.Time `json:"state_since"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+
+	// Try What one attempt found when an address was added or changed. A try is no run: it
+	// counts for nothing. `result` says how it went, or `not_tried` with `why_not`.
+	Try *CheckTry `json:"try,omitempty"`
+}
+
+// CheckTry What one attempt found when an address was added or changed. A try is no run: it
+// counts for nothing. `result` says how it went, or `not_tried` with `why_not`.
+type CheckTry struct {
+	// AlertsNobodyYet It has never worked, so it alerts nobody until it has.
+	AlertsNobodyYet *bool `json:"alerts_nobody_yet,omitempty"`
+
+	// CertDays The days its certificate has left.
+	CertDays *float64 `json:"cert_days,omitempty"`
+
+	// FirstAttemptAt By when its first real attempt comes. Left out while it is paused.
+	FirstAttemptAt *time.Time `json:"first_attempt_at,omitempty"`
+	HttpStatus     *int       `json:"http_status,omitempty"`
+
+	// Ms How long it took.
+	Ms *int64 `json:"ms,omitempty"`
+
+	// Reason Why it failed or warned, in a short sentence.
+	Reason *string `json:"reason,omitempty"`
+
+	// Result Clients show results they do not know as they are.
+	Result CheckTryResult `json:"result"`
+
+	// WhyNot `probe`: only the probe that runs it can try the address. `limit`: this
+	// credential has made its tries for this minute. `unavailable`: this server
+	// cannot try anything now.
+	WhyNot *CheckTryWhyNot `json:"why_not,omitempty"`
+}
+
+// CheckTryResult Clients show results they do not know as they are.
+type CheckTryResult string
+
+// CheckTryWhyNot `probe`: only the probe that runs it can try the address. `limit`: this
+// credential has made its tries for this minute. `unavailable`: this server
+// cannot try anything now.
+type CheckTryWhyNot string
+
+// CheckWithPingUrl A check, as it is answered only when its ping URL is replaced.
+type CheckWithPingUrl struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind       CheckKind  `json:"kind"`
+	LastPingAt *time.Time `json:"last_ping_at,omitempty"`
+
+	// LastRun One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+	LastRun        *Run       `json:"last_run,omitempty"`
+	Name           string     `json:"name"`
+	NextExpectedAt *time.Time `json:"next_expected_at,omitempty"`
+
+	// PingUrl The check's secret ping URL. Anyone holding it can ping the check, so
+	// nothing else carries it but this, `createCheck` and `getPingUrl`.
+	PingUrl string `json:"ping_url"`
+
+	// ProbeName The name of the probe that runs it, if any.
+	ProbeName *string `json:"probe_name,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State CheckState `json:"state"`
+
+	// StateReason Why it is in this state, in a short sentence, such as `The job failed with exit status 3.`
+	StateReason *string   `json:"state_reason,omitempty"`
+	StateSince  time.Time `json:"state_since"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+}
 
 // CronSchedule defines model for CronSchedule.
 type CronSchedule struct {
@@ -587,6 +977,8 @@ type LogParty struct {
 
 // Me defines model for Me.
 type Me struct {
+	// Key Present when a project's key is asking, naming it.
+	Key  *MeKey `json:"key,omitempty"`
 	Kind MeKind `json:"kind"`
 
 	// Person Present when a person is signed in.
@@ -603,6 +995,13 @@ type Me struct {
 
 // MeKind defines model for Me.Kind.
 type MeKind string
+
+// MeKey Present when a project's key is asking, naming it.
+type MeKey struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+}
 
 // MePerson Present when a person is signed in.
 type MePerson struct {
@@ -806,6 +1205,9 @@ type Cursor = string
 // ExitStatus defines model for ExitStatus.
 type ExitStatus = int
 
+// IfMatch defines model for IfMatch.
+type IfMatch = string
+
 // Limit defines model for Limit.
 type Limit = int
 
@@ -821,14 +1223,35 @@ type ProjectId = Id
 // BadRequest Problem Details (RFC 9457).
 type BadRequest = Problem
 
+// Forbidden Problem Details (RFC 9457).
+type Forbidden = Problem
+
 // NotFound Problem Details (RFC 9457).
 type NotFound = Problem
+
+// PreconditionFailed Problem Details (RFC 9457).
+type PreconditionFailed = Problem
 
 // TooManyRequests Problem Details (RFC 9457).
 type TooManyRequests = Problem
 
 // Unauthorized Problem Details (RFC 9457).
 type Unauthorized = Problem
+
+// Unprocessable Problem Details (RFC 9457).
+type Unprocessable = Problem
+
+// UpdateCheckParams defines parameters for UpdateCheck.
+type UpdateCheckParams struct {
+	// IfMatch The ETag of the version you are changing.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// MoveCheckJSONBody defines parameters for MoveCheck.
+type MoveCheckJSONBody struct {
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+}
 
 // ListRunsParams defines parameters for ListRuns.
 type ListRunsParams struct {
@@ -837,6 +1260,12 @@ type ListRunsParams struct {
 
 	// Limit The most items on one page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListKeysParams defines parameters for ListKeys.
+type ListKeysParams struct {
+	// ProjectId Only this project. Without it, every project the caller owns, which for an administrator is every project.
+	ProjectId *Id `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 
 // ListLogParams defines parameters for ListLog.
@@ -882,6 +1311,24 @@ type ListChecksParams struct {
 	// Limit The most items on one page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// CreateKeyJSONBody defines parameters for CreateKey.
+type CreateKeyJSONBody struct {
+	Name  string `json:"name"`
+	Scope Scope  `json:"scope"`
+}
+
+// UpdateCheckJSONRequestBody defines body for UpdateCheck for application/json ContentType.
+type UpdateCheckJSONRequestBody = CheckPatch
+
+// MoveCheckJSONRequestBody defines body for MoveCheck for application/json ContentType.
+type MoveCheckJSONRequestBody MoveCheckJSONBody
+
+// CreateCheckJSONRequestBody defines body for CreateCheck for application/json ContentType.
+type CreateCheckJSONRequestBody = CheckInput
+
+// CreateKeyJSONRequestBody defines body for CreateKey for application/json ContentType.
+type CreateKeyJSONRequestBody CreateKeyJSONBody
 
 // AsIntervalSchedule returns the union data inside the Schedule as a IntervalSchedule
 func (t Schedule) AsIntervalSchedule() (IntervalSchedule, error) {
@@ -1058,15 +1505,107 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// DeleteCheck Delete a check with its runs
+	//
+	// Needs the `manage` scope and the editor role. A probe's own check stays.
+	//
+	// Corresponds with DELETE /checks/{check_id} (the `DeleteCheck` operationId).
+	DeleteCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetCheck One check
 	//
 	// Corresponds with GET /checks/{check_id} (the `GetCheck` operationId).
 	GetCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// UpdateCheckWithBody Change a check
+	//
+	// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+	// overwriting someone else's change. Needs the `manage` scope and the editor role.
+	// A changed address must be one the server may reach, and is tried once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+	UpdateCheckWithBody(ctx context.Context, checkId CheckId, params *UpdateCheckParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateCheck Change a check
+	//
+	// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+	// overwriting someone else's change. Needs the `manage` scope and the editor role.
+	// A changed address must be one the server may reach, and is tried once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+	UpdateCheck(ctx context.Context, checkId CheckId, params *UpdateCheckParams, body UpdateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveCheckWithBody Move a check to another project
+	//
+	// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+	MoveCheckWithBody(ctx context.Context, checkId CheckId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MoveCheck Move a check to another project
+	//
+	// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+	MoveCheck(ctx context.Context, checkId CheckId, body MoveCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PauseCheck Pause a check until it is resumed or pinged
+	//
+	// Needs the `manage` scope and the editor role. A probe's own check stays.
+	//
+	// Corresponds with POST /checks/{check_id}/pause (the `PauseCheck` operationId).
+	PauseCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetPingUrl The check's ping URL
+	//
+	// Needs the `manage` scope and the editor role.
+	//
+	// Corresponds with GET /checks/{check_id}/ping-url (the `GetPingUrl` operationId).
+	GetPingUrl(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RotatePingUrl Replace the check's ping URL
+	//
+	// The old URL stops working at once. Needs the `manage` scope and the editor
+	// role.
+	//
+	// Corresponds with POST /checks/{check_id}/ping-url (the `RotatePingUrl` operationId).
+	RotatePingUrl(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResumeCheck Resume a paused check
+	//
+	// Needs the `manage` scope and the editor role. A check that is not paused stays as it is.
+	//
+	// Corresponds with POST /checks/{check_id}/resume (the `ResumeCheck` operationId).
+	ResumeCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRuns The runs of a check, newest first
 	//
 	// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
 	ListRuns(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListKeys The keys of a project, or of all the caller owns
+	//
+	// Needs a person's sign-in, as an owner of the project or an administrator. Who
+	// made a key reads as in the log, and which sign-in only for an administrator or
+	// the one who made it. A key's value is never here.
+	//
+	// Corresponds with GET /keys (the `ListKeys` operationId).
+	ListKeys(ctx context.Context, params *ListKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeKey Revoke a key
+	//
+	// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+	//
+	// Corresponds with DELETE /keys/{key_id} (the `RevokeKey` operationId).
+	RevokeKey(ctx context.Context, keyId Id, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListLog What happened, newest first, as far as the caller may know
 	//
@@ -1116,6 +1655,52 @@ type ClientInterface interface {
 	// Corresponds with GET /projects/{project_id}/checks (the `ListChecks` operationId).
 	ListChecks(ctx context.Context, projectId ProjectId, params *ListChecksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateCheckWithBody Create a check
+	//
+	// Needs the `manage` scope and the editor role in the project. A job's check has
+	// one schedule a day with an hour's grace unless it says otherwise, and one that
+	// Allstill runs itself is run each minute. An address it runs from the server
+	// must be one the server may reach, and is tried once, as the form does.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+	CreateCheckWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateCheck Create a check
+	//
+	// Needs the `manage` scope and the editor role in the project. A job's check has
+	// one schedule a day with an hour's grace unless it says otherwise, and one that
+	// Allstill runs itself is run each minute. An address it runs from the server
+	// must be one the server may reach, and is tried once, as the form does.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+	CreateCheck(ctx context.Context, projectId ProjectId, body CreateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateKeyWithBody Make a key for a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+	CreateKeyWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateKey Make a key for a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+	CreateKey(ctx context.Context, projectId ProjectId, body CreateKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetStatus Everything the caller can see, in one snapshot
 	//
 	// Read this first: how many checks are in each state, per project and in all, and
@@ -1124,6 +1709,23 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /status (the `GetStatus` operationId).
 	GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// DeleteCheck Delete a check with its runs
+//
+// Needs the `manage` scope and the editor role. A probe's own check stays.
+//
+// Corresponds with DELETE /checks/{check_id} (the `DeleteCheck` operationId).
+func (c *Client) DeleteCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteCheckRequest(c.Server, checkId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // GetCheck One check
@@ -1141,11 +1743,196 @@ func (c *Client) GetCheck(ctx context.Context, checkId CheckId, reqEditors ...Re
 	return c.Client.Do(req)
 }
 
+// UpdateCheckWithBody Change a check
+//
+// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+// overwriting someone else's change. Needs the `manage` scope and the editor role.
+// A changed address must be one the server may reach, and is tried once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+func (c *Client) UpdateCheckWithBody(ctx context.Context, checkId CheckId, params *UpdateCheckParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateCheckRequestWithBody(c.Server, checkId, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateCheck Change a check
+//
+// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+// overwriting someone else's change. Needs the `manage` scope and the editor role.
+// A changed address must be one the server may reach, and is tried once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+func (c *Client) UpdateCheck(ctx context.Context, checkId CheckId, params *UpdateCheckParams, body UpdateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateCheckRequest(c.Server, checkId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveCheckWithBody Move a check to another project
+//
+// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+func (c *Client) MoveCheckWithBody(ctx context.Context, checkId CheckId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveCheckRequestWithBody(c.Server, checkId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// MoveCheck Move a check to another project
+//
+// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+func (c *Client) MoveCheck(ctx context.Context, checkId CheckId, body MoveCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMoveCheckRequest(c.Server, checkId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PauseCheck Pause a check until it is resumed or pinged
+//
+// Needs the `manage` scope and the editor role. A probe's own check stays.
+//
+// Corresponds with POST /checks/{check_id}/pause (the `PauseCheck` operationId).
+func (c *Client) PauseCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPauseCheckRequest(c.Server, checkId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetPingUrl The check's ping URL
+//
+// Needs the `manage` scope and the editor role.
+//
+// Corresponds with GET /checks/{check_id}/ping-url (the `GetPingUrl` operationId).
+func (c *Client) GetPingUrl(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetPingUrlRequest(c.Server, checkId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RotatePingUrl Replace the check's ping URL
+//
+// The old URL stops working at once. Needs the `manage` scope and the editor
+// role.
+//
+// Corresponds with POST /checks/{check_id}/ping-url (the `RotatePingUrl` operationId).
+func (c *Client) RotatePingUrl(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRotatePingUrlRequest(c.Server, checkId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResumeCheck Resume a paused check
+//
+// Needs the `manage` scope and the editor role. A check that is not paused stays as it is.
+//
+// Corresponds with POST /checks/{check_id}/resume (the `ResumeCheck` operationId).
+func (c *Client) ResumeCheck(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResumeCheckRequest(c.Server, checkId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListRuns The runs of a check, newest first
 //
 // Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
 func (c *Client) ListRuns(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListRunsRequest(c.Server, checkId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListKeys The keys of a project, or of all the caller owns
+//
+// Needs a person's sign-in, as an owner of the project or an administrator. Who
+// made a key reads as in the log, and which sign-in only for an administrator or
+// the one who made it. A key's value is never here.
+//
+// Corresponds with GET /keys (the `ListKeys` operationId).
+func (c *Client) ListKeys(ctx context.Context, params *ListKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListKeysRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RevokeKey Revoke a key
+//
+// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+//
+// Corresponds with DELETE /keys/{key_id} (the `RevokeKey` operationId).
+func (c *Client) RevokeKey(ctx context.Context, keyId Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeKeyRequest(c.Server, keyId)
 	if err != nil {
 		return nil, err
 	}
@@ -1274,6 +2061,92 @@ func (c *Client) ListChecks(ctx context.Context, projectId ProjectId, params *Li
 	return c.Client.Do(req)
 }
 
+// CreateCheckWithBody Create a check
+//
+// Needs the `manage` scope and the editor role in the project. A job's check has
+// one schedule a day with an hour's grace unless it says otherwise, and one that
+// Allstill runs itself is run each minute. An address it runs from the server
+// must be one the server may reach, and is tried once, as the form does.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+func (c *Client) CreateCheckWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCheckRequestWithBody(c.Server, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateCheck Create a check
+//
+// Needs the `manage` scope and the editor role in the project. A job's check has
+// one schedule a day with an hour's grace unless it says otherwise, and one that
+// Allstill runs itself is run each minute. An address it runs from the server
+// must be one the server may reach, and is tried once, as the form does.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+func (c *Client) CreateCheck(ctx context.Context, projectId ProjectId, body CreateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateCheckRequest(c.Server, projectId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateKeyWithBody Make a key for a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+// an administrator. With `read` the key acts as a viewer of this project, and with
+// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+func (c *Client) CreateKeyWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateKeyRequestWithBody(c.Server, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateKey Make a key for a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+// an administrator. With `read` the key acts as a viewer of this project, and with
+// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+func (c *Client) CreateKey(ctx context.Context, projectId ProjectId, body CreateKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateKeyRequest(c.Server, projectId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetStatus Everything the caller can see, in one snapshot
 //
 // Read this first: how many checks are in each state, per project and in all, and
@@ -1291,6 +2164,40 @@ func (c *Client) GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewDeleteCheckRequest constructs an http.Request for the DeleteCheck method
+func NewDeleteCheckRequest(server string, checkId CheckId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewGetCheckRequest constructs an http.Request for the GetCheck method
@@ -1320,6 +2227,251 @@ func NewGetCheckRequest(server string, checkId CheckId) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateCheckRequest calls the generic UpdateCheck builder with application/json body
+func NewUpdateCheckRequest(server string, checkId CheckId, params *UpdateCheckParams, body UpdateCheckJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateCheckRequestWithBody(server, checkId, params, "application/json", bodyReader)
+}
+
+// NewUpdateCheckRequestWithBody constructs an http.Request for the UpdateCheck method, with any body, and a specified content type
+func NewUpdateCheckRequestWithBody(server string, checkId CheckId, params *UpdateCheckParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", *params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewMoveCheckRequest calls the generic MoveCheck builder with application/json body
+func NewMoveCheckRequest(server string, checkId CheckId, body MoveCheckJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewMoveCheckRequestWithBody(server, checkId, "application/json", bodyReader)
+}
+
+// NewMoveCheckRequestWithBody constructs an http.Request for the MoveCheck method, with any body, and a specified content type
+func NewMoveCheckRequestWithBody(server string, checkId CheckId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s/move", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPauseCheckRequest constructs an http.Request for the PauseCheck method
+func NewPauseCheckRequest(server string, checkId CheckId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s/pause", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetPingUrlRequest constructs an http.Request for the GetPingUrl method
+func NewGetPingUrlRequest(server string, checkId CheckId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s/ping-url", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRotatePingUrlRequest constructs an http.Request for the RotatePingUrl method
+func NewRotatePingUrlRequest(server string, checkId CheckId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s/ping-url", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewResumeCheckRequest constructs an http.Request for the ResumeCheck method
+func NewResumeCheckRequest(server string, checkId CheckId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "check_id", checkId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/checks/%s/resume", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1393,6 +2545,94 @@ func NewListRunsRequest(server string, checkId CheckId, params *ListRunsParams) 
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListKeysRequest constructs an http.Request for the ListKeys method
+func NewListKeysRequest(server string, params *ListKeysParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/keys")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ProjectId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "project_id", *params.ProjectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRevokeKeyRequest constructs an http.Request for the RevokeKey method
+func NewRevokeKeyRequest(server string, keyId Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key_id", keyId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/keys/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1804,6 +3044,100 @@ func NewListChecksRequest(server string, projectId ProjectId, params *ListChecks
 	return req, nil
 }
 
+// NewCreateCheckRequest calls the generic CreateCheck builder with application/json body
+func NewCreateCheckRequest(server string, projectId ProjectId, body CreateCheckJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateCheckRequestWithBody(server, projectId, "application/json", bodyReader)
+}
+
+// NewCreateCheckRequestWithBody constructs an http.Request for the CreateCheck method, with any body, and a specified content type
+func NewCreateCheckRequestWithBody(server string, projectId ProjectId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/checks", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCreateKeyRequest calls the generic CreateKey builder with application/json body
+func NewCreateKeyRequest(server string, projectId ProjectId, body CreateKeyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateKeyRequestWithBody(server, projectId, "application/json", bodyReader)
+}
+
+// NewCreateKeyRequestWithBody constructs an http.Request for the CreateKey method, with any body, and a specified content type
+func NewCreateKeyRequestWithBody(server string, projectId ProjectId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/keys", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetStatusRequest constructs an http.Request for the GetStatus method
 func NewGetStatusRequest(server string) (*http.Request, error) {
 	var err error
@@ -1875,6 +3209,15 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// DeleteCheckWithResponse Delete a check with its runs
+	//
+	// Needs the `manage` scope and the editor role. A probe's own check stays.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /checks/{check_id} (the `DeleteCheck` operationId).
+	DeleteCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*DeleteCheckResponse, error)
+
 	// GetCheckWithResponse One check
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -1882,12 +3225,109 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /checks/{check_id} (the `GetCheck` operationId).
 	GetCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*GetCheckResponse, error)
 
+	// UpdateCheckWithBodyWithResponse Change a check
+	//
+	// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+	// overwriting someone else's change. Needs the `manage` scope and the editor role.
+	// A changed address must be one the server may reach, and is tried once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+	UpdateCheckWithBodyWithResponse(ctx context.Context, checkId CheckId, params *UpdateCheckParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateCheckResponse, error)
+
+	// UpdateCheckWithResponse Change a check
+	//
+	// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+	// overwriting someone else's change. Needs the `manage` scope and the editor role.
+	// A changed address must be one the server may reach, and is tried once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+	UpdateCheckWithResponse(ctx context.Context, checkId CheckId, params *UpdateCheckParams, body UpdateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCheckResponse, error)
+
+	// MoveCheckWithBodyWithResponse Move a check to another project
+	//
+	// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+	MoveCheckWithBodyWithResponse(ctx context.Context, checkId CheckId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveCheckResponse, error)
+
+	// MoveCheckWithResponse Move a check to another project
+	//
+	// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+	MoveCheckWithResponse(ctx context.Context, checkId CheckId, body MoveCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveCheckResponse, error)
+
+	// PauseCheckWithResponse Pause a check until it is resumed or pinged
+	//
+	// Needs the `manage` scope and the editor role. A probe's own check stays.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /checks/{check_id}/pause (the `PauseCheck` operationId).
+	PauseCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*PauseCheckResponse, error)
+
+	// GetPingUrlWithResponse The check's ping URL
+	//
+	// Needs the `manage` scope and the editor role.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /checks/{check_id}/ping-url (the `GetPingUrl` operationId).
+	GetPingUrlWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*GetPingUrlResponse, error)
+
+	// RotatePingUrlWithResponse Replace the check's ping URL
+	//
+	// The old URL stops working at once. Needs the `manage` scope and the editor
+	// role.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /checks/{check_id}/ping-url (the `RotatePingUrl` operationId).
+	RotatePingUrlWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*RotatePingUrlResponse, error)
+
+	// ResumeCheckWithResponse Resume a paused check
+	//
+	// Needs the `manage` scope and the editor role. A check that is not paused stays as it is.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /checks/{check_id}/resume (the `ResumeCheck` operationId).
+	ResumeCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*ResumeCheckResponse, error)
+
 	// ListRunsWithResponse The runs of a check, newest first
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
 	ListRunsWithResponse(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error)
+
+	// ListKeysWithResponse The keys of a project, or of all the caller owns
+	//
+	// Needs a person's sign-in, as an owner of the project or an administrator. Who
+	// made a key reads as in the log, and which sign-in only for an administrator or
+	// the one who made it. A key's value is never here.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /keys (the `ListKeys` operationId).
+	ListKeysWithResponse(ctx context.Context, params *ListKeysParams, reqEditors ...RequestEditorFn) (*ListKeysResponse, error)
+
+	// RevokeKeyWithResponse Revoke a key
+	//
+	// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /keys/{key_id} (the `RevokeKey` operationId).
+	RevokeKeyWithResponse(ctx context.Context, keyId Id, reqEditors ...RequestEditorFn) (*RevokeKeyResponse, error)
 
 	// ListLogWithResponse What happened, newest first, as far as the caller may know
 	//
@@ -1951,6 +3391,52 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /projects/{project_id}/checks (the `ListChecks` operationId).
 	ListChecksWithResponse(ctx context.Context, projectId ProjectId, params *ListChecksParams, reqEditors ...RequestEditorFn) (*ListChecksResponse, error)
 
+	// CreateCheckWithBodyWithResponse Create a check
+	//
+	// Needs the `manage` scope and the editor role in the project. A job's check has
+	// one schedule a day with an hour's grace unless it says otherwise, and one that
+	// Allstill runs itself is run each minute. An address it runs from the server
+	// must be one the server may reach, and is tried once, as the form does.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+	CreateCheckWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCheckResponse, error)
+
+	// CreateCheckWithResponse Create a check
+	//
+	// Needs the `manage` scope and the editor role in the project. A job's check has
+	// one schedule a day with an hour's grace unless it says otherwise, and one that
+	// Allstill runs itself is run each minute. An address it runs from the server
+	// must be one the server may reach, and is tried once, as the form does.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+	CreateCheckWithResponse(ctx context.Context, projectId ProjectId, body CreateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCheckResponse, error)
+
+	// CreateKeyWithBodyWithResponse Make a key for a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+	CreateKeyWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateKeyResponse, error)
+
+	// CreateKeyWithResponse Make a key for a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+	CreateKeyWithResponse(ctx context.Context, projectId ProjectId, body CreateKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateKeyResponse, error)
+
 	// GetStatusWithResponse Everything the caller can see, in one snapshot
 	//
 	// Read this first: how many checks are in each state, per project and in all, and
@@ -1961,6 +3447,87 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /status (the `GetStatus` operationId).
 	GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error)
+}
+
+// DeleteCheckResponse429Headers the declared response headers of an HTTP 429 response for DeleteCheck
+type DeleteCheckResponse429Headers struct {
+	RetryAfter *int
+}
+
+type DeleteCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *DeleteCheckResponse429Headers
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r DeleteCheckResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r DeleteCheckResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r DeleteCheckResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r DeleteCheckResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r DeleteCheckResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteCheckResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetCheckResponse200Headers the declared response headers of an HTTP 200 response for GetCheck
+type GetCheckResponse200Headers struct {
+	ETag string
 }
 
 // GetCheckResponse429Headers the declared response headers of an HTTP 429 response for GetCheck
@@ -1979,6 +3546,8 @@ type GetCheckResponse struct {
 	ApplicationproblemJSON404 *NotFound
 	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
 	ApplicationproblemJSON429 *TooManyRequests
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetCheckResponse200Headers
 	// Headers429 the parsed response headers for an HTTP 429 response
 	Headers429 *GetCheckResponse429Headers
 }
@@ -2026,6 +3595,536 @@ func (r GetCheckResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// UpdateCheckResponse200Headers the declared response headers of an HTTP 200 response for UpdateCheck
+type UpdateCheckResponse200Headers struct {
+	ETag string
+}
+
+// UpdateCheckResponse429Headers the declared response headers of an HTTP 429 response for UpdateCheck
+type UpdateCheckResponse429Headers struct {
+	RetryAfter *int
+}
+
+type UpdateCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CheckTried
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON412 the response for an HTTP 412 `application/problem+json` response
+	ApplicationproblemJSON412 *PreconditionFailed
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *UpdateCheckResponse200Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *UpdateCheckResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateCheckResponse) GetJSON200() *CheckTried {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r UpdateCheckResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r UpdateCheckResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r UpdateCheckResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r UpdateCheckResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON412 returns the response for an HTTP 412 `application/problem+json` response
+func (r UpdateCheckResponse) GetApplicationproblemJSON412() *PreconditionFailed {
+	return r.ApplicationproblemJSON412
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r UpdateCheckResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r UpdateCheckResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateCheckResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// MoveCheckResponse429Headers the declared response headers of an HTTP 429 response for MoveCheck
+type MoveCheckResponse429Headers struct {
+	RetryAfter *int
+}
+
+type MoveCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Check
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *MoveCheckResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MoveCheckResponse) GetJSON200() *Check {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r MoveCheckResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r MoveCheckResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r MoveCheckResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r MoveCheckResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r MoveCheckResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r MoveCheckResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r MoveCheckResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MoveCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MoveCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MoveCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// PauseCheckResponse429Headers the declared response headers of an HTTP 429 response for PauseCheck
+type PauseCheckResponse429Headers struct {
+	RetryAfter *int
+}
+
+type PauseCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Check
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *PauseCheckResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PauseCheckResponse) GetJSON200() *Check {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r PauseCheckResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r PauseCheckResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r PauseCheckResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r PauseCheckResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r PauseCheckResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r PauseCheckResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PauseCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PauseCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PauseCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetPingUrlResponse429Headers the declared response headers of an HTTP 429 response for GetPingUrl
+type GetPingUrlResponse429Headers struct {
+	RetryAfter *int
+}
+
+type GetPingUrlResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		PingUrl string `json:"ping_url"`
+	}
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GetPingUrlResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetPingUrlResponse) GetJSON200() *struct {
+	PingUrl string `json:"ping_url"`
+} {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r GetPingUrlResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r GetPingUrlResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r GetPingUrlResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r GetPingUrlResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r GetPingUrlResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r GetPingUrlResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetPingUrlResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetPingUrlResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetPingUrlResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RotatePingUrlResponse429Headers the declared response headers of an HTTP 429 response for RotatePingUrl
+type RotatePingUrlResponse429Headers struct {
+	RetryAfter *int
+}
+
+type RotatePingUrlResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CheckWithPingUrl
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *RotatePingUrlResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RotatePingUrlResponse) GetJSON200() *CheckWithPingUrl {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r RotatePingUrlResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r RotatePingUrlResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r RotatePingUrlResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r RotatePingUrlResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r RotatePingUrlResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r RotatePingUrlResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RotatePingUrlResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RotatePingUrlResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RotatePingUrlResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ResumeCheckResponse429Headers the declared response headers of an HTTP 429 response for ResumeCheck
+type ResumeCheckResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ResumeCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Check
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ResumeCheckResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ResumeCheckResponse) GetJSON200() *Check {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ResumeCheckResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r ResumeCheckResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r ResumeCheckResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r ResumeCheckResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ResumeCheckResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ResumeCheckResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResumeCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResumeCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResumeCheckResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2102,6 +4201,151 @@ func (r ListRunsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListKeysResponse429Headers the declared response headers of an HTTP 429 response for ListKeys
+type ListKeysResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListKeysResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ApiKeyList
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListKeysResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListKeysResponse) GetJSON200() *ApiKeyList {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListKeysResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r ListKeysResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r ListKeysResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListKeysResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListKeysResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListKeysResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListKeysResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListKeysResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RevokeKeyResponse429Headers the declared response headers of an HTTP 429 response for RevokeKey
+type RevokeKeyResponse429Headers struct {
+	RetryAfter *int
+}
+
+type RevokeKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *RevokeKeyResponse429Headers
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r RevokeKeyResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r RevokeKeyResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r RevokeKeyResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r RevokeKeyResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r RevokeKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeKeyResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2570,6 +4814,193 @@ func (r ListChecksResponse) ContentType() string {
 	return ""
 }
 
+// CreateCheckResponse201Headers the declared response headers of an HTTP 201 response for CreateCheck
+type CreateCheckResponse201Headers struct {
+	Location string
+}
+
+// CreateCheckResponse429Headers the declared response headers of an HTTP 429 response for CreateCheck
+type CreateCheckResponse429Headers struct {
+	RetryAfter *int
+}
+
+type CreateCheckResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *CheckCreated
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *CreateCheckResponse201Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CreateCheckResponse429Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateCheckResponse) GetJSON201() *CheckCreated {
+	return r.JSON201
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r CreateCheckResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r CreateCheckResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r CreateCheckResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r CreateCheckResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r CreateCheckResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r CreateCheckResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateCheckResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateCheckResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateCheckResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateCheckResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// CreateKeyResponse429Headers the declared response headers of an HTTP 429 response for CreateKey
+type CreateKeyResponse429Headers struct {
+	RetryAfter *int
+}
+
+type CreateKeyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ApiKeyMade
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CreateKeyResponse429Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateKeyResponse) GetJSON201() *ApiKeyMade {
+	return r.JSON201
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r CreateKeyResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r CreateKeyResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r CreateKeyResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r CreateKeyResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r CreateKeyResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r CreateKeyResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateKeyResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateKeyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateKeyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateKeyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetStatusResponse429Headers the declared response headers of an HTTP 429 response for GetStatus
 type GetStatusResponse429Headers struct {
 	RetryAfter *int
@@ -2632,6 +5063,21 @@ func (r GetStatusResponse) ContentType() string {
 	return ""
 }
 
+// DeleteCheckWithResponse Delete a check with its runs
+//
+// Needs the `manage` scope and the editor role. A probe's own check stays.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /checks/{check_id} (the `DeleteCheck` operationId).
+func (c *ClientWithResponses) DeleteCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*DeleteCheckResponse, error) {
+	rsp, err := c.DeleteCheck(ctx, checkId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteCheckResponse(rsp)
+}
+
 // GetCheckWithResponse One check
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2645,6 +5091,131 @@ func (c *ClientWithResponses) GetCheckWithResponse(ctx context.Context, checkId 
 	return ParseGetCheckResponse(rsp)
 }
 
+// UpdateCheckWithBodyWithResponse Change a check
+//
+// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+// overwriting someone else's change. Needs the `manage` scope and the editor role.
+// A changed address must be one the server may reach, and is tried once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+func (c *ClientWithResponses) UpdateCheckWithBodyWithResponse(ctx context.Context, checkId CheckId, params *UpdateCheckParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateCheckResponse, error) {
+	rsp, err := c.UpdateCheckWithBody(ctx, checkId, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateCheckResponse(rsp)
+}
+
+// UpdateCheckWithResponse Change a check
+//
+// Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+// overwriting someone else's change. Needs the `manage` scope and the editor role.
+// A changed address must be one the server may reach, and is tried once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /checks/{check_id} (the `UpdateCheck` operationId).
+func (c *ClientWithResponses) UpdateCheckWithResponse(ctx context.Context, checkId CheckId, params *UpdateCheckParams, body UpdateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateCheckResponse, error) {
+	rsp, err := c.UpdateCheck(ctx, checkId, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateCheckResponse(rsp)
+}
+
+// MoveCheckWithBodyWithResponse Move a check to another project
+//
+// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+func (c *ClientWithResponses) MoveCheckWithBodyWithResponse(ctx context.Context, checkId CheckId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*MoveCheckResponse, error) {
+	rsp, err := c.MoveCheckWithBody(ctx, checkId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveCheckResponse(rsp)
+}
+
+// MoveCheckWithResponse Move a check to another project
+//
+// Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /checks/{check_id}/move (the `MoveCheck` operationId).
+func (c *ClientWithResponses) MoveCheckWithResponse(ctx context.Context, checkId CheckId, body MoveCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*MoveCheckResponse, error) {
+	rsp, err := c.MoveCheck(ctx, checkId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMoveCheckResponse(rsp)
+}
+
+// PauseCheckWithResponse Pause a check until it is resumed or pinged
+//
+// Needs the `manage` scope and the editor role. A probe's own check stays.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /checks/{check_id}/pause (the `PauseCheck` operationId).
+func (c *ClientWithResponses) PauseCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*PauseCheckResponse, error) {
+	rsp, err := c.PauseCheck(ctx, checkId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePauseCheckResponse(rsp)
+}
+
+// GetPingUrlWithResponse The check's ping URL
+//
+// Needs the `manage` scope and the editor role.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /checks/{check_id}/ping-url (the `GetPingUrl` operationId).
+func (c *ClientWithResponses) GetPingUrlWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*GetPingUrlResponse, error) {
+	rsp, err := c.GetPingUrl(ctx, checkId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetPingUrlResponse(rsp)
+}
+
+// RotatePingUrlWithResponse Replace the check's ping URL
+//
+// The old URL stops working at once. Needs the `manage` scope and the editor
+// role.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /checks/{check_id}/ping-url (the `RotatePingUrl` operationId).
+func (c *ClientWithResponses) RotatePingUrlWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*RotatePingUrlResponse, error) {
+	rsp, err := c.RotatePingUrl(ctx, checkId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRotatePingUrlResponse(rsp)
+}
+
+// ResumeCheckWithResponse Resume a paused check
+//
+// Needs the `manage` scope and the editor role. A check that is not paused stays as it is.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /checks/{check_id}/resume (the `ResumeCheck` operationId).
+func (c *ClientWithResponses) ResumeCheckWithResponse(ctx context.Context, checkId CheckId, reqEditors ...RequestEditorFn) (*ResumeCheckResponse, error) {
+	rsp, err := c.ResumeCheck(ctx, checkId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResumeCheckResponse(rsp)
+}
+
 // ListRunsWithResponse The runs of a check, newest first
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2656,6 +5227,38 @@ func (c *ClientWithResponses) ListRunsWithResponse(ctx context.Context, checkId 
 		return nil, err
 	}
 	return ParseListRunsResponse(rsp)
+}
+
+// ListKeysWithResponse The keys of a project, or of all the caller owns
+//
+// Needs a person's sign-in, as an owner of the project or an administrator. Who
+// made a key reads as in the log, and which sign-in only for an administrator or
+// the one who made it. A key's value is never here.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /keys (the `ListKeys` operationId).
+func (c *ClientWithResponses) ListKeysWithResponse(ctx context.Context, params *ListKeysParams, reqEditors ...RequestEditorFn) (*ListKeysResponse, error) {
+	rsp, err := c.ListKeys(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListKeysResponse(rsp)
+}
+
+// RevokeKeyWithResponse Revoke a key
+//
+// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /keys/{key_id} (the `RevokeKey` operationId).
+func (c *ClientWithResponses) RevokeKeyWithResponse(ctx context.Context, keyId Id, reqEditors ...RequestEditorFn) (*RevokeKeyResponse, error) {
+	rsp, err := c.RevokeKey(ctx, keyId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeKeyResponse(rsp)
 }
 
 // ListLogWithResponse What happened, newest first, as far as the caller may know
@@ -2762,6 +5365,76 @@ func (c *ClientWithResponses) ListChecksWithResponse(ctx context.Context, projec
 	return ParseListChecksResponse(rsp)
 }
 
+// CreateCheckWithBodyWithResponse Create a check
+//
+// Needs the `manage` scope and the editor role in the project. A job's check has
+// one schedule a day with an hour's grace unless it says otherwise, and one that
+// Allstill runs itself is run each minute. An address it runs from the server
+// must be one the server may reach, and is tried once, as the form does.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+func (c *ClientWithResponses) CreateCheckWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateCheckResponse, error) {
+	rsp, err := c.CreateCheckWithBody(ctx, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCheckResponse(rsp)
+}
+
+// CreateCheckWithResponse Create a check
+//
+// Needs the `manage` scope and the editor role in the project. A job's check has
+// one schedule a day with an hour's grace unless it says otherwise, and one that
+// Allstill runs itself is run each minute. An address it runs from the server
+// must be one the server may reach, and is tried once, as the form does.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
+func (c *ClientWithResponses) CreateCheckWithResponse(ctx context.Context, projectId ProjectId, body CreateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCheckResponse, error) {
+	rsp, err := c.CreateCheck(ctx, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateCheckResponse(rsp)
+}
+
+// CreateKeyWithBodyWithResponse Make a key for a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+// an administrator. With `read` the key acts as a viewer of this project, and with
+// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+func (c *ClientWithResponses) CreateKeyWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateKeyResponse, error) {
+	rsp, err := c.CreateKeyWithBody(ctx, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateKeyResponse(rsp)
+}
+
+// CreateKeyWithResponse Make a key for a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project or
+// an administrator. With `read` the key acts as a viewer of this project, and with
+// `manage` as an editor, and it reaches nothing else. It is shown here, once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
+func (c *ClientWithResponses) CreateKeyWithResponse(ctx context.Context, projectId ProjectId, body CreateKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateKeyResponse, error) {
+	rsp, err := c.CreateKey(ctx, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateKeyResponse(rsp)
+}
+
 // GetStatusWithResponse Everything the caller can see, in one snapshot
 //
 // Read this first: how many checks are in each state, per project and in all, and
@@ -2777,6 +5450,76 @@ func (c *ClientWithResponses) GetStatusWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseGetStatusResponse(rsp)
+}
+
+// ParseDeleteCheckResponse parses an HTTP response from a DeleteCheckWithResponse call
+func ParseDeleteCheckResponse(rsp *http.Response) (*DeleteCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers DeleteCheckResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
 }
 
 // ParseGetCheckResponse parses an HTTP response from a GetCheckWithResponse call
@@ -2824,8 +5567,495 @@ func ParseGetCheckResponse(rsp *http.Response) (*GetCheckResponse, error) {
 	}
 
 	switch {
+	case rsp.StatusCode == 200:
+		var headers GetCheckResponse200Headers
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = value
+		}
+		response.Headers200 = &headers
 	case rsp.StatusCode == 429:
 		var headers GetCheckResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseUpdateCheckResponse parses an HTTP response from a UpdateCheckWithResponse call
+func ParseUpdateCheckResponse(rsp *http.Response) (*UpdateCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CheckTried
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 412:
+		var dest PreconditionFailed
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON412 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers UpdateCheckResponse200Headers
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = value
+		}
+		response.Headers200 = &headers
+	case rsp.StatusCode == 429:
+		var headers UpdateCheckResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseMoveCheckResponse parses an HTTP response from a MoveCheckWithResponse call
+func ParseMoveCheckResponse(rsp *http.Response) (*MoveCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MoveCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Check
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers MoveCheckResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParsePauseCheckResponse parses an HTTP response from a PauseCheckWithResponse call
+func ParsePauseCheckResponse(rsp *http.Response) (*PauseCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PauseCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Check
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers PauseCheckResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetPingUrlResponse parses an HTTP response from a GetPingUrlWithResponse call
+func ParseGetPingUrlResponse(rsp *http.Response) (*GetPingUrlResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetPingUrlResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			PingUrl string `json:"ping_url"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GetPingUrlResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRotatePingUrlResponse parses an HTTP response from a RotatePingUrlWithResponse call
+func ParseRotatePingUrlResponse(rsp *http.Response) (*RotatePingUrlResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RotatePingUrlResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CheckWithPingUrl
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers RotatePingUrlResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseResumeCheckResponse parses an HTTP response from a ResumeCheckWithResponse call
+func ParseResumeCheckResponse(rsp *http.Response) (*ResumeCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResumeCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Check
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ResumeCheckResponse429Headers
 		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
 			var value int
 			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
@@ -2893,6 +6123,136 @@ func ParseListRunsResponse(rsp *http.Response) (*ListRunsResponse, error) {
 	switch {
 	case rsp.StatusCode == 429:
 		var headers ListRunsResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListKeysResponse parses an HTTP response from a ListKeysWithResponse call
+func ParseListKeysResponse(rsp *http.Response) (*ListKeysResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListKeysResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApiKeyList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListKeysResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRevokeKeyResponse parses an HTTP response from a RevokeKeyWithResponse call
+func ParseRevokeKeyResponse(rsp *http.Response) (*RevokeKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers RevokeKeyResponse429Headers
 		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
 			var value int
 			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
@@ -3295,6 +6655,178 @@ func ParseListChecksResponse(rsp *http.Response) (*ListChecksResponse, error) {
 	switch {
 	case rsp.StatusCode == 429:
 		var headers ListChecksResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseCreateCheckResponse parses an HTTP response from a CreateCheckWithResponse call
+func ParseCreateCheckResponse(rsp *http.Response) (*CreateCheckResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateCheckResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest CheckCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers CreateCheckResponse201Headers
+		if values := rsp.Header.Values("Location"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Location", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uri"}); err != nil {
+				return nil, err
+			}
+			headers.Location = value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 429:
+		var headers CreateCheckResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseCreateKeyResponse parses an HTTP response from a CreateKeyWithResponse call
+func ParseCreateKeyResponse(rsp *http.Response) (*CreateKeyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateKeyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ApiKeyMade
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers CreateKeyResponse429Headers
 		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
 			var value int
 			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {

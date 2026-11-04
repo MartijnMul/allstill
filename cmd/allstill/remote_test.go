@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -112,6 +113,7 @@ func aHome(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("AppData", home)
 	t.Setenv("ALLSTILL_SERVER", "")
+	t.Setenv("ALLSTILL_TOKEN", "")
 	path, err := client.CredentialsPath()
 	if err != nil {
 		t.Fatal(err)
@@ -622,5 +624,265 @@ func TestStoppingALogin(t *testing.T) {
 	cancel()
 	if err := <-done; err == nil || !strings.Contains(err.Error(), "not signed in") {
 		t.Errorf("got %v", err)
+	}
+}
+
+// The whole way from a person's machine, with what a person is refused (R20 to R22).
+func TestManagingFromTheCommandLine(t *testing.T) {
+	st, ws, _, signIn := aRealServer(t)
+	ctx := t.Context()
+	test := store.Command("test")
+	bob, _ := st.CreatePerson(ctx, test, ws, store.NewPerson{Name: "Bob"})
+	carol, _ := st.CreatePerson(ctx, test, ws, store.NewPerson{Name: "Carol"})
+	backups, _, _ := st.CreateProject(ctx, test, ws, "Backups")
+	shop, _, _ := st.CreateProject(ctx, test, ws, "Shop")
+	st.SetMember(ctx, test, ws, backups, bob, store.Editor)
+	st.SetMember(ctx, test, ws, shop, bob, store.Editor)
+	st.SetMember(ctx, test, ws, backups, carol, store.Viewer)
+	t.Setenv("TZ", "Europe/Amsterdam")
+
+	signIn(bob, store.ScopeManage)
+	must := func(args ...string) string {
+		t.Helper()
+		out, err := command(t, args...)
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		return out
+	}
+	has := func(out string, wants ...string) {
+		t.Helper()
+		for _, want := range wants {
+			if !strings.Contains(out, want) {
+				t.Errorf("lacks %q:\n%s", want, out)
+			}
+		}
+	}
+
+	// A job: its ping URL, a line to copy, and the machine's time zone.
+	out := must("checks", "add", "-project", "Backups", "-name", "nightly", "-cron", "0 3 * * *", "-tags", "a, b", "-description", "the backup")
+	has(out, "Added nightly to Backups", "https://allstill.example.com/ping/", "ALLSTILL_URL=https://allstill.example.com/ping/", "allstill run -- ./backup.sh", "waits for its first ping")
+	shown := must("checks", "show", "-check", "nightly")
+	has(shown, "Europe/Amsterdam", "the backup")
+	if strings.Contains(shown, "/ping/") {
+		t.Errorf("showing it prints its ping URL:\n%s", shown)
+	}
+	url := regexp.MustCompile(`https://allstill\.example\.com/ping/[0-9a-f-]+`).FindString(out)
+	again := must("checks", "ping-url", "-check", "nightly")
+	has(again, url, "ALLSTILL_URL="+url+" allstill run")
+	if strings.Contains(out+again, "--url") {
+		t.Errorf("a line to copy shows the secret to anyone who can list processes:\n%s%s", out, again)
+	}
+	if js := must("checks", "show", "-check", "nightly", "-json"); strings.Contains(js, "ping_url") {
+		t.Errorf("-json of a read holds a ping URL:\n%s", js)
+	}
+
+	// Changing: only what is given.
+	has(must("checks", "change", "-check", "nightly", "-every", "1h", "-grace", "30m", "-new-name", "hourly"), "Changed hourly", "counts from now")
+	has(must("checks", "show", "-check", "hourly"), "every hour", "30 min", "the backup")
+	has(must("checks", "change", "-check", "hourly", "-description", ""), "Changed hourly")
+	if out := must("checks", "show", "-check", "hourly"); strings.Contains(out, "the backup") {
+		t.Errorf("an empty -description left it:\n%s", out)
+	}
+	if _, err := command(t, "checks", "change", "-check", "hourly"); err == nil {
+		t.Error("nothing to change said nothing")
+	}
+	if _, err := command(t, "checks", "change", "-check", "hourly", "-every", "1h", "-cron", "0 3 * * *"); err == nil {
+		t.Error("both schedules")
+	}
+	if _, err := command(t, "checks", "change", "-check", "hourly", "-probe", "office"); err == nil || !strings.Contains(err.Error(), "Allstill runs") {
+		t.Errorf("a probe for a job: %v", err)
+	}
+
+	// Pausing, moving, and a new ping URL.
+	has(must("checks", "pause", "-check", "hourly"), "Paused hourly", "next ping resumes it")
+	has(must("checks", "resume", "-check", "hourly"), "Resumed hourly")
+	has(must("checks", "resume", "-check", "hourly"), "hourly is not paused")
+	has(must("checks", "move", "-check", "hourly", "-to", "Shop"), "Moved hourly to Shop")
+	has(must("checks", "-project", "Shop"), "hourly")
+	replaced := must("checks", "ping-url", "-check", "hourly", "-replace")
+	has(replaced, "Replaced")
+	if strings.Contains(replaced, url) {
+		t.Errorf("the old ping URL:\n%s", replaced)
+	}
+
+	// A site: the settings stay as they are unless given.
+	out = must("checks", "add", "-project", "Shop", "-name", "site", "-http", "https://shop.example.com/health", "-expect", "200,204", "-json-field", "/status=ok")
+	has(out, "Added site", "Not tried now")
+	if js := must("checks", "add", "-project", "Shop", "-name", "site-2", "-http", "https://shop.example.com/", "-json"); !strings.Contains(js, `"try"`) {
+		t.Errorf("-json gives the API's answer:\n%s", js)
+	}
+	must("checks", "delete", "-check", "site-2")
+	has(must("checks", "change", "-check", "site", "-timeout", "20s"), "Changed site")
+	shownSite := must("checks", "show", "-check", "site", "-json")
+	has(shownSite, "https://shop.example.com/health", `"timeout": 20`, `"expected_status"`, "204", `"pointer": "/status"`, `"equals": "ok"`)
+	if _, err := command(t, "checks", "change", "-check", "site", "-every", "500ms"); err == nil {
+		t.Error("an interval that reads as none")
+	}
+	if _, err := command(t, "checks", "add", "-project", "Shop", "-name", "x", "-http", "https://a.example.com/", "-tcp", "a.example.com:1"); err == nil {
+		t.Error("both -http and -tcp")
+	}
+	if _, err := command(t, "checks", "add", "-project", "Shop", "-name", "x", "-http", "http://10.0.0.5/"); err == nil || !strings.Contains(err.Error(), "not on the public internet") {
+		t.Errorf("an address it may not reach: %v", err)
+	}
+	has(must("checks", "add", "-project", "Shop", "-name", "mail", "-tcp", "mail.example.com:993", "-tls"), "Added mail")
+
+	// With more than one project, it asks which.
+	if _, err := command(t, "checks", "add", "-name", "x"); err == nil || !strings.Contains(err.Error(), "-project") {
+		t.Errorf("no project: %v", err)
+	}
+	has(must("checks", "delete", "-check", "mail"), "Deleted mail")
+
+	// In the log, as who did it, and through which sign-in.
+	has(must("log", "-name", "site"), "Bob", "laptop-1")
+
+	// A viewer is refused, with who to ask.
+	signIn(carol, store.ScopeManage)
+	if _, err := command(t, "checks", "add", "-project", "Backups", "-name", "x"); err == nil || !strings.Contains(err.Error(), "Ask an owner") {
+		t.Errorf("a viewer adds: %v", err)
+	}
+	if _, err := command(t, "checks", "add", "-project", "Shop", "-name", "x"); err == nil || !strings.Contains(err.Error(), "no project named") {
+		t.Errorf("a viewer adds elsewhere: %v", err)
+	}
+	// One project: left out.
+	if _, err := command(t, "checks", "add", "-name", "x"); err == nil || !strings.Contains(err.Error(), "Ask an owner") {
+		t.Errorf("a viewer's only project: %v", err)
+	}
+	// A read-only sign-in says what it is.
+	signIn(bob, store.ScopeRead)
+	if _, err := command(t, "checks", "pause", "-check", "site"); err == nil || !strings.Contains(err.Error(), "can only read") {
+		t.Errorf("read-only: %v", err)
+	}
+	if _, err := command(t, "checks", "ping-url", "-check", "hourly"); err == nil || !strings.Contains(err.Error(), "can only read") {
+		t.Errorf("a ping URL, read-only: %v", err)
+	}
+}
+
+// A key for a script, from making it to revoking it (R11, R12, case 9).
+func TestAKeyFromTheCommandLine(t *testing.T) {
+	st, ws, url, signIn := aRealServer(t)
+	ctx := t.Context()
+	test := store.Command("test")
+	olga, _ := st.CreatePerson(ctx, test, ws, store.NewPerson{Name: "Olga"})
+	edith, _ := st.CreatePerson(ctx, test, ws, store.NewPerson{Name: "Edith"})
+	shop, _, _ := st.CreateProject(ctx, test, ws, "Shop")
+	other, _, _ := st.CreateProject(ctx, test, ws, "Other")
+	st.SetMember(ctx, test, ws, shop, olga, store.Owner)
+	st.SetMember(ctx, test, ws, other, olga, store.Owner)
+	st.SetMember(ctx, test, ws, shop, edith, store.Editor)
+
+	signIn(olga, store.ScopeManage)
+	out, err := command(t, "keys")
+	if err != nil || !strings.Contains(out, "No keys") {
+		t.Errorf("no keys: %v, %s", err, out)
+	}
+	if _, err := command(t, "keys", "make", "monitor"); err == nil || !strings.Contains(err.Error(), "-project") {
+		t.Errorf("no project: %v", err)
+	}
+	if _, err := command(t, "keys", "make", "monitor", "-project", "Shop", "-scope", "root"); err == nil {
+		t.Error("a scope that is not one")
+	}
+	out, err = command(t, "keys", "make", "monitor", "-project", "Shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := regexp.MustCompile(`alk_\S+`).FindString(out)
+	if key == "" || !strings.Contains(out, "only time") || !strings.Contains(out, "ALLSTILL_SERVER="+url) {
+		t.Fatalf("%s", out)
+	}
+	out, err = command(t, "keys", "make", "-project", "Shop", "-scope", "manage", "deploy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manageKey := regexp.MustCompile(`alk_\S+`).FindString(out)
+	out, err = command(t, "keys", "-project", "Shop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"monitor", "deploy", "read", "manage", "Shop", "Olga, with laptop-1", "never"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the list lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, key) || strings.Contains(out, "alk_") {
+		t.Errorf("the list holds a key:\n%s", out)
+	}
+
+	// Used by a script: no sign-in here, and no credentials file needed.
+	home, config := os.Getenv("HOME"), os.Getenv("XDG_CONFIG_HOME")
+	elsewhere := t.TempDir()
+	t.Setenv("HOME", elsewhere)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(elsewhere, ".config"))
+	t.Setenv("AppData", elsewhere)
+	if _, err := command(t, "status"); err == nil {
+		t.Error("nothing signed in, and no key")
+	}
+	t.Setenv("ALLSTILL_TOKEN", key)
+	if _, err := command(t, "status"); err == nil || !strings.Contains(err.Error(), "ALLSTILL_SERVER") {
+		t.Errorf("a key with no server: %v", err)
+	}
+	t.Setenv("ALLSTILL_SERVER", url)
+	out, err = command(t, "status", "-json")
+	if err != nil || !strings.Contains(out, `"Shop"`) && !strings.Contains(out, "Shop") || strings.Contains(out, "Other") {
+		t.Errorf("a key's status: %v\n%s", err, out)
+	}
+	out, err = command(t, "whoami")
+	if err != nil || !strings.Contains(out, "The key monitor") || !strings.Contains(out, "only read") {
+		t.Errorf("whoami: %v\n%s", err, out)
+	}
+	if _, err := command(t, "checks", "add", "-name", "x"); err == nil || !strings.Contains(err.Error(), "can only read") {
+		t.Errorf("a read key adds: %v", err)
+	}
+	if _, err := command(t, "logout"); err == nil || !strings.Contains(err.Error(), "revoke") {
+		t.Errorf("logout with a key: %v", err)
+	}
+	if _, err := command(t, "keys"); err == nil || !strings.Contains(err.Error(), "A key cannot") {
+		t.Errorf("a key lists keys: %v", err)
+	}
+	if _, err := command(t, "keys", "make", "more", "-scope", "manage"); err == nil || !strings.Contains(err.Error(), "A key cannot") {
+		t.Errorf("a key makes a key: %v", err)
+	}
+
+	// A manage key adds a check, and the ping URL is for that one answer.
+	t.Setenv("ALLSTILL_TOKEN", manageKey)
+	out, err = command(t, "checks", "add", "-name", "by-script")
+	if err != nil || !strings.Contains(out, "/ping/") {
+		t.Errorf("a manage key adds: %v\n%s", err, out)
+	}
+	out, err = command(t, "whoami")
+	if err != nil || !strings.Contains(out, "as an editor") {
+		t.Errorf("whoami: %v\n%s", err, out)
+	}
+	if out, err := command(t, "log", "-name", "by-script"); err != nil || !strings.Contains(out, "deploy") {
+		t.Errorf("the log: %v\n%s", err, out)
+	}
+
+	// An editor is told who may.
+	t.Setenv("ALLSTILL_TOKEN", "")
+	t.Setenv("ALLSTILL_SERVER", "")
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("AppData", home)
+	signIn(edith, store.ScopeManage)
+	if _, err := command(t, "keys", "-project", "Shop"); err == nil || !strings.Contains(err.Error(), "Ask an owner") {
+		t.Errorf("an editor lists: %v", err)
+	}
+	if _, err := command(t, "keys", "revoke", "monitor"); err == nil || !strings.Contains(err.Error(), "no key named") {
+		t.Errorf("an editor revokes: %v", err)
+	}
+
+	// Revoked, it stops.
+	signIn(olga, store.ScopeManage)
+	out, err = command(t, "keys", "revoke", "monitor")
+	if err != nil || !strings.Contains(out, "Revoked monitor") {
+		t.Errorf("revoking: %v\n%s", err, out)
+	}
+	if _, err := command(t, "keys", "revoke", "monitor"); err == nil {
+		t.Error("revoked twice")
+	}
+	t.Setenv("ALLSTILL_SERVER", url)
+	t.Setenv("ALLSTILL_TOKEN", key)
+	if _, err := command(t, "status"); err == nil || !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("a revoked key: %v", err)
 	}
 }

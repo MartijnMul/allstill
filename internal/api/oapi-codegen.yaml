@@ -10,4 +10,4 @@ generate:
   models: true
 output: api.gen.go
 output-options:
-  include-operation-ids: [getProbeChecks, postProbeRuns, getMe, endThisToken, getStatus, listLog, listProbes, listProjects, getProject, listChecks, getCheck, listRuns]
+  include-operation-ids: [getProbeChecks, postProbeRuns, getMe, endThisToken, getStatus, listLog, listProbes, listProjects, getProject, listChecks, getCheck, listRuns, createCheck, updateCheck, deleteCheck, pauseCheck, resumeCheck, moveCheck, getPingUrl, rotatePingUrl, listKeys, createKey, revokeKey]

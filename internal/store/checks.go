@@ -76,6 +76,8 @@ func (n NewCheck) validate() error {
 		return &InvalidError{"kind", "is ping, http or tcp"}
 	case Active(n.Kind) && n.Cron != "":
 		return &InvalidError{"schedule", "a check Allstill runs itself runs on an interval"}
+	case Active(n.Kind) && n.Slug != "":
+		return &InvalidError{"slug", "only a check that jobs ping has one"}
 	}
 	for _, t := range n.Tags {
 		if t == "" || len(t) > 50 {

@@ -10,6 +10,22 @@ import (
 	"database/sql"
 )
 
+type ApiKey struct {
+	ID             string
+	KeyHash        []byte
+	WorkspaceID    string
+	ProjectID      string
+	Name           string
+	Scope          string
+	MadeByKind     string
+	MadeByID       string
+	MadeByName     string
+	MadeByOutsider int64
+	MadeVia        string
+	CreatedAt      int64
+	UsedAt         sql.NullInt64
+}
+
 type Channel struct {
 	ID          string
 	WorkspaceID string

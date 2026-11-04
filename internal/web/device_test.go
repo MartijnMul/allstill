@@ -165,7 +165,7 @@ func TestSigningInFromACommandLine(t *testing.T) {
 	}
 	var me api.Me
 	json.Unmarshal(w.Body.Bytes(), &me)
-	if me.Kind != api.Person || me.Person.Name != "Ada" || !*me.Person.WorkspaceAdmin || me.ServerVersion != "1.2.3" || me.SignIn.Name != "laptop-1" || !slices.Contains(me.Scopes, api.Manage) || len(me.Projects) != 2 {
+	if me.Kind != api.MeKindPerson || me.Person.Name != "Ada" || !*me.Person.WorkspaceAdmin || me.ServerVersion != "1.2.3" || me.SignIn.Name != "laptop-1" || !slices.Contains(me.Scopes, api.Manage) || len(me.Projects) != 2 {
 		t.Fatalf("/me: %+v", me)
 	}
 
@@ -622,7 +622,10 @@ func TestEveryOperationHasCredentials(t *testing.T) {
 	var clients []string
 	inClient := reflect.TypeFor[apiclient.ClientInterface]()
 	for i := range inClient.NumMethod() {
-		clients = append(clients, inClient.Method(i).Name)
+		// One with a body also comes as one taking the body as bytes.
+		if name := inClient.Method(i).Name; !strings.HasSuffix(name, "WithBody") {
+			clients = append(clients, name)
+		}
 	}
 	var wanted []string
 	for _, op := range apiOperations {

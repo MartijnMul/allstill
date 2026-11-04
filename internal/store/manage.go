@@ -19,8 +19,7 @@ import (
 
 // What someone who may edit a project can do to its checks
 // (intent/manage-checks/spec.md). Every operation here checks the caller's role,
-// so the commands, the forms and the API keep to the same rules. A caller without
-// a person is the administrator's command line.
+// so the commands, the forms and the API keep to the same rules.
 
 // ErrChanged means a check changed since the caller read it.
 var ErrChanged = errors.New("the check changed since it was read")
@@ -60,8 +59,8 @@ type Change struct {
 }
 
 // viaPerson says the caller is a person, or a key, not the administrator's
-// command line.
-func viaPerson(a Access) bool { return a.PersonID != "" }
+// command line: a key has no person, and is held to what a person is (R37).
+func viaPerson(a Access) bool { return a.Actor.Kind != "command" }
 
 // editable reads a check for a caller who means to change it: not found when they
 // may not see it, forbidden when they may only look.

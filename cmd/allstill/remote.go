@@ -65,8 +65,23 @@ func serverOf(named string, c client.Credentials) (string, error) {
 	return client.ParseServer(named)
 }
 
-// signedIn returns a client for the installation meant, with its sign-in.
+// signedIn returns a client for the installation meant, with its sign-in, or with what
+// ALLSTILL_TOKEN holds, for a script, which then needs no credentials file (R12).
 func signedIn(named string) (*client.Client, string, client.Credentials, error) {
+	if token := os.Getenv("ALLSTILL_TOKEN"); token != "" {
+		if named == "" {
+			named = os.Getenv("ALLSTILL_SERVER")
+		}
+		if named == "" {
+			return nil, "", client.Credentials{}, errors.New("ALLSTILL_TOKEN needs ALLSTILL_SERVER, the address of your Allstill")
+		}
+		server, err := client.ParseServer(named)
+		if err != nil {
+			return nil, "", client.Credentials{}, err
+		}
+		api, err := client.New(server, token, version(), nil)
+		return api, "", client.Credentials{}, err
+	}
 	path, c, err := credentials()
 	if err != nil {
 		return nil, "", c, err
@@ -134,6 +149,9 @@ Flags:
 	scope := store.ScopeManage
 	if *readOnly {
 		scope = store.ScopeRead
+	}
+	if os.Getenv("ALLSTILL_TOKEN") != "" {
+		fmt.Fprintln(stdout, "ALLSTILL_TOKEN is set here, and commands use that instead of this sign-in for as long as it is.")
 	}
 	api, err := client.New(server, "", version(), nil)
 	if err != nil {
@@ -208,6 +226,9 @@ Flags:
 		fs.Usage()
 		return errors.New("logout takes no arguments")
 	}
+	if os.Getenv("ALLSTILL_TOKEN") != "" {
+		return errors.New("ALLSTILL_TOKEN is set, and nothing is signed in here to end. To end a key, revoke it: allstill keys revoke")
+	}
 	api, path, c, err := signedIn(*server)
 	if err != nil {
 		return err
@@ -262,13 +283,13 @@ Flags:
 		return err
 	}
 	me, err := api.Me(ctx)
-	if errors.Is(err, client.ErrSignedOut) {
-		return fmt.Errorf("your sign-in on %s has ended. Sign in again with allstill login %s", api.Server, api.Server)
-	}
 	if err != nil {
-		return err
+		return said(api, err)
 	}
 	who := "Someone"
+	if me.Key != nil {
+		who = "The key " + client.Clean(me.Key.Name)
+	}
 	if me.Person != nil {
 		who = client.Clean(me.Person.Name)
 		if me.Person.Email != nil {
@@ -285,6 +306,10 @@ Flags:
 		manage = manage || string(s) == store.ScopeManage
 	}
 	switch {
+	case me.Key != nil && !manage:
+		fmt.Fprintln(stdout, "This key can only read, as a viewer of its project.")
+	case me.Key != nil:
+		fmt.Fprintln(stdout, "This key can change its project's checks, as an editor.")
 	case !manage:
 		fmt.Fprintln(stdout, "This sign-in can only read, as a viewer in every project you can see.")
 	case me.Person != nil && me.Person.WorkspaceAdmin != nil && *me.Person.WorkspaceAdmin:
@@ -326,6 +351,9 @@ func (r reading) client() (*client.Client, error) {
 // said turns what a server refused into what to do about it.
 func said(api *client.Client, err error) error {
 	if errors.Is(err, client.ErrSignedOut) {
+		if os.Getenv("ALLSTILL_TOKEN") != "" {
+			return fmt.Errorf("%s does not take the key in ALLSTILL_TOKEN: it was revoked, or it is not one of its keys", api.Server)
+		}
 		return fmt.Errorf("your sign-in on %s has ended. Sign in again with allstill login %s", api.Server, api.Server)
 	}
 	if errors.Is(err, context.Canceled) {
@@ -406,13 +434,16 @@ Flags:
 	return nil
 }
 
+// checksSubcommands are what `allstill checks` does beside listing.
+var checksSubcommands = map[string]func(context.Context, []string, io.Writer, io.Writer) error{
+	"show": checksShow, "runs": checksRuns, "add": checksAdd, "change": checksChange, "pause": checksPause,
+	"resume": checksResume, "move": checksMove, "delete": checksDelete, "ping-url": checksPingURL,
+}
+
 func checksCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if len(args) > 0 {
-		switch args[0] {
-		case "show":
-			return checksShow(ctx, args[1:], stdout, stderr)
-		case "runs":
-			return checksRuns(ctx, args[1:], stdout, stderr)
+		if sub, ok := checksSubcommands[args[0]]; ok {
+			return sub(ctx, args[1:], stdout, stderr)
 		}
 	}
 	fs := flag.NewFlagSet("checks", flag.ContinueOnError)
@@ -421,6 +452,11 @@ func checksCommand(ctx context.Context, args []string, stdout, stderr io.Writer)
 		fmt.Fprint(stderr, `Usage: allstill checks [-project NAME] [-json] [-server URL]
        allstill checks show -check NAME [flags]
        allstill checks runs -check NAME [flags]
+       allstill checks add -project NAME -name NAME [flags]
+       allstill checks change -check NAME [flags]
+       allstill checks pause|resume|delete -check NAME [flags]
+       allstill checks move -check NAME -to PROJECT [flags]
+       allstill checks ping-url -check NAME [-replace] [flags]
 
 Lists the checks you can see, in one project or in all. An address shows as you may
 see it: the scheme and host alone if you may only look, or with a read-only sign-in.
@@ -439,11 +475,8 @@ Flags:
 		// `allstill checks -project P show -check C` says the same as with flags after it.
 		rest := fs.Args()
 		flags := slices.Clone(args[:len(args)-len(rest)])
-		switch rest[0] {
-		case "show":
-			return checksShow(ctx, append(flags, rest[1:]...), stdout, stderr)
-		case "runs":
-			return checksRuns(ctx, append(flags, rest[1:]...), stdout, stderr)
+		if sub, ok := checksSubcommands[rest[0]]; ok {
+			return sub(ctx, append(flags, rest[1:]...), stdout, stderr)
 		}
 		fs.Usage()
 		return fmt.Errorf("unknown checks command %q", client.Clean(rest[0]))

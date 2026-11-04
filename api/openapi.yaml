@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.11.0
+  version: 0.12.0
   summary: Pings from jobs, and the status of checks and their runs.
   description: |
     What jobs, people and programs use, in one document.
@@ -56,6 +56,8 @@ tags:
     description: What is watched, and how it is judged.
   - name: Probes
     description: The programs that run checks inside a network the server cannot reach.
+  - name: Keys
+    description: A project's keys, for scripts. Only an owner or administrator manages them, with a person's sign-in.
   - name: Log
     description: What happened, when and by whom, as far as the caller may know.
   - name: Events
@@ -832,8 +834,12 @@ paths:
     post:
       tags: [Checks]
       operationId: createCheck
-      summary: 'Not served yet. Create a check'
-      description: Needs the `manage` scope and the editor role in the project.
+      summary: Create a check
+      description: |
+        Needs the `manage` scope and the editor role in the project. A job's check has
+        one schedule a day with an hour's grace unless it says otherwise, and one that
+        Allstill runs itself is run each minute. An address it runs from the server
+        must be one the server may reach, and is tried once, as the form does.
       security:
         - bearer: [manage]
       requestBody:
@@ -843,21 +849,21 @@ paths:
             schema: {$ref: '#/components/schemas/CheckInput'}
       responses:
         '201':
-          description: The check, with its ping URL.
+          description: The check, with its ping URL if jobs ping it, and what a try found if Allstill runs it.
           headers:
             Location:
               description: The URL of the new check.
+              required: true
               schema: {type: string, format: uri}
-            ETag: {$ref: '#/components/headers/ETag'}
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/CheckWithPingUrl'}
+              schema: {$ref: '#/components/schemas/CheckCreated'}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
-        '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
 
   /checks/{check_id}:
     parameters:
@@ -869,6 +875,11 @@ paths:
       responses:
         '200':
           description: The check. An HTTP check's `url` and `location` are whole only for someone who may see them, and a ping URL is never here (see `getPingUrl`).
+          headers:
+            ETag:
+              description: The version of the check, for `If-Match`.
+              required: true
+              schema: {type: string}
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Check'}
@@ -878,11 +889,11 @@ paths:
     patch:
       tags: [Checks]
       operationId: updateCheck
-      summary: 'Not served yet. Change a check'
+      summary: Change a check
       description: |
-        A JSON Merge Patch (RFC 7396) of the check's settings. Send `If-Match` with
-        the ETag you read to avoid overwriting someone else's change. Needs the
-        `manage` scope and the editor role.
+        Only the fields sent change. Send `If-Match` with the ETag you read to avoid
+        overwriting someone else's change. Needs the `manage` scope and the editor role.
+        A changed address must be one the server may reach, and is tried once.
       security:
         - bearer: [manage]
       parameters:
@@ -890,27 +901,31 @@ paths:
       requestBody:
         required: true
         content:
-          application/merge-patch+json:
+          application/json:
             schema: {$ref: '#/components/schemas/CheckPatch'}
       responses:
         '200':
-          description: The changed check.
+          description: The changed check, with what a try found if its address changed.
           headers:
-            ETag: {$ref: '#/components/headers/ETag'}
+            ETag:
+              description: The version of the check, for `If-Match`.
+              required: true
+              schema: {type: string}
           content:
             application/json:
-              schema: {$ref: '#/components/schemas/Check'}
+              schema: {$ref: '#/components/schemas/CheckTried'}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '412': {$ref: '#/components/responses/PreconditionFailed'}
         '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
     delete:
       tags: [Checks]
       operationId: deleteCheck
-      summary: 'Not served yet. Delete a check with its runs'
-      description: Needs the `manage` scope and the editor role.
+      summary: Delete a check with its runs
+      description: Needs the `manage` scope and the editor role. A probe's own check stays.
       security:
         - bearer: [manage]
       responses:
@@ -919,6 +934,8 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
 
   /checks/{check_id}/pause:
     parameters:
@@ -926,8 +943,8 @@ paths:
     post:
       tags: [Checks]
       operationId: pauseCheck
-      summary: 'Not served yet. Pause a check until it is resumed or pinged'
-      description: Needs the `manage` scope and the editor role.
+      summary: Pause a check until it is resumed or pinged
+      description: Needs the `manage` scope and the editor role. A probe's own check stays.
       security:
         - bearer: [manage]
       responses:
@@ -939,6 +956,8 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
 
   /checks/{check_id}/resume:
     parameters:
@@ -946,19 +965,53 @@ paths:
     post:
       tags: [Checks]
       operationId: resumeCheck
-      summary: 'Not served yet. Resume a paused check'
-      description: Needs the `manage` scope and the editor role.
+      summary: Resume a paused check
+      description: Needs the `manage` scope and the editor role. A check that is not paused stays as it is.
       security:
         - bearer: [manage]
       responses:
         '200':
-          description: The resumed check.
+          description: The check.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/Check'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /checks/{check_id}/move:
+    parameters:
+      - $ref: '#/components/parameters/CheckId'
+    post:
+      tags: [Checks]
+      operationId: moveCheck
+      summary: Move a check to another project
+      description: Needs the `manage` scope and the editor role in both projects. Its runs and output go with it.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id: {$ref: '#/components/schemas/Id'}
+      responses:
+        '200':
+          description: The moved check.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Check'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
 
   /checks/{check_id}/ping-url:
     parameters:
@@ -966,7 +1019,7 @@ paths:
     get:
       tags: [Checks]
       operationId: getPingUrl
-      summary: 'Not served yet. The check''s ping URL'
+      summary: The check's ping URL
       description: Needs the `manage` scope and the editor role.
       security:
         - bearer: [manage]
@@ -983,10 +1036,12 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
     post:
       tags: [Checks]
       operationId: rotatePingUrl
-      summary: 'Not served yet. Replace the check''s ping URL'
+      summary: Replace the check's ping URL
       description: |
         The old URL stops working at once. Needs the `manage` scope and the editor
         role.
@@ -1001,6 +1056,8 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
 
   /checks/{check_id}/runs:
     parameters:
@@ -1020,6 +1077,88 @@ paths:
               schema: {$ref: '#/components/schemas/RunPage'}
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /projects/{project_id}/keys:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Keys]
+      operationId: createKey
+      summary: Make a key for a project
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the project or
+        an administrator. With `read` the key acts as a viewer of this project, and with
+        `manage` as an editor, and it reaches nothing else. It is shown here, once.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, scope]
+              properties:
+                name: {type: string, minLength: 1, maxLength: 100}
+                scope: {$ref: '#/components/schemas/Scope'}
+      responses:
+        '201':
+          description: The key, with its value.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ApiKeyMade'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /keys:
+    get:
+      tags: [Keys]
+      operationId: listKeys
+      summary: The keys of a project, or of all the caller owns
+      description: |
+        Needs a person's sign-in, as an owner of the project or an administrator. Who
+        made a key reads as in the log, and which sign-in only for an administrator or
+        the one who made it. A key's value is never here.
+      parameters:
+        - name: project_id
+          in: query
+          description: Only this project. Without it, every project the caller owns, which for an administrator is every project.
+          schema: {$ref: '#/components/schemas/Id'}
+      responses:
+        '200':
+          description: The keys.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ApiKeyList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /keys/{key_id}:
+    parameters:
+      - name: key_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Id'}
+    delete:
+      tags: [Keys]
+      operationId: revokeKey
+      summary: Revoke a key
+      description: It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+      security:
+        - bearer: [manage]
+      responses:
+        '204':
+          description: Revoked.
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
 
@@ -1458,6 +1597,7 @@ components:
           description: The version of the program answering, so a command line can say when the two differ.
           type: string
         sign_in: {$ref: '#/components/schemas/MeSignIn'}
+        key: {$ref: '#/components/schemas/MeKey'}
         kind:
           type: string
           enum: [person, api_key]
@@ -1472,6 +1612,14 @@ components:
     MeSignIn:
       type: object
       description: Present when a person is signed in, naming the sign-in this request came through.
+      required: [id, name]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+
+    MeKey:
+      type: object
+      description: Present when a project's key is asking, naming it.
       required: [id, name]
       properties:
         id: {$ref: '#/components/schemas/Id'}
@@ -1892,8 +2040,10 @@ components:
 
     CheckPatch:
       description: |
-        Fields to change, as a JSON Merge Patch: a field sent as `null` returns to its
-        default; fields left out stay as they are.
+        Fields to change; those left out stay as they are. `http` or `tcp`, when sent,
+        replaces what the check runs as a whole, including `probe_id`, so read it first
+        and send it with `If-Match`. An empty `slug`, `description` or `tags` clears it.
+        A check's `kind` does not change.
       $ref: '#/components/schemas/CheckSettings'
 
     Check:
@@ -1920,7 +2070,7 @@ components:
             created_at: {type: string, format: date-time}
 
     CheckWithPingUrl:
-      description: A check, as it is answered only when it is made or its ping URL replaced.
+      description: A check, as it is answered only when its ping URL is replaced.
       allOf:
         - $ref: '#/components/schemas/Check'
         - type: object
@@ -1930,8 +2080,63 @@ components:
               type: string
               format: uri
               description: |
-                The check's secret ping URL, for a `ping` check. Anyone holding it can ping
-                the check, so nothing else carries it but this and `getPingUrl`.
+                The check's secret ping URL. Anyone holding it can ping the check, so
+                nothing else carries it but this, `createCheck` and `getPingUrl`.
+
+    CheckTry:
+      type: object
+      description: |
+        What one attempt found when an address was added or changed. A try is no run: it
+        counts for nothing. `result` says how it went, or `not_tried` with `why_not`.
+      required: [result]
+      properties:
+        result:
+          type: string
+          description: Clients show results they do not know as they are.
+          enum: [up, warning, fails, not_tried]
+        why_not:
+          type: string
+          description: |
+            `probe`: only the probe that runs it can try the address. `limit`: this
+            credential has made its tries for this minute. `unavailable`: this server
+            cannot try anything now.
+          enum: [probe, limit, unavailable]
+        reason: {type: string, description: 'Why it failed or warned, in a short sentence.'}
+        http_status: {type: integer}
+        ms: {type: integer, format: int64, description: How long it took.}
+        cert_days: {type: number, format: double, description: The days its certificate has left.}
+        first_attempt_at:
+          type: string
+          format: date-time
+          description: By when its first real attempt comes. Left out while it is paused.
+        alerts_nobody_yet:
+          type: boolean
+          description: It has never worked, so it alerts nobody until it has.
+
+    CheckTried:
+      description: A check that was just changed.
+      allOf:
+        - $ref: '#/components/schemas/Check'
+        - type: object
+          properties:
+            try: {$ref: '#/components/schemas/CheckTry'}
+            same_name:
+              type: boolean
+              description: Another check in this project has the same name, which is allowed.
+
+    CheckCreated:
+      description: A check that was just made.
+      allOf:
+        - $ref: '#/components/schemas/CheckTried'
+        - type: object
+          properties:
+            ping_url:
+              type: string
+              format: uri
+              description: |
+                The check's secret ping URL, if jobs ping it. Anyone holding it can ping
+                the check, so nothing else carries it but this, `rotatePingUrl` and
+                `getPingUrl`.
 
     CheckPage:
       type: object
@@ -2131,6 +2336,40 @@ components:
           type: integer
           format: int64
           description: How long entries are kept, in seconds.
+
+    ApiKey:
+      type: object
+      required: [id, project_id, name, scope, made_by, created_at]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        project_id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        scope: {$ref: '#/components/schemas/Scope'}
+        made_by: {$ref: '#/components/schemas/LogParty'}
+        made_via:
+          type: string
+          description: The sign-in it was made through, for an administrator or the one who made it.
+        created_at: {type: string, format: date-time}
+        last_used_at: {type: string, format: date-time}
+
+    ApiKeyMade:
+      description: A key that was just made. Its value is shown here and never again.
+      allOf:
+        - $ref: '#/components/schemas/ApiKey'
+        - type: object
+          required: [key]
+          properties:
+            key:
+              type: string
+              description: The key's value, a secret. Only its hash is kept.
+
+    ApiKeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/ApiKey'}
 
     Probe:
       type: object

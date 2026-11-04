@@ -572,16 +572,24 @@ func (f checkForm) addressField() string {
 	return "url"
 }
 
-// reachable refuses an address the server may not reach. It says only that: a
-// person is not told what a name resolves to, nor that it is the server's own (R27).
+// reachable refuses an address the server may not reach, on a form.
 func (s *Server) reachable(ctx context.Context, v viewer, f checkForm, errs fieldErrors) {
-	if !s.within("lookup|"+v.ID, lookupsPerMinute) {
-		errs[f.addressField()] = "That is many new addresses in a minute. Wait a moment, and save again."
-		return
+	if problem := s.addressProblem(ctx, v.ID, f.hostOf()); problem != "" {
+		errs[f.addressField()] = problem
 	}
-	if _, refused := errors.AsType[*outbound.Unreachable](outbound.CheckHost(ctx, f.hostOf(), s.Allow)); refused {
-		errs[f.addressField()] = "This address is not on the public internet, and this server may not reach it. Ask your administrator, or use a probe."
+}
+
+// addressProblem says why the server may not reach a host, for one credential, or ""
+// when it may. It says only that: a person is not told what a name resolves to, nor
+// that it is the server's own (R27).
+func (s *Server) addressProblem(ctx context.Context, credential, host string) string {
+	if !s.within("lookup|"+credential, lookupsPerMinute) {
+		return "That is many new addresses in a minute. Wait a moment, and save again."
 	}
+	if _, refused := errors.AsType[*outbound.Unreachable](outbound.CheckHost(ctx, host, s.Allow)); refused {
+		return "This address is not on the public internet, and this server may not reach it. Ask your administrator, or use a probe."
+	}
+	return ""
 }
 
 // fieldOf says which field on a form a refusal from the store belongs to, and what
@@ -843,7 +851,7 @@ func (s *Server) addCheck(w http.ResponseWriter, r *http.Request, v viewer) {
 	} else {
 		said = notice{Class: "up", Title: "Added.", Lines: []string{waitsForPing(c, now, v.Loc)}}
 	}
-	s.sameName(r.Context(), v, c, &said)
+	s.warnOfSameName(r.Context(), v, c, &said)
 	s.say(r, c.ID, said)
 	http.Redirect(w, r, "/checks/"+c.ID, http.StatusSeeOther)
 }
@@ -864,46 +872,57 @@ func waitsForPing(c store.CheckView, now time.Time, loc *time.Location) string {
 	return fmt.Sprintf("It waits for its first ping. By its schedule, the next run is at %s.", clock(now, next, loc))
 }
 
-// sameName warns of another check in the project with the same name. It is not
-// refused, which would trap someone retrying a save that timed out (C10).
-func (s *Server) sameName(ctx context.Context, v viewer, c store.CheckView, n *notice) {
-	checks, err := s.Store.CheckStates(ctx, v.Access)
+// sameName says another check in the project has the same name. It is not refused,
+// which would trap someone retrying a save that timed out (C10).
+func (s *Server) sameName(ctx context.Context, access store.Access, c store.CheckView) bool {
+	checks, err := s.Store.CheckStates(ctx, access)
 	if err != nil {
 		s.Log.Error("reading checks", "error", err)
-		return
+		return false
 	}
-	for _, other := range checks {
-		if other.ID != c.ID && other.ProjectID == c.ProjectID && other.Name == c.Name {
-			n.Lines = append(n.Lines, "Another check in this project has the same name.")
-			return
-		}
+	return slices.ContainsFunc(checks, func(other store.CheckView) bool {
+		return other.ID != c.ID && other.ProjectID == c.ProjectID && other.Name == c.Name
+	})
+}
+
+func (s *Server) warnOfSameName(ctx context.Context, v viewer, c store.CheckView, n *notice) {
+	if s.sameName(ctx, v.Access, c) {
+		n.Lines = append(n.Lines, "Another check in this project has the same name.")
 	}
 }
 
-// tried makes the try of a check with a new address, and says how it went. It is
-// not an attempt: nothing of it is stored, and it counts for nothing (R4).
-func (s *Server) tried(r *http.Request, v viewer, c store.CheckView, done string) notice {
-	now := s.Now()
-	n := notice{Class: "up", Title: done}
-	first := fmt.Sprintf("its first real attempt comes by %s", clock(now, firstAttempt(c, now), v.Loc))
-	if c.Status.State == check.Paused {
-		first = "it is not tried for real until you resume it"
+// tryFound is what trying a check with a new address found. A try is not an attempt:
+// nothing of it is stored, and it counts for nothing (R4).
+type tryFound struct {
+	Probe   string         // only this probe can try the address
+	Limited bool           // this credential has made its tries for this minute
+	Cannot  bool           // this server has no way to try
+	Result  *active.Result // what it found, when it did try
+	First   time.Time      // by when its first real attempt comes; zero when paused
+	Method  string         // of an HTTP check
+}
+
+// tryCheck tries a check with a new address, within what one credential may (R30).
+func (s *Server) tryCheck(ctx context.Context, credential string, c store.CheckView) tryFound {
+	found := tryFound{}
+	if c.Status.State != check.Paused {
+		found.First = firstAttempt(c, s.Now())
 	}
 	if c.ProbeID != "" {
-		name, err := s.Store.ProbeName(r.Context(), s.workspace, c.ProbeID)
+		name, err := s.Store.ProbeName(ctx, s.workspace, c.ProbeID)
 		if err != nil {
 			s.Log.Error("reading a probe", "error", err)
 		}
-		n.Lines = []string{"Only the probe " + name + " can try this address, and " + first + "."}
-		return n
+		found.Probe = name
+		return found
 	}
 	if s.Try == nil {
-		n.Lines = []string{sentence(first)}
-		return n
+		found.Cannot = true
+		return found
 	}
-	if !s.within("try|"+v.ID, triesPerMinute) {
-		n.Lines = []string{fmt.Sprintf("Not tried now: you get %d tries a minute. But %s.", triesPerMinute, first)}
-		return n
+	if !s.within("try|"+credential, triesPerMinute) {
+		found.Limited = true
+		return found
 	}
 	var attempt active.Check
 	if c.Kind == "tcp" {
@@ -918,9 +937,35 @@ func (s *Server) tried(r *http.Request, v viewer, c store.CheckView, done string
 		attempt.TCP.Timeout = min(attempt.TCP.Timeout, seconds)
 	}
 	attempt.HTTP.Timeout = min(attempt.HTTP.Timeout, seconds)
-	ctx, cancel := context.WithTimeout(r.Context(), tryTimeout+time.Second)
+	found.Method = attempt.HTTP.Method
+	ctx, cancel := context.WithTimeout(ctx, tryTimeout+time.Second)
 	defer cancel()
 	res := s.Try(ctx, attempt)
+	found.Result = &res
+	return found
+}
+
+// tried makes the try of a check with a new address, and says how it went.
+func (s *Server) tried(r *http.Request, v viewer, c store.CheckView, done string) notice {
+	now := s.Now()
+	n := notice{Class: "up", Title: done}
+	try := s.tryCheck(r.Context(), v.ID, c)
+	first := "it is not tried for real until you resume it"
+	if !try.First.IsZero() {
+		first = fmt.Sprintf("its first real attempt comes by %s", clock(now, try.First, v.Loc))
+	}
+	switch {
+	case c.ProbeID != "":
+		n.Lines = []string{"Only the probe " + try.Probe + " can try this address, and " + first + "."}
+		return n
+	case try.Cannot:
+		n.Lines = []string{sentence(first)}
+		return n
+	case try.Limited:
+		n.Lines = []string{fmt.Sprintf("Not tried now: you get %d tries a minute. But %s.", triesPerMinute, first)}
+		return n
+	}
+	res := *try.Result
 	var found string
 	switch res.Outcome {
 	case check.Passed:
@@ -942,7 +987,7 @@ func (s *Server) tried(r *http.Request, v viewer, c store.CheckView, done string
 	if days, ok := res.Measured["cert_days"]; ok {
 		n.Lines = append(n.Lines, "Its certificate has "+daysLeft(days)+" left.")
 	}
-	if attempt.HTTP.Method == "HEAD" && res.Measured["status"] == http.StatusMethodNotAllowed {
+	if try.Method == "HEAD" && res.Measured["status"] == http.StatusMethodNotAllowed {
 		n.Lines = append(n.Lines, "This site does not take HEAD requests. Change the method to GET.")
 	}
 	n.Lines = append(n.Lines, "A try does not count, and "+first+".")
@@ -1121,7 +1166,7 @@ func (s *Server) saveCheck(w http.ResponseWriter, r *http.Request, v viewer) {
 		said.Lines = []string{nextAfterChange(after, now, v.Loc)}
 	}
 	if f.Name != was.Name {
-		s.sameName(r.Context(), v, after, &said)
+		s.warnOfSameName(r.Context(), v, after, &said)
 	}
 	s.say(r, c.ID, said)
 	http.Redirect(w, r, "/checks/"+c.ID, http.StatusSeeOther)

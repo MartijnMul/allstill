@@ -97,6 +97,51 @@ func (e CheckState) Valid() bool {
 	}
 }
 
+// Defines values for CheckTryResult.
+const (
+	CheckTryResultFails    CheckTryResult = "fails"
+	CheckTryResultNotTried CheckTryResult = "not_tried"
+	CheckTryResultUp       CheckTryResult = "up"
+	CheckTryResultWarning  CheckTryResult = "warning"
+)
+
+// Valid indicates whether the value is a known member of the CheckTryResult enum.
+func (e CheckTryResult) Valid() bool {
+	switch e {
+	case CheckTryResultFails:
+		return true
+	case CheckTryResultNotTried:
+		return true
+	case CheckTryResultUp:
+		return true
+	case CheckTryResultWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CheckTryWhyNot.
+const (
+	CheckTryWhyNotLimit       CheckTryWhyNot = "limit"
+	CheckTryWhyNotProbe       CheckTryWhyNot = "probe"
+	CheckTryWhyNotUnavailable CheckTryWhyNot = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the CheckTryWhyNot enum.
+func (e CheckTryWhyNot) Valid() bool {
+	switch e {
+	case CheckTryWhyNotLimit:
+		return true
+	case CheckTryWhyNotProbe:
+		return true
+	case CheckTryWhyNotUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CronScheduleKind.
 const (
 	Cron CronScheduleKind = "cron"
@@ -147,16 +192,16 @@ func (e IntervalScheduleKind) Valid() bool {
 
 // Defines values for MeKind.
 const (
-	ApiKey MeKind = "api_key"
-	Person MeKind = "person"
+	MeKindApiKey MeKind = "api_key"
+	MeKindPerson MeKind = "person"
 )
 
 // Valid indicates whether the value is a known member of the MeKind enum.
 func (e MeKind) Valid() bool {
 	switch e {
-	case ApiKey:
+	case MeKindApiKey:
 		return true
-	case Person:
+	case MeKindPerson:
 		return true
 	default:
 		return false
@@ -315,6 +360,60 @@ type Alerting struct {
 // shows the problem but never alerts, for a machine that is often off.
 type AlertingUrgency string
 
+// ApiKey defines model for ApiKey.
+type ApiKey struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id An opaque identifier. Never a secret.
+	Id         Id         `json:"id"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+
+	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// `former_member`. A person's `id` is what to narrow to them with.
+	MadeBy LogParty `json:"made_by"`
+
+	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	MadeVia *string `json:"made_via,omitempty"`
+	Name    string  `json:"name"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id    `json:"project_id"`
+	Scope     Scope `json:"scope"`
+}
+
+// ApiKeyList defines model for ApiKeyList.
+type ApiKeyList struct {
+	Items []ApiKey `json:"items"`
+}
+
+// ApiKeyMade A key that was just made. Its value is shown here and never again.
+type ApiKeyMade struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Key The key's value, a secret. Only its hash is kept.
+	Key        string     `json:"key"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+
+	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// `former_member`. A person's `id` is what to narrow to them with.
+	MadeBy LogParty `json:"made_by"`
+
+	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	MadeVia *string `json:"made_via,omitempty"`
+	Name    string  `json:"name"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id    `json:"project_id"`
+	Scope     Scope `json:"scope"`
+}
+
 // AttentionCheck defines model for AttentionCheck.
 type AttentionCheck struct {
 	// Id An opaque identifier. Never a secret.
@@ -400,6 +499,117 @@ type Check struct {
 	Tcp *TcpCheck `json:"tcp,omitempty"`
 }
 
+// CheckCreated A check that was just made.
+type CheckCreated struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind       CheckKind  `json:"kind"`
+	LastPingAt *time.Time `json:"last_ping_at,omitempty"`
+
+	// LastRun One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+	LastRun        *Run       `json:"last_run,omitempty"`
+	Name           string     `json:"name"`
+	NextExpectedAt *time.Time `json:"next_expected_at,omitempty"`
+
+	// PingUrl The check's secret ping URL, if jobs ping it. Anyone holding it can ping
+	// the check, so nothing else carries it but this, `rotatePingUrl` and
+	// `getPingUrl`.
+	PingUrl *string `json:"ping_url,omitempty"`
+
+	// ProbeName The name of the probe that runs it, if any.
+	ProbeName *string `json:"probe_name,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+
+	// SameName Another check in this project has the same name, which is allowed.
+	SameName *bool `json:"same_name,omitempty"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State CheckState `json:"state"`
+
+	// StateReason Why it is in this state, in a short sentence, such as `The job failed with exit status 3.`
+	StateReason *string   `json:"state_reason,omitempty"`
+	StateSince  time.Time `json:"state_since"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+
+	// Try What one attempt found when an address was added or changed. A try is no run: it
+	// counts for nothing. `result` says how it went, or `not_tried` with `why_not`.
+	Try *CheckTry `json:"try,omitempty"`
+}
+
+// CheckInput A new check. `http` is required for `kind: http` and `tcp` for `kind: tcp`,
+// whose schedule is an interval of 60 seconds to a day.
+type CheckInput struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind CheckKind `json:"kind"`
+	Name string    `json:"name"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+	Tags     *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+}
+
 // CheckKind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
 // Clients show kinds they do not know by name: more will come.
 type CheckKind string
@@ -409,6 +619,12 @@ type CheckPage struct {
 	Items      []Check `json:"items"`
 	NextCursor *string `json:"next_cursor,omitempty"`
 }
+
+// CheckPatch Fields to change; those left out stay as they are. `http` or `tcp`, when sent,
+// replaces what the check runs as a whole, including `probe_id`, so read it first
+// and send it with `If-Match`. An empty `slug`, `description` or `tags` clears it.
+// A check's `kind` does not change.
+type CheckPatch = CheckSettings
 
 // CheckSettings What a check is and how it is judged; the part a client can change.
 type CheckSettings struct {
@@ -453,6 +669,179 @@ type CheckSettings struct {
 // - `paused`: paused by someone, until resumed or pinged.
 // - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
 type CheckState string
+
+// CheckTried A check that was just changed.
+type CheckTried struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind       CheckKind  `json:"kind"`
+	LastPingAt *time.Time `json:"last_ping_at,omitempty"`
+
+	// LastRun One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+	LastRun        *Run       `json:"last_run,omitempty"`
+	Name           string     `json:"name"`
+	NextExpectedAt *time.Time `json:"next_expected_at,omitempty"`
+
+	// ProbeName The name of the probe that runs it, if any.
+	ProbeName *string `json:"probe_name,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+
+	// SameName Another check in this project has the same name, which is allowed.
+	SameName *bool `json:"same_name,omitempty"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State CheckState `json:"state"`
+
+	// StateReason Why it is in this state, in a short sentence, such as `The job failed with exit status 3.`
+	StateReason *string   `json:"state_reason,omitempty"`
+	StateSince  time.Time `json:"state_since"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+
+	// Try What one attempt found when an address was added or changed. A try is no run: it
+	// counts for nothing. `result` says how it went, or `not_tried` with `why_not`.
+	Try *CheckTry `json:"try,omitempty"`
+}
+
+// CheckTry What one attempt found when an address was added or changed. A try is no run: it
+// counts for nothing. `result` says how it went, or `not_tried` with `why_not`.
+type CheckTry struct {
+	// AlertsNobodyYet It has never worked, so it alerts nobody until it has.
+	AlertsNobodyYet *bool `json:"alerts_nobody_yet,omitempty"`
+
+	// CertDays The days its certificate has left.
+	CertDays *float64 `json:"cert_days,omitempty"`
+
+	// FirstAttemptAt By when its first real attempt comes. Left out while it is paused.
+	FirstAttemptAt *time.Time `json:"first_attempt_at,omitempty"`
+	HttpStatus     *int       `json:"http_status,omitempty"`
+
+	// Ms How long it took.
+	Ms *int64 `json:"ms,omitempty"`
+
+	// Reason Why it failed or warned, in a short sentence.
+	Reason *string `json:"reason,omitempty"`
+
+	// Result Clients show results they do not know as they are.
+	Result CheckTryResult `json:"result"`
+
+	// WhyNot `probe`: only the probe that runs it can try the address. `limit`: this
+	// credential has made its tries for this minute. `unavailable`: this server
+	// cannot try anything now.
+	WhyNot *CheckTryWhyNot `json:"why_not,omitempty"`
+}
+
+// CheckTryResult Clients show results they do not know as they are.
+type CheckTryResult string
+
+// CheckTryWhyNot `probe`: only the probe that runs it can try the address. `limit`: this
+// credential has made its tries for this minute. `unavailable`: this server
+// cannot try anything now.
+type CheckTryWhyNot string
+
+// CheckWithPingUrl A check, as it is answered only when its ping URL is replaced.
+type CheckWithPingUrl struct {
+	// Alerting How a problem with this check reaches people. The project's routing says who. Returned only to those who may change it.
+	Alerting    *Alerting `json:"alerting,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Grace Seconds after the expected time before a check is down.
+	Grace *int64 `json:"grace,omitempty"`
+
+	// Http An HTTP request Allstill makes itself, on its interval: each attempt is a run,
+	// with the status code (`status`), how long it took in milliseconds (`ms`) and
+	// the days the certificate has left (`cert_days`) in its `values`, and why it
+	// failed or warned in its `reason`. The check is down after `fail_after` failed
+	// attempts in a row, and up on the first that passes.
+	Http *HttpCheck `json:"http,omitempty"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind `ping` for a check jobs ping, `http` and `tcp` for one Allstill runs itself.
+	// Clients show kinds they do not know by name: more will come.
+	Kind       CheckKind  `json:"kind"`
+	LastPingAt *time.Time `json:"last_ping_at,omitempty"`
+
+	// LastRun One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
+	LastRun        *Run       `json:"last_run,omitempty"`
+	Name           string     `json:"name"`
+	NextExpectedAt *time.Time `json:"next_expected_at,omitempty"`
+
+	// PingUrl The check's secret ping URL. Anyone holding it can ping the check, so
+	// nothing else carries it but this, `createCheck` and `getPingUrl`.
+	PingUrl string `json:"ping_url"`
+
+	// ProbeName The name of the probe that runs it, if any.
+	ProbeName *string `json:"probe_name,omitempty"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+
+	// Schedule When a check expects to be pinged.
+	Schedule *Schedule `json:"schedule,omitempty"`
+	Slug     *Slug     `json:"slug,omitempty"`
+
+	// State - `new`: never pinged.
+	// - `up`: ran on time and every rule passed.
+	// - `warning`: ran, with something to warn of, such as a job that says so or a certificate near its end.
+	// - `late`: overdue, within its grace period.
+	// - `down`: failed, or overdue past its grace period.
+	// - `paused`: paused by someone, until resumed or pinged.
+	// - `unknown`: Allstill cannot tell, such as right after Allstill itself was down.
+	State CheckState `json:"state"`
+
+	// StateReason Why it is in this state, in a short sentence, such as `The job failed with exit status 3.`
+	StateReason *string   `json:"state_reason,omitempty"`
+	StateSince  time.Time `json:"state_since"`
+	Tags        *[]string `json:"tags,omitempty"`
+
+	// Tcp A connection Allstill makes itself, on its interval: each attempt is a run, with
+	// how long it took in milliseconds (`ms`) and, with `tls`, the days the certificate
+	// has left (`cert_days`) in its `values`, and why it failed or warned in its
+	// `reason`. Nothing is sent over the connection. The check is down after
+	// `fail_after` failed attempts in a row, and up on the first that passes. Its host
+	// and port are shown to everyone who can see the check.
+	Tcp *TcpCheck `json:"tcp,omitempty"`
+}
 
 // CronSchedule defines model for CronSchedule.
 type CronSchedule struct {
@@ -611,6 +1000,8 @@ type LogParty struct {
 
 // Me defines model for Me.
 type Me struct {
+	// Key Present when a project's key is asking, naming it.
+	Key  *MeKey `json:"key,omitempty"`
 	Kind MeKind `json:"kind"`
 
 	// Person Present when a person is signed in.
@@ -627,6 +1018,13 @@ type Me struct {
 
 // MeKind defines model for Me.Kind.
 type MeKind string
+
+// MeKey Present when a project's key is asking, naming it.
+type MeKey struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+}
 
 // MePerson Present when a person is signed in.
 type MePerson struct {
@@ -916,6 +1314,9 @@ type Cursor = string
 // ExitStatus defines model for ExitStatus.
 type ExitStatus = int
 
+// IfMatch defines model for IfMatch.
+type IfMatch = string
+
 // Limit defines model for Limit.
 type Limit = int
 
@@ -931,8 +1332,14 @@ type ProjectId = Id
 // BadRequest Problem Details (RFC 9457).
 type BadRequest = Problem
 
+// Forbidden Problem Details (RFC 9457).
+type Forbidden = Problem
+
 // NotFound Problem Details (RFC 9457).
 type NotFound = Problem
+
+// PreconditionFailed Problem Details (RFC 9457).
+type PreconditionFailed = Problem
 
 // ProbeProblem Problem Details (RFC 9457).
 type ProbeProblem = Problem
@@ -943,6 +1350,21 @@ type TooManyRequests = Problem
 // Unauthorized Problem Details (RFC 9457).
 type Unauthorized = Problem
 
+// Unprocessable Problem Details (RFC 9457).
+type Unprocessable = Problem
+
+// UpdateCheckParams defines parameters for UpdateCheck.
+type UpdateCheckParams struct {
+	// IfMatch The ETag of the version you are changing.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// MoveCheckJSONBody defines parameters for MoveCheck.
+type MoveCheckJSONBody struct {
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId Id `json:"project_id"`
+}
+
 // ListRunsParams defines parameters for ListRuns.
 type ListRunsParams struct {
 	// Cursor The `next_cursor` of the previous page.
@@ -950,6 +1372,12 @@ type ListRunsParams struct {
 
 	// Limit The most items on one page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListKeysParams defines parameters for ListKeys.
+type ListKeysParams struct {
+	// ProjectId Only this project. Without it, every project the caller owns, which for an administrator is every project.
+	ProjectId *Id `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 
 // ListLogParams defines parameters for ListLog.
@@ -1010,8 +1438,26 @@ type ListChecksParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// CreateKeyJSONBody defines parameters for CreateKey.
+type CreateKeyJSONBody struct {
+	Name  string `json:"name"`
+	Scope Scope  `json:"scope"`
+}
+
+// UpdateCheckJSONRequestBody defines body for UpdateCheck for application/json ContentType.
+type UpdateCheckJSONRequestBody = CheckPatch
+
+// MoveCheckJSONRequestBody defines body for MoveCheck for application/json ContentType.
+type MoveCheckJSONRequestBody MoveCheckJSONBody
+
 // PostProbeRunsJSONRequestBody defines body for PostProbeRuns for application/json ContentType.
 type PostProbeRunsJSONRequestBody = ProbeRunBatch
+
+// CreateCheckJSONRequestBody defines body for CreateCheck for application/json ContentType.
+type CreateCheckJSONRequestBody = CheckInput
+
+// CreateKeyJSONRequestBody defines body for CreateKey for application/json ContentType.
+type CreateKeyJSONRequestBody CreateKeyJSONBody
 
 // AsIntervalSchedule returns the union data inside the Schedule as a IntervalSchedule
 func (t Schedule) AsIntervalSchedule() (IntervalSchedule, error) {
@@ -1116,12 +1562,39 @@ func (t *Schedule) UnmarshalJSON(b []byte) error {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// DeleteCheck Delete a check with its runs
+	// (DELETE /checks/{check_id})
+	DeleteCheck(w http.ResponseWriter, r *http.Request, checkId CheckId)
 	// GetCheck One check
 	// (GET /checks/{check_id})
 	GetCheck(w http.ResponseWriter, r *http.Request, checkId CheckId)
+	// UpdateCheck Change a check
+	// (PATCH /checks/{check_id})
+	UpdateCheck(w http.ResponseWriter, r *http.Request, checkId CheckId, params UpdateCheckParams)
+	// MoveCheck Move a check to another project
+	// (POST /checks/{check_id}/move)
+	MoveCheck(w http.ResponseWriter, r *http.Request, checkId CheckId)
+	// PauseCheck Pause a check until it is resumed or pinged
+	// (POST /checks/{check_id}/pause)
+	PauseCheck(w http.ResponseWriter, r *http.Request, checkId CheckId)
+	// GetPingUrl The check's ping URL
+	// (GET /checks/{check_id}/ping-url)
+	GetPingUrl(w http.ResponseWriter, r *http.Request, checkId CheckId)
+	// RotatePingUrl Replace the check's ping URL
+	// (POST /checks/{check_id}/ping-url)
+	RotatePingUrl(w http.ResponseWriter, r *http.Request, checkId CheckId)
+	// ResumeCheck Resume a paused check
+	// (POST /checks/{check_id}/resume)
+	ResumeCheck(w http.ResponseWriter, r *http.Request, checkId CheckId)
 	// ListRuns The runs of a check, newest first
 	// (GET /checks/{check_id}/runs)
 	ListRuns(w http.ResponseWriter, r *http.Request, checkId CheckId, params ListRunsParams)
+	// ListKeys The keys of a project, or of all the caller owns
+	// (GET /keys)
+	ListKeys(w http.ResponseWriter, r *http.Request, params ListKeysParams)
+	// RevokeKey Revoke a key
+	// (DELETE /keys/{key_id})
+	RevokeKey(w http.ResponseWriter, r *http.Request, keyId Id)
 	// ListLog What happened, newest first, as far as the caller may know
 	// (GET /log)
 	ListLog(w http.ResponseWriter, r *http.Request, params ListLogParams)
@@ -1149,6 +1622,12 @@ type ServerInterface interface {
 	// ListChecks The checks of a project
 	// (GET /projects/{project_id}/checks)
 	ListChecks(w http.ResponseWriter, r *http.Request, projectId ProjectId, params ListChecksParams)
+	// CreateCheck Create a check
+	// (POST /projects/{project_id}/checks)
+	CreateCheck(w http.ResponseWriter, r *http.Request, projectId ProjectId)
+	// CreateKey Make a key for a project
+	// (POST /projects/{project_id}/keys)
+	CreateKey(w http.ResponseWriter, r *http.Request, projectId ProjectId)
 	// GetStatus Everything the caller can see, in one snapshot
 	// (GET /status)
 	GetStatus(w http.ResponseWriter, r *http.Request)
@@ -1162,6 +1641,32 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// DeleteCheck operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "check_id" -------------
+	var checkId CheckId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "check_id", r.PathValue("check_id"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "check_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCheck(w, r, checkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetCheck operation middleware
 func (siw *ServerInterfaceWrapper) GetCheck(w http.ResponseWriter, r *http.Request) {
@@ -1180,6 +1685,186 @@ func (siw *ServerInterfaceWrapper) GetCheck(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCheck(w, r, checkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCheck operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "check_id" -------------
+	var checkId CheckId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "check_id", r.PathValue("check_id"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "check_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateCheckParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCheck(w, r, checkId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MoveCheck operation middleware
+func (siw *ServerInterfaceWrapper) MoveCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "check_id" -------------
+	var checkId CheckId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "check_id", r.PathValue("check_id"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "check_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MoveCheck(w, r, checkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PauseCheck operation middleware
+func (siw *ServerInterfaceWrapper) PauseCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "check_id" -------------
+	var checkId CheckId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "check_id", r.PathValue("check_id"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "check_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PauseCheck(w, r, checkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPingUrl operation middleware
+func (siw *ServerInterfaceWrapper) GetPingUrl(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "check_id" -------------
+	var checkId CheckId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "check_id", r.PathValue("check_id"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "check_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPingUrl(w, r, checkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RotatePingUrl operation middleware
+func (siw *ServerInterfaceWrapper) RotatePingUrl(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "check_id" -------------
+	var checkId CheckId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "check_id", r.PathValue("check_id"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "check_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RotatePingUrl(w, r, checkId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResumeCheck operation middleware
+func (siw *ServerInterfaceWrapper) ResumeCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "check_id" -------------
+	var checkId CheckId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "check_id", r.PathValue("check_id"), &checkId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "check_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumeCheck(w, r, checkId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1235,6 +1920,65 @@ func (siw *ServerInterfaceWrapper) ListRuns(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListRuns(w, r, checkId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListKeys operation middleware
+func (siw *ServerInterfaceWrapper) ListKeys(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListKeysParams
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListKeys(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeKey operation middleware
+func (siw *ServerInterfaceWrapper) RevokeKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "key_id" -------------
+	var keyId Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "key_id", r.PathValue("key_id"), &keyId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "key_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeKey(w, r, keyId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1659,6 +2403,58 @@ func (siw *ServerInterfaceWrapper) ListChecks(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// CreateCheck operation middleware
+func (siw *ServerInterfaceWrapper) CreateCheck(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", r.PathValue("project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCheck(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateKey operation middleware
+func (siw *ServerInterfaceWrapper) CreateKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "project_id" -------------
+	var projectId ProjectId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "project_id", r.PathValue("project_id"), &projectId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateKey(w, r, projectId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetStatus operation middleware
 func (siw *ServerInterfaceWrapper) GetStatus(w http.ResponseWriter, r *http.Request) {
 
@@ -1801,8 +2597,19 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects", wrapper.ListProjects)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{project_id}", wrapper.GetProject)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/projects/{project_id}/checks", wrapper.ListChecks)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{project_id}/checks", wrapper.CreateCheck)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/checks/{check_id}", wrapper.DeleteCheck)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/checks/{check_id}", wrapper.GetCheck)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/checks/{check_id}", wrapper.UpdateCheck)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/checks/{check_id}/pause", wrapper.PauseCheck)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/checks/{check_id}/resume", wrapper.ResumeCheck)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/checks/{check_id}/move", wrapper.MoveCheck)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/checks/{check_id}/ping-url", wrapper.GetPingUrl)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/checks/{check_id}/ping-url", wrapper.RotatePingUrl)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/checks/{check_id}/runs", wrapper.ListRuns)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/projects/{project_id}/keys", wrapper.CreateKey)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/keys", wrapper.ListKeys)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/keys/{key_id}", wrapper.RevokeKey)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/probe/checks", wrapper.GetProbeChecks)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/probe/runs", wrapper.PostProbeRuns)
 
@@ -1811,7 +2618,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 type BadRequestApplicationProblemPlusJSONResponse Problem
 
+type ForbiddenApplicationProblemPlusJSONResponse Problem
+
 type NotFoundApplicationProblemPlusJSONResponse Problem
+
+type PreconditionFailedApplicationProblemPlusJSONResponse Problem
 
 type ProbeProblemApplicationProblemPlusJSONResponse Problem
 
@@ -1826,6 +2637,107 @@ type TooManyRequestsApplicationProblemPlusJSONResponse struct {
 
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
 
+type UnprocessableApplicationProblemPlusJSONResponse Problem
+
+type DeleteCheckRequestObject struct {
+	CheckId CheckId `json:"check_id"`
+}
+
+type DeleteCheckResponseObject interface {
+	VisitDeleteCheckResponse(w http.ResponseWriter) error
+}
+
+type DeleteCheck204Response struct {
+}
+
+func (response DeleteCheck204Response) VisitDeleteCheckResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCheck401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCheck401ApplicationProblemPlusJSONResponse) VisitDeleteCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCheck403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCheck403ApplicationProblemPlusJSONResponse) VisitDeleteCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCheck404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCheck404ApplicationProblemPlusJSONResponse) VisitDeleteCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCheck422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCheck422ApplicationProblemPlusJSONResponse) VisitDeleteCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCheck429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCheck429ApplicationProblemPlusJSONResponse) VisitDeleteCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetCheckRequestObject struct {
 	CheckId CheckId `json:"check_id"`
 }
@@ -1834,15 +2746,23 @@ type GetCheckResponseObject interface {
 	VisitGetCheckResponse(w http.ResponseWriter) error
 }
 
-type GetCheck200JSONResponse Check
+type GetCheck200ResponseHeaders struct {
+	ETag string
+}
+
+type GetCheck200JSONResponse struct {
+	Body    Check
+	Headers GetCheck200ResponseHeaders
+}
 
 func (response GetCheck200JSONResponse) VisitGetCheckResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
@@ -1885,6 +2805,697 @@ type GetCheck429ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetCheck429ApplicationProblemPlusJSONResponse) VisitGetCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheckRequestObject struct {
+	CheckId CheckId `json:"check_id"`
+	Params  UpdateCheckParams
+	Body    *UpdateCheckJSONRequestBody
+}
+
+type UpdateCheckResponseObject interface {
+	VisitUpdateCheckResponse(w http.ResponseWriter) error
+}
+
+type UpdateCheck200ResponseHeaders struct {
+	ETag string
+}
+
+type UpdateCheck200JSONResponse struct {
+	Body    CheckTried
+	Headers UpdateCheck200ResponseHeaders
+}
+
+func (response UpdateCheck200JSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheck400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCheck400ApplicationProblemPlusJSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheck401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCheck401ApplicationProblemPlusJSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheck403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCheck403ApplicationProblemPlusJSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheck404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCheck404ApplicationProblemPlusJSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheck412ApplicationProblemPlusJSONResponse struct {
+	PreconditionFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCheck412ApplicationProblemPlusJSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(412)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheck422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCheck422ApplicationProblemPlusJSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCheck429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateCheck429ApplicationProblemPlusJSONResponse) VisitUpdateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCheckRequestObject struct {
+	CheckId CheckId `json:"check_id"`
+	Body    *MoveCheckJSONRequestBody
+}
+
+type MoveCheckResponseObject interface {
+	VisitMoveCheckResponse(w http.ResponseWriter) error
+}
+
+type MoveCheck200JSONResponse Check
+
+func (response MoveCheck200JSONResponse) VisitMoveCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCheck400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response MoveCheck400ApplicationProblemPlusJSONResponse) VisitMoveCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCheck401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response MoveCheck401ApplicationProblemPlusJSONResponse) VisitMoveCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCheck403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response MoveCheck403ApplicationProblemPlusJSONResponse) VisitMoveCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCheck404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response MoveCheck404ApplicationProblemPlusJSONResponse) VisitMoveCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCheck422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response MoveCheck422ApplicationProblemPlusJSONResponse) VisitMoveCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MoveCheck429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response MoveCheck429ApplicationProblemPlusJSONResponse) VisitMoveCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseCheckRequestObject struct {
+	CheckId CheckId `json:"check_id"`
+}
+
+type PauseCheckResponseObject interface {
+	VisitPauseCheckResponse(w http.ResponseWriter) error
+}
+
+type PauseCheck200JSONResponse Check
+
+func (response PauseCheck200JSONResponse) VisitPauseCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseCheck401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response PauseCheck401ApplicationProblemPlusJSONResponse) VisitPauseCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseCheck403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response PauseCheck403ApplicationProblemPlusJSONResponse) VisitPauseCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseCheck404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response PauseCheck404ApplicationProblemPlusJSONResponse) VisitPauseCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseCheck422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response PauseCheck422ApplicationProblemPlusJSONResponse) VisitPauseCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseCheck429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response PauseCheck429ApplicationProblemPlusJSONResponse) VisitPauseCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPingUrlRequestObject struct {
+	CheckId CheckId `json:"check_id"`
+}
+
+type GetPingUrlResponseObject interface {
+	VisitGetPingUrlResponse(w http.ResponseWriter) error
+}
+
+type GetPingUrl200JSONResponse struct {
+	PingUrl string `json:"ping_url"`
+}
+
+func (response GetPingUrl200JSONResponse) VisitGetPingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPingUrl401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetPingUrl401ApplicationProblemPlusJSONResponse) VisitGetPingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPingUrl403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetPingUrl403ApplicationProblemPlusJSONResponse) VisitGetPingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPingUrl404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetPingUrl404ApplicationProblemPlusJSONResponse) VisitGetPingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPingUrl422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response GetPingUrl422ApplicationProblemPlusJSONResponse) VisitGetPingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPingUrl429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response GetPingUrl429ApplicationProblemPlusJSONResponse) VisitGetPingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotatePingUrlRequestObject struct {
+	CheckId CheckId `json:"check_id"`
+}
+
+type RotatePingUrlResponseObject interface {
+	VisitRotatePingUrlResponse(w http.ResponseWriter) error
+}
+
+type RotatePingUrl200JSONResponse CheckWithPingUrl
+
+func (response RotatePingUrl200JSONResponse) VisitRotatePingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotatePingUrl401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response RotatePingUrl401ApplicationProblemPlusJSONResponse) VisitRotatePingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotatePingUrl403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RotatePingUrl403ApplicationProblemPlusJSONResponse) VisitRotatePingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotatePingUrl404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RotatePingUrl404ApplicationProblemPlusJSONResponse) VisitRotatePingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotatePingUrl422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response RotatePingUrl422ApplicationProblemPlusJSONResponse) VisitRotatePingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RotatePingUrl429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response RotatePingUrl429ApplicationProblemPlusJSONResponse) VisitRotatePingUrlResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeCheckRequestObject struct {
+	CheckId CheckId `json:"check_id"`
+}
+
+type ResumeCheckResponseObject interface {
+	VisitResumeCheckResponse(w http.ResponseWriter) error
+}
+
+type ResumeCheck200JSONResponse Check
+
+func (response ResumeCheck200JSONResponse) VisitResumeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeCheck401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeCheck401ApplicationProblemPlusJSONResponse) VisitResumeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeCheck403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeCheck403ApplicationProblemPlusJSONResponse) VisitResumeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeCheck404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeCheck404ApplicationProblemPlusJSONResponse) VisitResumeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeCheck422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeCheck422ApplicationProblemPlusJSONResponse) VisitResumeCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeCheck429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ResumeCheck429ApplicationProblemPlusJSONResponse) VisitResumeCheckResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -1975,6 +3586,178 @@ type ListRuns429ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ListRuns429ApplicationProblemPlusJSONResponse) VisitListRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKeysRequestObject struct {
+	Params ListKeysParams
+}
+
+type ListKeysResponseObject interface {
+	VisitListKeysResponse(w http.ResponseWriter) error
+}
+
+type ListKeys200JSONResponse ApiKeyList
+
+func (response ListKeys200JSONResponse) VisitListKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKeys401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListKeys401ApplicationProblemPlusJSONResponse) VisitListKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKeys403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListKeys403ApplicationProblemPlusJSONResponse) VisitListKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKeys404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListKeys404ApplicationProblemPlusJSONResponse) VisitListKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListKeys429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListKeys429ApplicationProblemPlusJSONResponse) VisitListKeysResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeKeyRequestObject struct {
+	KeyId Id `json:"key_id"`
+}
+
+type RevokeKeyResponseObject interface {
+	VisitRevokeKeyResponse(w http.ResponseWriter) error
+}
+
+type RevokeKey204Response struct {
+}
+
+func (response RevokeKey204Response) VisitRevokeKeyResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeKey401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeKey401ApplicationProblemPlusJSONResponse) VisitRevokeKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeKey403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeKey403ApplicationProblemPlusJSONResponse) VisitRevokeKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeKey404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeKey404ApplicationProblemPlusJSONResponse) VisitRevokeKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeKey429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response RevokeKey429ApplicationProblemPlusJSONResponse) VisitRevokeKeyResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2653,6 +4436,258 @@ func (response ListChecks429ApplicationProblemPlusJSONResponse) VisitListChecksR
 	return err
 }
 
+type CreateCheckRequestObject struct {
+	ProjectId ProjectId `json:"project_id"`
+	Body      *CreateCheckJSONRequestBody
+}
+
+type CreateCheckResponseObject interface {
+	VisitCreateCheckResponse(w http.ResponseWriter) error
+}
+
+type CreateCheck201ResponseHeaders struct {
+	Location string
+}
+
+type CreateCheck201JSONResponse struct {
+	Body    CheckCreated
+	Headers CreateCheck201ResponseHeaders
+}
+
+func (response CreateCheck201JSONResponse) VisitCreateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", fmt.Sprint(response.Headers.Location))
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheck400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheck400ApplicationProblemPlusJSONResponse) VisitCreateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheck401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheck401ApplicationProblemPlusJSONResponse) VisitCreateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheck403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheck403ApplicationProblemPlusJSONResponse) VisitCreateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheck404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheck404ApplicationProblemPlusJSONResponse) VisitCreateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheck422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheck422ApplicationProblemPlusJSONResponse) VisitCreateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCheck429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCheck429ApplicationProblemPlusJSONResponse) VisitCreateCheckResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKeyRequestObject struct {
+	ProjectId ProjectId `json:"project_id"`
+	Body      *CreateKeyJSONRequestBody
+}
+
+type CreateKeyResponseObject interface {
+	VisitCreateKeyResponse(w http.ResponseWriter) error
+}
+
+type CreateKey201JSONResponse ApiKeyMade
+
+func (response CreateKey201JSONResponse) VisitCreateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKey400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateKey400ApplicationProblemPlusJSONResponse) VisitCreateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKey401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateKey401ApplicationProblemPlusJSONResponse) VisitCreateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKey403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateKey403ApplicationProblemPlusJSONResponse) VisitCreateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKey404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateKey404ApplicationProblemPlusJSONResponse) VisitCreateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKey422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableApplicationProblemPlusJSONResponse
+}
+
+func (response CreateKey422ApplicationProblemPlusJSONResponse) VisitCreateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateKey429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateKey429ApplicationProblemPlusJSONResponse) VisitCreateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetStatusRequestObject struct {
 }
 
@@ -2711,12 +4746,39 @@ func (response GetStatus429ApplicationProblemPlusJSONResponse) VisitGetStatusRes
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
+	// DeleteCheck Delete a check with its runs
+	// (DELETE /checks/{check_id})
+	DeleteCheck(ctx context.Context, request DeleteCheckRequestObject) (DeleteCheckResponseObject, error)
 	// GetCheck One check
 	// (GET /checks/{check_id})
 	GetCheck(ctx context.Context, request GetCheckRequestObject) (GetCheckResponseObject, error)
+	// UpdateCheck Change a check
+	// (PATCH /checks/{check_id})
+	UpdateCheck(ctx context.Context, request UpdateCheckRequestObject) (UpdateCheckResponseObject, error)
+	// MoveCheck Move a check to another project
+	// (POST /checks/{check_id}/move)
+	MoveCheck(ctx context.Context, request MoveCheckRequestObject) (MoveCheckResponseObject, error)
+	// PauseCheck Pause a check until it is resumed or pinged
+	// (POST /checks/{check_id}/pause)
+	PauseCheck(ctx context.Context, request PauseCheckRequestObject) (PauseCheckResponseObject, error)
+	// GetPingUrl The check's ping URL
+	// (GET /checks/{check_id}/ping-url)
+	GetPingUrl(ctx context.Context, request GetPingUrlRequestObject) (GetPingUrlResponseObject, error)
+	// RotatePingUrl Replace the check's ping URL
+	// (POST /checks/{check_id}/ping-url)
+	RotatePingUrl(ctx context.Context, request RotatePingUrlRequestObject) (RotatePingUrlResponseObject, error)
+	// ResumeCheck Resume a paused check
+	// (POST /checks/{check_id}/resume)
+	ResumeCheck(ctx context.Context, request ResumeCheckRequestObject) (ResumeCheckResponseObject, error)
 	// ListRuns The runs of a check, newest first
 	// (GET /checks/{check_id}/runs)
 	ListRuns(ctx context.Context, request ListRunsRequestObject) (ListRunsResponseObject, error)
+	// ListKeys The keys of a project, or of all the caller owns
+	// (GET /keys)
+	ListKeys(ctx context.Context, request ListKeysRequestObject) (ListKeysResponseObject, error)
+	// RevokeKey Revoke a key
+	// (DELETE /keys/{key_id})
+	RevokeKey(ctx context.Context, request RevokeKeyRequestObject) (RevokeKeyResponseObject, error)
 	// ListLog What happened, newest first, as far as the caller may know
 	// (GET /log)
 	ListLog(ctx context.Context, request ListLogRequestObject) (ListLogResponseObject, error)
@@ -2744,6 +4806,12 @@ type StrictServerInterface interface {
 	// ListChecks The checks of a project
 	// (GET /projects/{project_id}/checks)
 	ListChecks(ctx context.Context, request ListChecksRequestObject) (ListChecksResponseObject, error)
+	// CreateCheck Create a check
+	// (POST /projects/{project_id}/checks)
+	CreateCheck(ctx context.Context, request CreateCheckRequestObject) (CreateCheckResponseObject, error)
+	// CreateKey Make a key for a project
+	// (POST /projects/{project_id}/keys)
+	CreateKey(ctx context.Context, request CreateKeyRequestObject) (CreateKeyResponseObject, error)
 	// GetStatus Everything the caller can see, in one snapshot
 	// (GET /status)
 	GetStatus(ctx context.Context, request GetStatusRequestObject) (GetStatusResponseObject, error)
@@ -2788,6 +4856,32 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
+// DeleteCheck operation middleware
+func (sh *strictHandler) DeleteCheck(w http.ResponseWriter, r *http.Request, checkId CheckId) {
+	var request DeleteCheckRequestObject
+
+	request.CheckId = checkId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCheck(ctx, request.(DeleteCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCheckResponseObject); ok {
+		if err := validResponse.VisitDeleteCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetCheck operation middleware
 func (sh *strictHandler) GetCheck(w http.ResponseWriter, r *http.Request, checkId CheckId) {
 	var request GetCheckRequestObject
@@ -2807,6 +4901,177 @@ func (sh *strictHandler) GetCheck(w http.ResponseWriter, r *http.Request, checkI
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCheckResponseObject); ok {
 		if err := validResponse.VisitGetCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCheck operation middleware
+func (sh *strictHandler) UpdateCheck(w http.ResponseWriter, r *http.Request, checkId CheckId, params UpdateCheckParams) {
+	var request UpdateCheckRequestObject
+
+	request.CheckId = checkId
+	request.Params = params
+
+	var body UpdateCheckJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCheck(ctx, request.(UpdateCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCheckResponseObject); ok {
+		if err := validResponse.VisitUpdateCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MoveCheck operation middleware
+func (sh *strictHandler) MoveCheck(w http.ResponseWriter, r *http.Request, checkId CheckId) {
+	var request MoveCheckRequestObject
+
+	request.CheckId = checkId
+
+	var body MoveCheckJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MoveCheck(ctx, request.(MoveCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MoveCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MoveCheckResponseObject); ok {
+		if err := validResponse.VisitMoveCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PauseCheck operation middleware
+func (sh *strictHandler) PauseCheck(w http.ResponseWriter, r *http.Request, checkId CheckId) {
+	var request PauseCheckRequestObject
+
+	request.CheckId = checkId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PauseCheck(ctx, request.(PauseCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PauseCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PauseCheckResponseObject); ok {
+		if err := validResponse.VisitPauseCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPingUrl operation middleware
+func (sh *strictHandler) GetPingUrl(w http.ResponseWriter, r *http.Request, checkId CheckId) {
+	var request GetPingUrlRequestObject
+
+	request.CheckId = checkId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPingUrl(ctx, request.(GetPingUrlRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPingUrl")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPingUrlResponseObject); ok {
+		if err := validResponse.VisitGetPingUrlResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RotatePingUrl operation middleware
+func (sh *strictHandler) RotatePingUrl(w http.ResponseWriter, r *http.Request, checkId CheckId) {
+	var request RotatePingUrlRequestObject
+
+	request.CheckId = checkId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RotatePingUrl(ctx, request.(RotatePingUrlRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RotatePingUrl")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RotatePingUrlResponseObject); ok {
+		if err := validResponse.VisitRotatePingUrlResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResumeCheck operation middleware
+func (sh *strictHandler) ResumeCheck(w http.ResponseWriter, r *http.Request, checkId CheckId) {
+	var request ResumeCheckRequestObject
+
+	request.CheckId = checkId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResumeCheck(ctx, request.(ResumeCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResumeCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResumeCheckResponseObject); ok {
+		if err := validResponse.VisitResumeCheckResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2834,6 +5099,58 @@ func (sh *strictHandler) ListRuns(w http.ResponseWriter, r *http.Request, checkI
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListRunsResponseObject); ok {
 		if err := validResponse.VisitListRunsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListKeys operation middleware
+func (sh *strictHandler) ListKeys(w http.ResponseWriter, r *http.Request, params ListKeysParams) {
+	var request ListKeysRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListKeys(ctx, request.(ListKeysRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListKeys")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListKeysResponseObject); ok {
+		if err := validResponse.VisitListKeysResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeKey operation middleware
+func (sh *strictHandler) RevokeKey(w http.ResponseWriter, r *http.Request, keyId Id) {
+	var request RevokeKeyRequestObject
+
+	request.KeyId = keyId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeKey(ctx, request.(RevokeKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeKeyResponseObject); ok {
+		if err := validResponse.VisitRevokeKeyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3070,6 +5387,72 @@ func (sh *strictHandler) ListChecks(w http.ResponseWriter, r *http.Request, proj
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListChecksResponseObject); ok {
 		if err := validResponse.VisitListChecksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCheck operation middleware
+func (sh *strictHandler) CreateCheck(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request CreateCheckRequestObject
+
+	request.ProjectId = projectId
+
+	var body CreateCheckJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCheck(ctx, request.(CreateCheckRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCheck")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCheckResponseObject); ok {
+		if err := validResponse.VisitCreateCheckResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateKey operation middleware
+func (sh *strictHandler) CreateKey(w http.ResponseWriter, r *http.Request, projectId ProjectId) {
+	var request CreateKeyRequestObject
+
+	request.ProjectId = projectId
+
+	var body CreateKeyJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateKey(ctx, request.(CreateKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateKeyResponseObject); ok {
+		if err := validResponse.VisitCreateKeyResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

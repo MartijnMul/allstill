@@ -10,8 +10,8 @@ There are two ways to watch something:
 
 ## For AI assistants
 
-- A ping URL is a secret: anyone who has it can report for that check. Keep it in the place the project keeps its secrets. Never put it in the repository, in a log or in a message. If one leaks, someone who may edit the project replaces it on the check's form in the dashboard; the old one stops working at once, so jobs need the new one.
-- You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands only work there. Someone without access to the server who may edit a project can still change its checks: see "In the dashboard" below.
+- A ping URL is a secret: anyone who has it can report for that check. Keep it in the place the project keeps its secrets. Never put it in the repository, in a log or in a message. If one leaks, someone who may edit the project replaces it with `allstill checks ping-url -replace` or on the check's form in the dashboard; the old one stops working at once, so jobs need the new one.
+- You usually work somewhere other than the Allstill server. Unless you have been given access there, write the exact command for the person to run. See "On the server" below: these commands only work there. Someone without access to the server who may edit a project can still change its checks from their own machine or in the dashboard: see below.
 - Do not switch alerts on or off, and do not promise anything from "Not here yet" below.
 - Do not run `allstill login` or approve a code yourself: signing in takes a person's passkey. If you are given a sign-in on a machine, it should be a read-only one, which a person makes with `allstill login -read-only`.
 - Run `allstill <command> -h` for every flag of a command. If this guide and that help disagree, the help is right.
@@ -111,7 +111,36 @@ allstill log -what signins -late
 allstill probes
 ```
 
-A name two checks share lists both, with their ids: use `-project`, or an id. `allstill status` exits 0 however bad things are: it reports state, not health. Changing things from here comes next.
+A name two checks share lists both, with their ids: use `-project`, or an id. `allstill status` exits 0 however bad things are: it reports state, not health.
+
+Someone who may edit a project also changes its checks from here, under the same rules as the form in the dashboard:
+
+```sh
+allstill checks add -project Backups -name nightly -cron "0 3 * * *"          # a job: prints its ping URL
+allstill checks add -project Sites -name shop -http https://shop.example.com/health -json-field /status=ok
+allstill checks add -project Sites -name mail -tcp mail.example.com:993 -tls
+allstill checks change -check nightly -every 1h -grace 30m
+allstill checks pause -check nightly
+allstill checks resume -check nightly
+allstill checks move -check nightly -to Archive
+allstill checks ping-url -check nightly                                       # again, for those who may see it
+allstill checks ping-url -check nightly -replace                              # when it has leaked
+allstill checks delete -check nightly
+```
+
+`allstill checks add` and `allstill checks change` take the flags of `allstill admin add-check` and `allstill admin set-check`, with `-json-field` for what those call `-json`, as `-json` here is how the answer is printed. A job's check made without a schedule expects a run once a day with an hour's grace, and `-cron` without `-time-zone` uses this machine's. Adding or changing an address tries it once, and says what it found. Only adding a job's check and `allstill checks ping-url` print a ping URL: keep it with the project's secrets.
+
+**A script gets a key, not a person's sign-in.** An owner of the project or an administrator makes one:
+
+```sh
+allstill keys make monitor -project Shop -scope read      # or -scope manage, to change its checks too
+allstill keys -project Shop                               # who made each, and when it was last used
+allstill keys revoke monitor -project Shop
+```
+
+The key is printed once. Keep it in the script's secrets, and give it as `ALLSTILL_TOKEN`, with `ALLSTILL_SERVER` for the address: a command then needs no sign-in. A key with `read` acts as a viewer of its one project, and with `manage` as an editor. It reaches nothing else, it cannot make a key, and it keeps working when whoever made it has left.
+
+**You, as an AI assistant,** use a key or a read-only sign-in you were given. Never run `allstill login` or approve a code yourself. A read-only one cannot read a ping URL, so for that, ask.
 
 ## Watch a site or a port
 
@@ -160,7 +189,7 @@ A new installation starts in shadow mode: it records what it would have sent und
 
 ## Not here yet
 
-- Adding or changing checks, projects and people without a shell on the server. For now reading works from anywhere, and changes are made in the dashboard or by commands on the server.
+- Making projects and managing people without a shell on the server. For now those are commands on the server. Checks and keys already work from anywhere.
 - Reading incidents, or acknowledging and snoozing them.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Changing a project's default schedule and grace period.

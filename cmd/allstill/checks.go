@@ -57,15 +57,17 @@ For both:
 
 // checkFlags adds the flags of a check Allstill runs itself to fs. apply writes
 // the ones given into settings for a check of this kind, refuses those of
-// another kind, and returns the interval when -every was given.
-func checkFlags(fs *flag.FlagSet) (apply func(kind string, settings map[string]any) (time.Duration, error)) {
+// another kind, and returns the interval when -every was given. jsonField names the
+// flag for a JSON field, as commands that work from anywhere keep -json for how they
+// answer.
+func checkFlags(fs *flag.FlagSet, jsonFlag string) (apply func(kind string, settings map[string]any) (time.Duration, error)) {
 	rawURL := fs.String("http", "", "the URL to fetch")
 	address := fs.String("tcp", "", "the host and port to connect to, such as mail.example.com:993")
 	useTLS := fs.Bool("tls", false, "finish a TLS handshake on the TCP port, and watch its certificate")
 	method := fs.String("method", "GET", "GET or HEAD")
 	expect := fs.String("expect", "", "the status codes that count as up, such as 200,301")
 	location := fs.String("location", "", "where a redirect must lead")
-	jsonField := fs.String("json", "", "a JSON field that must equal a value, such as /status=ok")
+	jsonField := fs.String(jsonFlag, "", "a JSON field that must equal a value, such as /status=ok")
 	follow := fs.Bool("follow", false, "follow up to 5 redirects")
 	every := fs.Duration("every", time.Minute, "how often, from 1m to 24h")
 	timeout := fs.Duration("timeout", active.DefaultTimeout, "how long an attempt may take, at most 60s")
@@ -75,7 +77,7 @@ func checkFlags(fs *flag.FlagSet) (apply func(kind string, settings map[string]a
 	ca := fs.String("ca", "", "a file of certificates to trust beyond the system's, in PEM")
 	noVerify := fs.Bool("no-verify", false, "do not verify the certificate")
 	flagKind := map[string]string{
-		"http": "http", "method": "http", "expect": "http", "location": "http", "json": "http", "follow": "http",
+		"http": "http", "method": "http", "expect": "http", "location": "http", jsonFlag: "http", "follow": "http",
 		"tcp": "tcp", "tls": "tcp",
 	}
 	// What all checks Allstill runs itself have, and a check that jobs ping has not.
@@ -131,10 +133,10 @@ func checkFlags(fs *flag.FlagSet) (apply func(kind string, settings map[string]a
 				set("expected_status", codes, len(codes) == 0)
 			case "location":
 				set("location", *location, *location == "")
-			case "json":
+			case jsonFlag:
 				pointer, equals, ok := strings.Cut(*jsonField, "=")
 				if *jsonField != "" && !ok {
-					err = fmt.Errorf("-json %q: give a field and its value, such as /status=ok", *jsonField)
+					err = fmt.Errorf("-%s %q: give a field and its value, such as /status=ok", jsonFlag, *jsonField)
 					return
 				}
 				set("json_field", active.JSONField{Pointer: pointer, Equals: equals}, *jsonField == "")
@@ -317,7 +319,7 @@ Flags:
 		tags = append(tags, v)
 		return nil
 	})
-	apply := checkFlags(fs)
+	apply := checkFlags(fs, "json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -482,7 +484,7 @@ Flags:
 	cron := fs.String("cron", "", "for a check that jobs ping: when it is expected, as a cron expression")
 	timeZone := fs.String("time-zone", "", "for a check that jobs ping: the time zone of -cron")
 	grace := fs.Duration("grace", 0, "for a check that jobs ping: how long after the expected time before it is down")
-	apply := checkFlags(fs)
+	apply := checkFlags(fs, "json")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
