@@ -516,7 +516,7 @@ func (s *Store) SetAlertingAs(ctx context.Context, a Access, checkID, urgency st
 func changeAlerting(ctx context.Context, q *db.Queries, a Access, c db.Check, urgency string, critical bool, at time.Time) error {
 	role, _ := a.Role(c.ProjectID)
 	if critical && c.Critical == 0 && role != Owner && !a.Admin {
-		return &InvalidError{"critical", "only an owner or administrator can turn this on: it wakes people during their quiet hours"}
+		return &InvalidError{"critical", "only an owner or administrator can turn critical on: it wakes people during their quiet hours"}
 	}
 	if _, own, err := ownProbe(ctx, q, a.WorkspaceID, c.ID); err != nil {
 		return err

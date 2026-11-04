@@ -253,9 +253,44 @@ func TestAJobsCheckOverTheAPI(t *testing.T) {
 	if w := send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"name": "x", "kind": "http"}); w.Code != http.StatusUnprocessableEntity {
 		t.Errorf("another kind: %d", w.Code)
 	}
+	// A refusal says which field it means, as nothing else does here (R47).
+	for field, wants := range map[string]struct {
+		body any
+		says string
+	}{
+		"a grace":   {map[string]any{"grace": 10}, "The grace period must be at least 60 seconds."},
+		"an every":  {map[string]any{"schedule": map[string]any{"kind": "interval", "every": 30}}, "The interval must be at least 60 seconds."},
+		"an urgent": {map[string]any{"alerting": map[string]any{"urgency": "soon"}}, "The urgency must be now, digest or none."},
+		"some tags": {map[string]any{"tags": make([]string, 21)}, "Tags: at most 20."},
+		"a name":    {map[string]any{"name": "  "}, "The name must be 1 to 200 characters."},
+	} {
+		got := answer[api.Problem](t, send(f, "PATCH", "/checks/"+made.Id, token, wants.body), http.StatusUnprocessableEntity)
+		if got.Detail == nil || *got.Detail != wants.says {
+			t.Errorf("%s: %+v", field, got.Detail)
+		}
+	}
+	// As HTTP has it, a star is any version.
+	star := send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"description": "still the backup, again"}, "If-Match", "*")
+	if star.Code != 200 {
+		t.Errorf("If-Match *: %d %s", star.Code, star.Body)
+	}
 	bad := answer[api.Problem](t, send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"slug": "NOT A SLUG"}), http.StatusUnprocessableEntity)
 	if bad.Detail == nil || bad.Errors == nil || (*bad.Errors)[0].Pointer != "/slug" {
 		t.Errorf("%+v", bad)
+	}
+
+	nowhere := answer[api.Problem](t, send(f, "POST", "/checks/"+made.Id+"/move", token, map[string]any{}), http.StatusUnprocessableEntity)
+	if nowhere.Errors == nil || (*nowhere.Errors)[0].Pointer != "/project_id" {
+		t.Errorf("a move to nowhere: %+v", nowhere)
+	}
+	if w := send(f, "POST", "/checks/"+f.hidden+"/move", token, map[string]any{}); w.Code != http.StatusNotFound {
+		t.Errorf("a move of what they cannot see: %d %s", w.Code, w.Body)
+	}
+	if got := answer[api.Problem](t, send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"http": map[string]any{"url": "https://example.com/"}}), http.StatusUnprocessableEntity); got.Detail == nil || !strings.Contains(*got.Detail, "a job's check has neither") {
+		t.Errorf("what it runs on a job: %+v", got.Detail)
+	}
+	if w := send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"name": 123}); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "request cannot be read") {
+		t.Errorf("a name that is a number: %d %s", w.Code, w.Body)
 	}
 
 	// Pausing and resuming.
@@ -465,9 +500,12 @@ func TestTheAPIRefusesWhatTheFormRefuses(t *testing.T) {
 	if got := read[api.Check](t, f, "/checks/"+made.Id, token); got.Http.Url != "http://192.0.2.7/" {
 		t.Errorf("after being refused: %+v", got.Http)
 	}
-	// What only a job has, on either path.
-	if w := send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"slug": "lan"}); w.Code != http.StatusUnprocessableEntity {
+	// What only a job has, on either path, and an address that cannot be read.
+	if w := send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"slug": "lan"}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "a slug is only") && !strings.Contains(w.Body.String(), "A slug is only") {
 		t.Errorf("a slug on a site: %d %s", w.Code, w.Body)
+	}
+	if w := send(f, "PATCH", "/checks/"+made.Id, token, map[string]any{"http": map[string]any{"url": "http://["}}); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "The address") {
+		t.Errorf("an address that cannot be read: %d %s", w.Code, w.Body)
 	}
 	// A field it does not know is refused by name, and nothing changes: misspelled beside
 	// a whole `http`, it would otherwise lose what it meant to set.

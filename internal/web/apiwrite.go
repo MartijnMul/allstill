@@ -37,17 +37,44 @@ func refusalOf(ctx context.Context, err error) (api.Problem, bool) {
 		return problem(http.StatusPreconditionFailed, "Someone changed this check since it was read.", "Nothing was saved. Read it again, and try again."), true
 	}
 	if inv, ok := errors.AsType[*store.InvalidError](err); ok {
-		p := problem(http.StatusUnprocessableEntity, "That cannot be saved.", sentence(inv.Problem))
+		detail := refusalDetail(inv)
+		p := problem(http.StatusUnprocessableEntity, "That cannot be saved.", detail)
 		if pointer := pointerOf(inv.Field); pointer != "" {
 			errs := []struct {
 				Detail  string `json:"detail"`
 				Pointer string `json:"pointer"`
-			}{{sentence(inv.Problem), pointer}}
+			}{{detail, pointer}}
 			p.Errors = &errs
 		}
 		return p, true
 	}
 	return api.Problem{}, false
+}
+
+// fieldNames are how a refusal names a field. A form puts its refusal beside the field,
+// and here nothing else says which one is meant.
+var fieldNames = map[string]string{
+	"name": "The name", "slug": "The slug", "description": "The description", "tags": "Tags", "grace": "The grace period",
+	"schedule": "The schedule", "schedule.every": "The interval", "urgency": "The urgency", "kind": "The kind", "scope": "The scope",
+	"url": "The address", "host": "The host", "port": "The port", "method": "The method", "location": "The location", "timeout": "The timeout",
+	"probe": "The probe", "project": "The project", "project_id": "The project",
+}
+
+// refusalDetail says what is wrong, naming the field when the store's words need one:
+// they read "must be at least 60 seconds", or say all there is in a sentence of their own.
+func refusalDetail(inv *store.InvalidError) string {
+	name, ok := fieldNames[inv.Field]
+	if !ok {
+		name = "The setting " + inv.Field
+	}
+	first, _, _ := strings.Cut(inv.Problem, " ")
+	switch first {
+	case "must", "is", "cannot", "holds", "needs", "checks", "does", "follows":
+		return sentence(name + " " + inv.Problem)
+	case "at", "each":
+		return sentence(name + ": " + inv.Problem)
+	}
+	return sentence(inv.Problem)
 }
 
 // forbidden says who could do this, not a status code (R47).
@@ -64,7 +91,7 @@ func forbidden(ctx context.Context) api.Problem {
 // depend on the kind of check.
 func pointerOf(field string) string {
 	switch field {
-	case "name", "slug", "description", "tags", "kind", "grace", "scope", "project":
+	case "name", "slug", "description", "tags", "kind", "grace", "scope", "project_id":
 		return "/" + field
 	case "schedule", "schedule.every":
 		return "/" + strings.ReplaceAll(field, ".", "/")
@@ -85,7 +112,7 @@ func etagOf(c store.CheckView) string { return fmt.Sprintf(`"%d"`, c.Version) }
 // versionIn reads an ETag. One this server did not make names no version it has, which
 // is how it should be taken.
 func versionIn(match *string) (int64, error) {
-	if match == nil || *match == "" {
+	if match == nil || *match == "" || *match == "*" { // any version, as HTTP says
 		return 0, nil
 	}
 	n, err := strconv.ParseInt(strings.Trim(*match, `"`), 10, 64)
@@ -126,7 +153,7 @@ func settingsIn(kind string, h *api.HttpCheck, t *api.TcpCheck) (map[string]any,
 	var probe *string
 	switch {
 	case kind == "http" && t != nil, kind == "tcp" && h != nil, !store.Active(kind) && (h != nil || t != nil):
-		return nil, "", &store.InvalidError{Field: "kind", Problem: "what it runs must be of its kind"}
+		return nil, "", &store.InvalidError{Field: "kind", Problem: "http goes with an HTTP check and tcp with a TCP check, and a job's check has neither"}
 	case kind == "http" && h != nil:
 		from, probe = h, h.ProbeId
 	case kind == "tcp" && t != nil:
@@ -276,7 +303,7 @@ func (a apiServer) CreateCheck(ctx context.Context, req api.CreateCheckRequestOb
 	in := req.Body
 	kind := string(in.Kind)
 	if kind != "ping" && !store.Active(kind) {
-		return nil, &store.InvalidError{Field: "kind", Problem: "is ping, http or tcp"}
+		return nil, &store.InvalidError{Field: "kind", Problem: "must be ping, http or tcp"}
 	}
 	n := store.NewCheck{Name: strings.TrimSpace(in.Name), Kind: kind}
 	if in.Slug != nil {
@@ -549,7 +576,13 @@ func (a apiServer) ResumeCheck(ctx context.Context, req api.ResumeCheckRequestOb
 
 // MoveCheck moves a check to another project the caller may edit.
 func (a apiServer) MoveCheck(ctx context.Context, req api.MoveCheckRequestObject) (api.MoveCheckResponseObject, error) {
-	access := callerOf(ctx).Access
+	_, access, err := a.forChange(ctx, req.CheckId)
+	if err != nil {
+		return nil, err
+	}
+	if req.Body.ProjectId == "" {
+		return nil, &store.InvalidError{Field: "project_id", Problem: "is needed: say where it goes"}
+	}
 	if err := a.s.Store.MoveCheckAs(ctx, access, req.CheckId, req.Body.ProjectId, a.s.Now()); err != nil {
 		return nil, err
 	}

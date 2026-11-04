@@ -700,6 +700,13 @@ func TestManagingFromTheCommandLine(t *testing.T) {
 	has(must("checks", "resume", "-check", "hourly"), "hourly is not paused")
 	has(must("checks", "move", "-check", "hourly", "-to", "Shop"), "Moved hourly to Shop")
 	has(must("checks", "-project", "Shop"), "hourly")
+	has(must("checks", "move", "-check", "hourly", "-to", "Shop"), "in Shop already")
+	if _, err := command(t, "checks", "pause", "-check", "nothing"); err == nil || !strings.HasPrefix(err.Error(), "you have no check named") {
+		t.Errorf("an unknown name reads: %v", err)
+	}
+	if _, err := command(t, "checks", "change", "-check", "hourly", "-grace", "10s"); err == nil || !strings.Contains(err.Error(), "The grace period must be") {
+		t.Errorf("a refusal does not say which field: %v", err)
+	}
 	replaced := must("checks", "ping-url", "-check", "hourly", "-replace")
 	has(replaced, "Replaced")
 	if strings.Contains(replaced, url) {

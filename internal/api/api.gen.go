@@ -1355,7 +1355,7 @@ type Unprocessable = Problem
 
 // UpdateCheckParams defines parameters for UpdateCheck.
 type UpdateCheckParams struct {
-	// IfMatch The ETag of the version you are changing.
+	// IfMatch The ETag of the version you are changing, or `*` for any version.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 

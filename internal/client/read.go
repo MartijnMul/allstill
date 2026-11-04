@@ -178,6 +178,12 @@ func looksLikeID(s, prefix string) bool { return strings.HasPrefix(s, prefix+"_"
 // from one they may not see.
 var ErrNoSuchThing = errors.New("no such thing")
 
+// noSuch says which name that was, in its own words.
+type noSuch string
+
+func (e noSuch) Error() string        { return string(e) }
+func (e noSuch) Is(target error) bool { return target == ErrNoSuchThing }
+
 // FindProject finds a project by name or id. Two with one name list both, and change
 // nothing (R46).
 func (c *Client) FindProject(ctx context.Context, nameOrID string) (apiclient.Project, error) {
@@ -193,7 +199,7 @@ func (c *Client) FindProject(ctx context.Context, nameOrID string) (apiclient.Pr
 	}
 	switch len(found) {
 	case 0:
-		return apiclient.Project{}, fmt.Errorf("%w: you have no project named %q", ErrNoSuchThing, Clean(nameOrID))
+		return apiclient.Project{}, noSuch(fmt.Sprintf("you have no project named %q", Clean(nameOrID)))
 	case 1:
 		return found[0], nil
 	}
@@ -212,7 +218,7 @@ func (c *Client) FindCheck(ctx context.Context, project, nameOrID string) (*apic
 	if looksLikeID(nameOrID, "chk") {
 		check, raw, err := c.Check(ctx, nameOrID)
 		if err != nil && strings.Contains(err.Error(), "nothing here") {
-			return nil, nil, fmt.Errorf("%w: you have no check %s", ErrNoSuchThing, Clean(nameOrID))
+			return nil, nil, noSuch("you have no check " + Clean(nameOrID))
 		}
 		return check, raw, err
 	}
@@ -249,7 +255,7 @@ func (c *Client) FindCheck(ctx context.Context, project, nameOrID string) (*apic
 	}
 	switch len(hits) {
 	case 0:
-		return nil, nil, fmt.Errorf("%w: you have no check named %q", ErrNoSuchThing, Clean(nameOrID))
+		return nil, nil, noSuch(fmt.Sprintf("you have no check named %q", Clean(nameOrID)))
 	case 1:
 		return &hits[0].check, hits[0].raw, nil
 	}

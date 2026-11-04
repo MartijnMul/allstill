@@ -261,3 +261,26 @@ func TestACheckOnAProbeSaysSo(t *testing.T) {
 		}
 	}
 }
+
+// What a probe is told when its post cannot be read stays as it is: the wording of the
+// rest of the API changed without it.
+func TestAProbeIsToldItsPostCannotBeRead(t *testing.T) {
+	f := setup(t)
+	admins, err := f.st.AdminAccess(t.Context(), f.ws, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, key, err := f.st.CreateProbe(t.Context(), admins, "office", f.project, []string{f.project})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", site+"/api/v1/probe/runs", strings.NewReader("{not json"))
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Allstill-Probe-Protocol", strconv.Itoa(api.ProbeProtocolVersion))
+	w := httptest.NewRecorder()
+	f.mux.ServeHTTP(w, req)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "The post cannot be read") {
+		t.Errorf("%d %s", w.Code, w.Body)
+	}
+}

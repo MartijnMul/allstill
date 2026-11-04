@@ -557,6 +557,10 @@ func checksMove(ctx context.Context, args []string, stdout, stderr io.Writer) er
 			if err != nil {
 				return err
 			}
+			if p.Id == c.ProjectId && !*r.json {
+				fmt.Fprintf(stdout, "%s is in %s already.\n", client.Clean(c.Name), client.Clean(p.Name))
+				return nil
+			}
 			raw, err := api.MoveCheck(ctx, c.Id, p.Id)
 			if err != nil {
 				return err

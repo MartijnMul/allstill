@@ -64,7 +64,7 @@ func (s *Store) CreateAPIKey(ctx context.Context, a Access, projectID, name, sco
 		return APIKey{}, "", &InvalidError{"name", "must be 1 to 100 characters"}
 	}
 	if scope != ScopeRead && scope != ScopeManage {
-		return APIKey{}, "", &InvalidError{"scope", "is read or manage"}
+		return APIKey{}, "", &InvalidError{"scope", "must be read or manage"}
 	}
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {

@@ -98,6 +98,10 @@ func (s *Server) registerAPI(mux *http.ServeMux) {
 				writeProblem(w, problem(http.StatusRequestEntityTooLarge, "Too many runs in one post.", fmt.Sprintf("A post holds at most %d runs and %d bytes.", maxProbeRuns, maxProbeBody)))
 				return
 			}
+			if !strings.HasPrefix(r.URL.Path, "/api/v1/probe/") {
+				writeProblem(w, problem(http.StatusBadRequest, "The request cannot be read.", "It should be JSON, with each field as the API description says."))
+				return
+			}
 			writeProblem(w, problem(http.StatusBadRequest, "The post cannot be read.", ""))
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {

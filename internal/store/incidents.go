@@ -590,7 +590,7 @@ func (s *Store) SetAlerting(ctx context.Context, by Actor, workspaceID, checkID,
 
 func setAlerting(ctx context.Context, q *db.Queries, workspaceID, checkID, urgency string, critical bool, at time.Time) error {
 	if urgency != "now" && urgency != "digest" && urgency != "none" {
-		return &InvalidError{"urgency", "is now, digest or none"}
+		return &InvalidError{"urgency", "must be now, digest or none"}
 	}
 	ms := at.UnixMilli()
 	n, err := q.SetAlerting(ctx, db.SetAlertingParams{
