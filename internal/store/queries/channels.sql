@@ -56,6 +56,11 @@ UPDATE channels SET verified_at = ?, failed_at = NULL WHERE id = ?;
 -- name: SetChannelFailed :exec
 UPDATE channels SET failed_at = ? WHERE id = ?;
 
+-- A device that took a push works again. An address that was refused keeps
+-- its mark until it is confirmed: alerts no longer go to it.
+-- name: ClearPushFailed :exec
+UPDATE channels SET failed_at = NULL WHERE id = ? AND kind = 'webpush' AND failed_at IS NOT NULL;
+
 -- name: CreatePendingDelivery :exec
 INSERT INTO deliveries (id, workspace_id, person_id, channel_id, channel_kind, kind, items, state, created_at, next_at, message_id)
 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?);
@@ -141,8 +146,14 @@ SELECT CAST(COALESCE(MIN(t), 0) AS INTEGER) FROM (
 );
 
 -- A message left out because nothing in it was still true did not fail, nor
--- did one that another delivery of it brought.
+-- did one that another delivery of it brought. Once an alert or a digest
+-- reached the person after it, a way to them works again, and what failed
+-- before is history. A test does not count: it also goes to a device that is
+-- not confirmed, which alerts never go to.
 -- name: FailedSince :one
 SELECT COUNT(*) FROM deliveries d
-WHERE d.person_id = ? AND d.state = 'failed' AND d.created_at >= ? AND COALESCE(d.last_error, '') <> sqlc.arg(not_failed)
-  AND NOT EXISTS (SELECT 1 FROM deliveries s WHERE s.message_id = d.message_id AND s.state = 'sent');
+WHERE d.person_id = sqlc.arg(person_id) AND d.state = 'failed' AND d.created_at >= sqlc.arg(since)
+  AND COALESCE(d.last_error, '') <> sqlc.arg(not_failed)
+  AND NOT EXISTS (SELECT 1 FROM deliveries s WHERE s.message_id = d.message_id AND s.state = 'sent')
+  AND d.created_at >= COALESCE((SELECT MAX(s.sent_at) FROM deliveries s
+    WHERE s.person_id = sqlc.arg(person_id) AND s.created_at >= sqlc.arg(since) AND s.state = 'sent' AND s.kind <> 'test'), 0);

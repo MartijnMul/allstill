@@ -571,6 +571,13 @@ func (s *Store) Sent(ctx context.Context, p Pending, at time.Time) error {
 	if err := q.FinishDelivery(ctx, db.FinishDeliveryParams{State: "sent", SentAt: nullMs(at), ID: p.ID}); err != nil {
 		return err
 	}
+	// A device that failed while the server or the push service was cut off
+	// is not broken: the push that arrives says so.
+	if p.ChannelID != "" {
+		if err := q.ClearPushFailed(ctx, p.ChannelID); err != nil {
+			return err
+		}
+	}
 	if first, err := firstOfMessage(ctx, q, p.MessageID, "sent"); err != nil {
 		return err
 	} else if first {
@@ -721,8 +728,10 @@ func (s *Store) OldestDue(ctx context.Context) (time.Time, error) {
 // nothing in it was still true (R13). It is not a failure to reach anyone.
 const NoLongerTrue = "nothing in it was still true when it could go"
 
-// FailedSince counts the person's messages that failed since then.
+// FailedSince counts the person's messages that failed since then and
+// reached nobody, leaving out those an alert or a digest that reached them
+// later followed.
 func (s *Store) FailedSince(ctx context.Context, personID string, since time.Time) (int, error) {
-	n, err := db.New(s.r).FailedSince(ctx, db.FailedSinceParams{PersonID: personID, CreatedAt: since.UnixMilli(), NotFailed: nullString(NoLongerTrue)})
+	n, err := db.New(s.r).FailedSince(ctx, db.FailedSinceParams{PersonID: personID, Since: since.UnixMilli(), NotFailed: nullString(NoLongerTrue)})
 	return int(n), err
 }

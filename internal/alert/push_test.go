@@ -271,6 +271,32 @@ func TestAFailedPushIsTriedOnceMore(t *testing.T) {
 	}
 }
 
+// A device that failed while the push service could not be reached is not
+// broken: the next push that arrives clears it, without a test.
+func TestAPushThatArrivesClearsTheFailure(t *testing.T) {
+	w := newWorld(t)
+	alertsOn(w)
+	d := newDevice(t)
+	backup, site := w.check("Shop", "backup"), w.check("Shop", "site")
+	w.set("11:00")
+	w.confirm(d, w.withPush(d, ""))
+	d.answer(http.StatusServiceUnavailable)
+	w.at("12:00", backup, check.Fail)
+	w.at("12:01", "", "")
+	if cs, _ := w.st.Channels(t.Context(), w.admin); cs[0].FailedAt.IsZero() {
+		t.Fatal("the channel is not marked as failing")
+	}
+	d.answer(http.StatusCreated)
+	w.at("13:00", site, check.Fail)
+	// The backup's down reached nobody, so it goes along with the site's.
+	if got := d.titles(); len(got) == 0 || got[len(got)-1] != "2 changes" {
+		t.Fatalf("pushed %v", got)
+	}
+	if cs, _ := w.st.Channels(t.Context(), w.admin); !cs[0].FailedAt.IsZero() {
+		t.Error("a device that took a push is still marked as failing")
+	}
+}
+
 func TestASubscriptionForAnotherKeyIsNeverPushedTo(t *testing.T) {
 	w := newWorld(t)
 	alertsOn(w)

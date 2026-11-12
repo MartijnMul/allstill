@@ -123,6 +123,17 @@ func (q *Queries) ChannelsOfPerson(ctx context.Context, personID sql.NullString)
 	return items, nil
 }
 
+const clearPushFailed = `-- name: ClearPushFailed :exec
+UPDATE channels SET failed_at = NULL WHERE id = ? AND kind = 'webpush' AND failed_at IS NOT NULL
+`
+
+// A device that took a push works again. An address that was refused keeps
+// its mark until it is confirmed: alerts no longer go to it.
+func (q *Queries) ClearPushFailed(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, clearPushFailed, id)
+	return err
+}
+
 const confirmChannel = `-- name: ConfirmChannel :exec
 UPDATE channels SET verified_at = ?, failed_at = NULL WHERE id = ?
 `
@@ -289,20 +300,26 @@ func (q *Queries) EmailChannelsOfPerson(ctx context.Context, personID sql.NullSt
 
 const failedSince = `-- name: FailedSince :one
 SELECT COUNT(*) FROM deliveries d
-WHERE d.person_id = ? AND d.state = 'failed' AND d.created_at >= ? AND COALESCE(d.last_error, '') <> ?3
+WHERE d.person_id = ?1 AND d.state = 'failed' AND d.created_at >= ?2
+  AND COALESCE(d.last_error, '') <> ?3
   AND NOT EXISTS (SELECT 1 FROM deliveries s WHERE s.message_id = d.message_id AND s.state = 'sent')
+  AND d.created_at >= COALESCE((SELECT MAX(s.sent_at) FROM deliveries s
+    WHERE s.person_id = ?1 AND s.created_at >= ?2 AND s.state = 'sent' AND s.kind <> 'test'), 0)
 `
 
 type FailedSinceParams struct {
 	PersonID  string
-	CreatedAt int64
+	Since     int64
 	NotFailed sql.NullString
 }
 
 // A message left out because nothing in it was still true did not fail, nor
-// did one that another delivery of it brought.
+// did one that another delivery of it brought. Once an alert or a digest
+// reached the person after it, a way to them works again, and what failed
+// before is history. A test does not count: it also goes to a device that is
+// not confirmed, which alerts never go to.
 func (q *Queries) FailedSince(ctx context.Context, arg FailedSinceParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, failedSince, arg.PersonID, arg.CreatedAt, arg.NotFailed)
+	row := q.db.QueryRowContext(ctx, failedSince, arg.PersonID, arg.Since, arg.NotFailed)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

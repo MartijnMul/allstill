@@ -58,7 +58,7 @@ Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device*
 
 - Push needs Allstill reached over https (`-base-url`): Apple refuses pushes from anything else.
 - Each time the dashboard is opened on a device, it renews that device's subscription. A device that shows *Must subscribe again* is put right by opening Allstill on it.
-- The overview says when alerts may not reach you: a message to you failed in the last day, a device needs you, Allstill is behind with sending, or nobody gets alerts for a project you see.
+- The overview says when alerts may not reach you: a message to you failed in the last day and no alert or digest has reached you since, a device needs you, Allstill is behind with sending, or nobody gets alerts for a project you see. A device whose pushes failed, say while Allstill or the push service was cut off, is cleared by the next push it takes.
 - Serving a copy of the database? Start it with `-shadow` (`ALLSTILL_SHADOW=1`): it then sends no alerts, whatever the copy says.
 
 - Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project unless they are a viewer of it; viewers do not.

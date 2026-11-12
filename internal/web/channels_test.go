@@ -248,6 +248,41 @@ func TestAlertProblemsNeedAttention(t *testing.T) {
 	}
 }
 
+// Messages that failed while Allstill was cut off are history once a later
+// one reaches the person: the way to them works again.
+func TestFailuresALaterMessageFollowedNeedNobody(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	record := func(kind, state string, ago time.Duration) {
+		t.Helper()
+		d := &store.Delivery{WorkspaceID: f.ws, PersonID: f.ada, Kind: kind, State: state, At: time.Now().Add(-ago)}
+		if state == "failed" {
+			d.Error = "the mail server did not take it"
+		}
+		if err := f.st.Record(ctx, d, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record("alert", "failed", 4*time.Hour)
+	record("alert", "failed", 4*time.Hour)
+	// A test can reach a device that is not confirmed, which alerts never
+	// go to: it proves no way to Ada.
+	record("test", "sent", 3*time.Hour)
+	if page := string(b.ok("GET", "/", nil)); !strings.Contains(page, "2 messages to you failed") {
+		t.Fatalf("overview without the failures:\n%s", page)
+	}
+	record("alert", "sent", 2*time.Hour)
+	if page := string(b.ok("GET", "/", nil)); strings.Contains(page, "to you failed") {
+		t.Errorf("failures a message followed still need Ada:\n%s", page)
+	}
+	record("alert", "failed", time.Hour)
+	if page := string(b.ok("GET", "/", nil)); !strings.Contains(page, "1 message to you failed") {
+		t.Errorf("overview without the later failure:\n%s", page)
+	}
+}
+
 func TestAnEmailAddressIsAddedAndTested(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()
