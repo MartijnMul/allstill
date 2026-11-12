@@ -66,6 +66,7 @@
         <span class="person">{{.Person}}</span>
         <button type="submit" class="icon-button" title="Sign out"><svg class="icon" aria-hidden="true"><use href="#i-logout"/></svg><span class="sr">Sign out</span></button>
       </form>
+      <a class="source" href="{{.Source}}">Source code</a>
     </div>
   </aside>
   <div class="content" id="content" tabindex="-1"><div{{if .Live}} id="live"{{end}}>
@@ -80,6 +81,7 @@
 <p class="stale" id="stale" role="status"></p>
 {{else}}
 {{template "content" .}}
+<p class="source-foot"><a class="source" href="{{.Source}}">Source code</a></p>
 {{end}}
 {{template "icons"}}
 </body>

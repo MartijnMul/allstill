@@ -693,3 +693,18 @@ func TestTheAttentionViewClaimsOnlyWhatItKnows(t *testing.T) {
 		t.Fatal("the attention view says all is well while a check is unknown")
 	}
 }
+
+// Everyone who uses Allstill can get its source, signed in or not, and a
+// changed version links its own (AGPL-3.0, section 13; ADR 0002).
+func TestEveryPageLinksTheSource(t *testing.T) {
+	f := setup(t)
+	if !strings.Contains(f.browser(t).do("GET", "/login", nil).Body.String(), `href="`+DefaultSource+`"`) {
+		t.Error("the sign-in page does not link the official source")
+	}
+	f.srv.Source = "https://example.com/fork/allstill"
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	if !strings.Contains(string(b.ok("GET", "/", nil)), `href="https://example.com/fork/allstill"`) {
+		t.Error("a signed-in page does not link the source it was given")
+	}
+}

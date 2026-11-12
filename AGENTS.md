@@ -40,6 +40,7 @@ Private now, open source later, and git history cannot be unpublished. Everythin
 - `docs/adr/` holds the why behind hard-to-reverse decisions; an accepted record is superseded, not rewritten. `intent/<slug>/` holds the intent and the spec of a big change ([intent/README.md](intent/README.md)).
 - Commit to `main` while one person works on it; Conventional Commits. A change that makes a sentence here, in the README or in an ADR untrue updates it in the same commit.
 - Outward-facing actions need approval first: changing visibility, force pushes, PRs and issues. Pushing to `origin main` is approved.
+- Committing and pushing to `main`, signed commits and the denylist are the maintainer's own way of working. Anyone else works in a fork and opens a pull request, as [CONTRIBUTING.md](CONTRIBUTING.md) describes, with the contributor licence agreement signed there.
 
 ## Things Claude gets wrong
 

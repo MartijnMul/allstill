@@ -61,6 +61,10 @@ type Server struct {
 	Try   func(context.Context, active.Check) active.Result
 	// Version is this program's, which the API tells a command line (R45).
 	Version string
+	// Source is where the source of the running version is. Every page links
+	// to it, so that everyone who uses Allstill over the network can get the
+	// code they use (AGPL-3.0, section 13; ADR 0002).
+	Source string
 
 	base       *url.URL
 	workspace  string
@@ -72,6 +76,9 @@ type Server struct {
 	grants     *grants
 	apiLimit   apiLimiter
 }
+
+// DefaultSource is the official repository, where Source points unless set.
+const DefaultSource = "https://github.com/MartijnMul/allstill"
 
 // ParseBaseURL checks the address people use to reach Allstill: https, or
 // http on localhost, with a host name and nothing after the host.
@@ -117,7 +124,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		return nil, err
 	}
 	s := &Server{
-		Store: st, Log: log, Now: time.Now,
+		Store: st, Log: log, Now: time.Now, Source: DefaultSource,
 		base: base, workspace: workspaceID, secure: base.Scheme == "https",
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{}, memory: newMemory(), grants: newGrants(),
 	}
@@ -298,6 +305,7 @@ type page struct {
 	Here    string   // the sidebar link this page is: messages or devices
 	Nav     *navData // the sidebar's views and projects, on signed-in pages
 	Live    bool     // the page refreshes itself
+	Source  string   // where the source of the running version is
 	Data    any
 }
 
@@ -307,6 +315,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, code int, name s
 	if p.Person != "" {
 		p.PushKey = s.PushKey
 	}
+	p.Source = s.Source
 	var buf bytes.Buffer
 	if err := s.pages[name].ExecuteTemplate(&buf, "layout", p); err != nil {
 		s.Log.Error("rendering a page", "page", name, "error", err)

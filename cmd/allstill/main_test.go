@@ -20,6 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/web"
 )
 
 // The server and `allstill run` together: a job reports through the real
@@ -246,6 +247,22 @@ func TestTheLogCannotBeKeptTooShort(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "at least 30 days") {
 			t.Errorf("-keep-log %s: %v", days, err)
 		}
+	}
+}
+
+// Every page links to the source, so the address must be one a browser opens
+// (ADR 0002).
+func TestTheSourceIsAWebAddress(t *testing.T) {
+	for _, source := range []string{"ftp://example.com/allstill", "example.com/allstill", "https://"} {
+		err := run(t.Context(), []string{"serve", "-db", filepath.Join(t.TempDir(), "a.db"), "-source-url", source}, &bytes.Buffer{}, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "-source-url") {
+			t.Errorf("-source-url %s: %v", source, err)
+		}
+	}
+	buildVersion = "1.2.3"
+	t.Cleanup(func() { buildVersion = "" })
+	if got := defaultSource(); got != web.DefaultSource+"/tree/v1.2.3" {
+		t.Errorf("a release links %s", got)
 	}
 }
 

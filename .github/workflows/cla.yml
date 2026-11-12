@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: CLA
+
+# Every pull request's author has signed the contributor licence agreement
+# (ADR 0002): their login is in .github/cla-signatures.txt as the pull request
+# leaves it, so a first pull request can sign by adding its line. A pull request
+# may add or change only its own author's line: nobody signs for someone else.
+# The signatures stay in the repository, with no outside service and no write
+# access: the job only reads.
+#
+# Like every pull_request workflow, this one runs as the pull request has it,
+# so a pull request could change it. This check helps the review; it does not
+# replace it, and a change under .github/ is read by hand.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  signed:
+    name: Signed the CLA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge of the pull request and its base, to see what it changes.
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Look for the author's signature
+        shell: bash
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          file=.github/cla-signatures.txt
+          author=$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]')
+          owner=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+          if [ "$AUTHOR_TYPE" = "Bot" ] || [ "$author" = "$owner" ]; then
+            echo "$AUTHOR does not need to sign."
+            exit 0
+          fi
+          others=$(git diff -U0 HEAD^1 HEAD -- "$file" \
+            | { grep -E '^[+-]' || true; } | { grep -v -E '^(\+\+\+|---) ' || true; } \
+            | cut -c2- | awk '!/^#/ && NF { print tolower($1) }' | { grep -v -x -F -e "$author" || true; })
+          if [ -n "$others" ]; then
+            echo "::error::This pull request adds or changes signatures of others in $file. Each person signs in a pull request of their own."
+            exit 1
+          fi
+          if awk '!/^#/ && NF >= 3 { print tolower($1) }' "$file" | grep -q -x -F -e "$author"; then
+            echo "$AUTHOR has signed the contributor licence agreement."
+            exit 0
+          fi
+          echo "::error::$AUTHOR has not signed the contributor licence agreement yet. Add a line to $file in this pull request; CONTRIBUTING.md explains how."
+          exit 1

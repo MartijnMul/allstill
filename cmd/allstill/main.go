@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"runtime/debug"
@@ -181,6 +182,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	shadow := fs.Bool("shadow", os.Getenv("ALLSTILL_SHADOW") == "1", "record alerts without sending them, whatever the setting in the database, such as to serve a copy of it (ALLSTILL_SHADOW=1)")
 	allowPrivate := fs.String("allow-private", os.Getenv("ALLSTILL_ALLOW_PRIVATE"), "private ranges the checks Allstill runs may reach, such as 10.0.0.0/8, comma-separated; they are open to every project's checks (ALLSTILL_ALLOW_PRIVATE)")
 	canaryAddrs := fs.String("canary", os.Getenv("ALLSTILL_CANARY"), "host:port addresses independent of the sites checked, such as a public DNS server's 9.9.9.9:53, comma-separated: when none answers, the server's own network is down and its checks are unknown instead of down (ALLSTILL_CANARY)")
+	sourceURL := fs.String("source-url", envOr("ALLSTILL_SOURCE_URL", defaultSource()), "where the source of this version is; every page links to it, so a changed version points it at its own (ALLSTILL_SOURCE_URL)")
 	contact := fs.String("contact", os.Getenv("ALLSTILL_CONTACT"), "an address for site owners, sent in the User-Agent of every check's request (ALLSTILL_CONTACT)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -195,6 +197,9 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	if err := active.CheckContact(*contact); err != nil {
 		return fmt.Errorf("-contact: %w", err)
+	}
+	if u, err := url.Parse(*sourceURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return fmt.Errorf("-source-url: %q is not an http or https address", *sourceURL)
 	}
 	if *keepLog < 1 {
 		// To Retention, zero means the default: not what someone typing 0 asks for.
@@ -272,6 +277,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	}
 	dashboard.PushKey = key.PublicKey()
 	dashboard.Version = version()
+	dashboard.Source = *sourceURL
 	dashboard.Wake = func() {
 		select {
 		case wake <- struct{}{}:
@@ -446,6 +452,15 @@ func envInt(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s=%q is not a whole number", name, v)
 	}
 	return n, nil
+}
+
+// defaultSource is the official repository, at the release's tag when this is
+// a release build. A snapshot build has no tag.
+func defaultSource() string {
+	if buildVersion != "" && !strings.HasSuffix(buildVersion, "-snapshot") {
+		return web.DefaultSource + "/tree/v" + buildVersion
+	}
+	return web.DefaultSource
 }
 
 // buildVersion is set by the release build, as `-X main.buildVersion=1.2.3`.

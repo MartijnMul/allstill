@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Signatures of the contributor licence agreement in CLA.md. Adding your line,
+# in a commit of your own, says you agree to it as it stands in CLA.md at that
+# commit. CONTRIBUTING.md explains how.
+#
+# One line per contributor: GitHub login, date (YYYY-MM-DD), full name.
+#
+# your-github-login 2026-11-12 Your Full Name

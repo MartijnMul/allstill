@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: Something is wrong
+description: Allstill does something it should not, or does not do what it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this. A security weakness does not belong here: [report it privately](https://github.com/MartijnMul/allstill/security/advisories/new).
+
+        Leave out anything private, such as keys, ping URLs, host names and addresses. Invented ones (`example.com`, `backup.sh`) work just as well.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: The steps, commands or check settings that show it. The smaller, the better.
+      placeholder: |
+        1. allstill admin add-check ...
+        2. ...
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: What `allstill version` prints.
+      placeholder: allstill 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it runs
+      options:
+        - Linux package (deb, rpm or apk)
+        - Container image
+        - Archive
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: What the server or the command printed around that time.
+      render: text

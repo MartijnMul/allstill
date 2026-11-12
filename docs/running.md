@@ -252,6 +252,7 @@ Other assistants that support Agent Skills read the same file from a folder of t
 - **Upgrades.** Before a new version changes the database, it copies it next to itself, as `allstill.db.before-0003` for example. Delete the copy once the new version works.
 - **History.** Each check keeps its newest 1000 runs, and the output of its newest 100; `-keep-runs` and `-keep-output` change that.
 - **The log.** Allstill keeps a record of what happened to checks and what was done, for 400 days; `-keep-log` (`ALLSTILL_KEEP_LOG`) changes that, to at least 30 days. See [What the log records](#what-the-log-records).
+- **A changed version.** Every page links to the source of the version that runs, as the AGPL asks: a release links its own tag in the official repository. Running Allstill with changes of your own? Point `-source-url` (`ALLSTILL_SOURCE_URL`) at where your changed source is.
 - **Watch Allstill itself** from somewhere else, such as one check at another service that Allstill's host pings. `GET /health` answers 200 while Allstill keeps up with sending and 503 when it has fallen more than two minutes behind, cannot read its database, or is offline for the checks it runs (its canary does not answer), so an outside monitor can watch the sending too; it needs no sign-in and says nothing about any check.
 
 ## Check a release

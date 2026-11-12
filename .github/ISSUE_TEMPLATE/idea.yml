@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: An idea
+description: Something Allstill should do, or do differently.
+labels: [idea]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Start with the problem, not the solution: what you are trying to watch or know, and where Allstill falls short today. Ideas from real setups help the most.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do, and what gets in the way.
+      placeholder: Our backups run at night, but I only find out the next week that one was half the usual size.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today
+      description: How you work around it now, with Allstill or anything else.
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: How it could work, if you have an idea. Optional.
