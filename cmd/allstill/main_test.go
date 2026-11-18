@@ -20,6 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/store/storetest"
 	"github.com/MartijnMul/allstill/internal/web"
 )
 
@@ -27,7 +28,7 @@ import (
 // binary's commands, and the check and its run are in the database.
 func TestServeAndRun(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := storetest.Path(t)
 	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)

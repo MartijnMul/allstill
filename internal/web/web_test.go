@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/store/storetest"
 )
 
 const site = "https://allstill.example.com"
@@ -40,7 +40,7 @@ type fixture struct {
 func setup(t *testing.T) fixture {
 	t.Helper()
 	ctx := t.Context()
-	path := filepath.Join(t.TempDir(), "allstill.db")
+	path := storetest.Path(t)
 	st, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)

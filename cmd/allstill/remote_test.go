@@ -23,6 +23,7 @@ import (
 	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/client"
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/store/storetest"
 	"github.com/MartijnMul/allstill/internal/web"
 )
 
@@ -451,7 +452,7 @@ func aRealServer(t *testing.T) (st *store.Store, ws, url string, signIn func(per
 	t.Helper()
 	path := aHome(t)
 	ctx := t.Context()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "allstill.db"))
+	st, err := store.Open(ctx, storetest.Path(t))
 	if err != nil {
 		t.Fatal(err)
 	}

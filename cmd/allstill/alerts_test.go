@@ -4,16 +4,16 @@ package main
 
 import (
 	"bytes"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/store/storetest"
 )
 
 func TestSetAlerts(t *testing.T) {
 	ctx := t.Context()
-	path := filepath.Join(t.TempDir(), "allstill.db")
+	path := storetest.Path(t)
 	st, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)

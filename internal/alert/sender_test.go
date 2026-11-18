@@ -5,13 +5,13 @@ package alert
 import (
 	"io"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/check"
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/store/storetest"
 )
 
 // world is one installation with an administrator in Amsterdam, who has the
@@ -30,7 +30,7 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 	ctx := t.Context()
-	path := filepath.Join(t.TempDir(), "allstill.db")
+	path := storetest.Path(t)
 	st, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatal(err)

@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/store/storetest"
 )
 
 // An invented project as Healthchecks' API v3 lists it.
@@ -46,7 +46,7 @@ func TestImport(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "allstill.db"))
+	st, err := store.Open(ctx, storetest.Path(t))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -17,13 +16,14 @@ import (
 
 	"github.com/MartijnMul/allstill/internal/active"
 	"github.com/MartijnMul/allstill/internal/store"
+	"github.com/MartijnMul/allstill/internal/store/storetest"
 )
 
 // serverDatabase makes the database the server would have, as only the server
 // starts one, and returns its path.
 func serverDatabase(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "allstill.db")
+	path := storetest.Path(t)
 	st, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func serverDatabase(t *testing.T) string {
 
 func TestAddAndSetCheck(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := storetest.Path(t)
 	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestAddAndSetCheck(t *testing.T) {
 
 func TestAddAndSetTCPCheck(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := storetest.Path(t)
 	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func TestAddAndSetTCPCheck(t *testing.T) {
 
 func TestChangingAPingCheck(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := storetest.Path(t)
 	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -321,7 +321,7 @@ func TestChangingAPingCheck(t *testing.T) {
 
 func TestPeopleWithARole(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := storetest.Path(t)
 	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -435,7 +435,7 @@ func TestPeopleWithARole(t *testing.T) {
 
 func TestProbeCommands(t *testing.T) {
 	ctx := t.Context()
-	dbPath := filepath.Join(t.TempDir(), "allstill.db")
+	dbPath := storetest.Path(t)
 	st, err := store.Open(ctx, dbPath)
 	if err != nil {
 		t.Fatal(err)
