@@ -198,7 +198,7 @@ Changed:
 
 **Order of work**, each step a release that is useful by itself:
 
-1. The model and the upgrade: one team, access and alerts worked out the new way, nothing visible changes. R1, R2, R4, R14 to R17, R42, R45.
+1. The model and the upgrade: one team, access and alerts worked out the new way, nothing visible changes. R1, R2, R4, R14 to R17, R42, R45. The [plan](plan.md) keeps an administrator's own rows until step 2, which removes them (the rest of R15) when it decides what the log and key lists show of a team's owners.
 2. A second team, walled off and announced: `admin create-team`, `-team` on today's commands, the administrator's narrower view, the server's commands telling on themselves, the log, limits, probes, private ranges. R5, R6, R8 to R13, R18, R24, R27 to R30, R34 to R38, R40, R43, R44.
 3. A team runs itself: links, people, projects and alert choices, in the dashboard, the API and the command line. R3, R7, R19 to R21, R25.
 4. Sharing. R22, R23, R41.
