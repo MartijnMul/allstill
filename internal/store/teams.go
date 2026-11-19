@@ -407,7 +407,7 @@ func (s *Store) SetTeam(ctx context.Context, by Actor, workspaceID, teamID strin
 type TeamHolds struct{ Projects, Probes int }
 
 func (e *TeamHolds) Error() string {
-	return fmt.Sprintf("the team still holds %d projects and %d probes", e.Projects, e.Probes)
+	return fmt.Sprintf("the team still holds projects or probes (%d and %d)", e.Projects, e.Probes)
 }
 
 // RemoveTeam removes a team that holds no project and no probe, with its members'

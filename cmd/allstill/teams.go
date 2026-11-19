@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/client"
+	"github.com/MartijnMul/allstill/internal/logtext"
 	"github.com/MartijnMul/allstill/internal/store"
 )
 
@@ -423,7 +424,8 @@ func removeTeam(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	}
 	if err := st.RemoveTeam(ctx, store.Command("remove-team"), ws, t.ID); err != nil {
 		if holds, ok := errors.AsType[*store.TeamHolds](err); ok {
-			return fmt.Errorf("%s still holds %d projects and %d probes, and a team that holds any stays", t.Name, holds.Projects, holds.Probes)
+			return fmt.Errorf("%s still holds %s and %s, and a team that holds any stays", t.Name,
+				logtext.Plural(holds.Projects, "project", "projects"), logtext.Plural(holds.Probes, "probe", "probes"))
 		}
 		return err
 	}

@@ -26,7 +26,7 @@ import (
 // the workspace administrator.
 
 const adminUsage = `Usage:
-  allstill admin create-user -name NAME [-email EMAIL] [-project PROJECT -role ROLE] [flags]
+  allstill admin create-user -name NAME [-email EMAIL] [-project PROJECT -role ROLE | -team TEAM -role ROLE] [-admin] [flags]
   allstill admin set-member (-email EMAIL | -person ID) -project PROJECT -role ROLE [flags]
   allstill admin passkey-link (-email EMAIL | -person ID) [flags]
   allstill admin end-sessions (-email EMAIL | -person ID) [-db file]
@@ -486,7 +486,7 @@ Flags:
 	email := fs.String("email", "", "where their email alerts and digest go")
 	tz := fs.String("time-zone", "UTC", "the time zone the dashboard shows them, such as Europe/Amsterdam")
 	var projects []string
-	fs.Func("project", "a project they may see; repeat it for several. Without it they are an administrator", func(v string) error {
+	fs.Func("project", "a project they may see; repeat it for several. Without it and -team they are an administrator", func(v string) error {
 		projects = append(projects, v)
 		return nil
 	})

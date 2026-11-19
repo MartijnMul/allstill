@@ -168,6 +168,12 @@ func TestGivingSomeoneATeam(t *testing.T) {
 	if out := must(admin("remove-team", "Empty")); !strings.Contains(out, "Removed the team Empty") {
 		t.Errorf("%s", out)
 	}
+	// One of something is said as one.
+	must(admin("create-team", "Single", "-owner", "alice@example.com"))
+	must(admin("create-project", "Lone", "-team", "Single"))
+	if _, err := admin("remove-team", "Single"); err == nil || !strings.Contains(err.Error(), "holds 1 project and 0 probes,") {
+		t.Errorf("removing a team with one project: %v", err)
+	}
 	if _, err := admin("remove-team", "Nowhere"); err == nil || !strings.Contains(err.Error(), "no team is named") {
 		t.Errorf("%v", err)
 	}
