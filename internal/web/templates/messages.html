@@ -11,9 +11,20 @@
     <svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>
     <div>
       <p class="callout-title">Shadow mode</p>
-      <p>Allstill decides what it would tell you and records it here, but sends only test messages yet. Compare it with the alerts you get elsewhere before relying on it.</p>
+      <p>Allstill decides what it would tell you and records it here, but sends only test messages yet, and what a command on the server did. Compare it with the alerts you get elsewhere before relying on it.</p>
     </div>
   </div>
+  {{end}}
+
+  {{if .Notices}}
+  <section class="panel" aria-labelledby="notices">
+    <div class="panel-head"><h2 id="notices">From the server</h2><span class="count">{{len .Notices}}</span></div>
+    <p class="muted">What commands on the server did in a team you own. You are told because whoever runs them is not shown your team.</p>
+    <ul class="notices">
+      {{range .Notices}}<li{{if .New}} class="new"{{end}}><span class="mono nowrap">{{.When}}</span> {{.Title}}{{if .New}} <span class="tag">New</span>{{end}}</li>
+      {{end}}
+    </ul>
+  </section>
   {{end}}
 
   {{if .Nobody}}

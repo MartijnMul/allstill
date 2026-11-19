@@ -141,6 +141,16 @@ func (s *Store) SetTeamMember(ctx context.Context, by Actor, workspaceID, teamID
 		if err := writeLog(ctx, q, entry); err != nil {
 			return err
 		}
+		// The owners who stay are told, and an owner who goes is too.
+		var also []string
+		if was == string(Owner) {
+			also = []string{personID}
+		}
+		err = tellOwners(ctx, q, by, workspaceID, []string{teamID}, also, noticeTeamRoleTaken,
+			map[string]any{"person": person.Name, "team": team.Name}, time.Now())
+		if err != nil {
+			return err
+		}
 		return tx.Commit()
 	}
 	entry.Kind = "team.member_set"
@@ -184,6 +194,16 @@ func (s *Store) SetTeamMember(ctx context.Context, by Actor, workspaceID, teamID
 		}
 	}
 	if err := writeLog(ctx, q, entry); err != nil {
+		return err
+	}
+	// An owner who was made less is told with the owners who stay.
+	var also []string
+	if was == string(Owner) {
+		also = []string{personID}
+	}
+	err = tellOwners(ctx, q, by, workspaceID, []string{teamID}, also, noticeTeamRoleGiven,
+		map[string]any{"person": person.Name, "role": string(role), "team": team.Name}, time.Now())
+	if err != nil {
 		return err
 	}
 	if role != Viewer {

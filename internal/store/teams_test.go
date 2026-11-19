@@ -590,7 +590,7 @@ func TestRolesAndAlertsAreSaidInOnePlace(t *testing.T) {
 	// the team's own members, and whether a row of one's own gives more than it.
 	teams := map[string]bool{
 		"AddTeamMember": true, "RemoveTeamMember": true, "TeamsOfPerson": true, "RoleInTeam": true, "OwnersOfTeam": true,
-		"RoleInTeamOfProject": true,
+		"RoleInTeamOfProject": true, "TeamsConcerning": true,
 	}
 	for name, q := range queriesNamed(t) {
 		if strings.Contains(q, "alert_choices") && !writers[name] {

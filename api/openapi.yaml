@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.13.0
+  version: 0.14.0
   summary: Pings from jobs, and the status of checks and their runs.
   description: |
     What jobs, people and programs use, in one document.
@@ -2486,7 +2486,7 @@ components:
         kind:
           type: string
           description: Clients show kinds they do not know by name.
-          enum: [alert, digest, test]
+          enum: [alert, digest, test, notice]
         state:
           type: string
           description: '`shadow` when it was only recorded; `pending` while it is being sent; then `sent` or `failed`. Clients show states they do not know by name.'
@@ -2502,7 +2502,7 @@ components:
               what:
                 type: string
                 description: Clients show values they do not know as plain text.
-                enum: [down, recovered, still_open, resolved_unseen, silent_check, warning]
+                enum: [down, recovered, still_open, resolved_unseen, silent_check, warning, notice]
               title: {type: string}
         error: {type: string, description: 'Why it failed, when it did.'}
         created_at: {type: string, format: date-time}
@@ -2522,7 +2522,7 @@ components:
       properties:
         shadow:
           type: boolean
-          description: When on, every step runs and is recorded, but only test messages are sent. On by default.
+          description: When on, every step runs and is recorded, but only test messages and notices are sent. On by default.
 
     StreamEvent:
       description: The data of one event in `/events`.

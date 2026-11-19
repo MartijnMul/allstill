@@ -109,11 +109,11 @@ Reading changes with it: an administrator's query has no "everything" any more. 
 ## Part B, commands tell on themselves
 
 **What is told (R27, R28).** A team's owners are told at once when a command on the server:
-- gives someone a role in the team or in one of its projects, or names an owner;
+- gives someone a role in the team or in one of its projects that lets them in or lets them do more, names an owner, or takes someone out of the team;
 - makes a sign-in link for someone in the team;
 - takes away a passkey of someone in the team, or ends their sign-ins.
 
-"In the team" is anyone with a role in it or a role of their own in one of its projects, and a sign-in link is told whether or not they have a passkey. Making an administrator who owns the team is told as naming an owner. Each notice says what was done, to whom, and by which command. Entering a team (R26) is step 5 and will use the same notice.
+"In the team" is anyone with a role in it or a role of their own in one of its projects, and a sign-in link is told whether or not they have a passkey. The one link that is not told is the first for someone added in the last ten minutes: adding them was told, and the link is how they come in at all. Someone named an owner is among the owners who are told. Making an administrator who owns the team is told as naming an owner. Each notice says what was done, to whom, and by which command. Entering a team (R26) is step 5 and will use the same notice.
 
 A command that only reads writes `command.read` and sends nothing: `compare` in the project it read. `teams -people`, `set-alerts`, which prints who cannot be reached, and `backup` read across teams by their nature, write nothing, and `docs/running.md` says so (R44).
 

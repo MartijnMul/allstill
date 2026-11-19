@@ -613,7 +613,8 @@ func firstDifference(a, b string) string {
 	return "(the second is longer)"
 }
 
-// With one team nobody meets the word, beyond the log's "the team" (R6).
+// With one team nobody meets the word, beyond the log's "the team" (R6). Its
+// owner does where they are told what a command on the server did in it.
 func TestOneTeamIsNotSpokenOf(t *testing.T) {
 	f := setup(t)
 	for _, person := range []string{f.ada, f.bob} {
@@ -621,9 +622,62 @@ func TestOneTeamIsNotSpokenOf(t *testing.T) {
 		f.register(t, b, person)
 		for _, path := range []string{"/", "/?project=" + f.project, "/checks/" + f.checkID, "/checks/new", "/log", "/messages", "/channels"} {
 			page := strings.ToLower(b.get(path).Body.String())
+			// The owner is told there what commands on the server did in the team
+			// they own, in those words; the rest of the page is held as any other.
+			if start := strings.Index(page, `aria-labelledby="notices"`); person == f.ada && start >= 0 {
+				page = page[:start] + page[start+strings.Index(page[start:], "</section>"):]
+			}
 			page = strings.ReplaceAll(page, "the team", "")
 			if i := strings.Index(page, "team"); i >= 0 {
 				t.Errorf("%s speaks of a team: …%s…", path, page[max(i-60, 0):min(i+60, len(page))])
+			}
+		}
+	}
+}
+
+// What a command on the server did in a team is at the top of its owner's
+// overview until they have opened Messages, where it stays listed (R29).
+func TestANoticeStaysOnTheOverviewUntilRead(t *testing.T) {
+	f := setup(t)
+	ctx := t.Context()
+	ada := f.browser(t)
+	f.register(t, ada, f.ada)
+	const told = "A command on the server (set-member) made Bob editor of Backups."
+	if strings.Contains(ada.get("/").Body.String(), "A command on the server") {
+		t.Fatal("a notice before there is one")
+	}
+	if err := f.st.SetMember(ctx, store.Command("set-member"), f.ws, f.project, f.bob, store.Editor); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ada.get("/").Body.String(), told) || !strings.Contains(ada.get("/?show=attention").Body.String(), told) {
+		t.Error("the owner's overview does not say it")
+	}
+	// The person it was done to is not the one who is told.
+	bob := f.browser(t)
+	f.register(t, bob, f.bob)
+	for _, path := range []string{"/", "/messages"} {
+		if strings.Contains(bob.get(path).Body.String(), "A command on the server") {
+			t.Errorf("%s tells someone who owns no team", path)
+		}
+	}
+	if page := ada.get("/messages").Body.String(); !strings.Contains(page, told) || !strings.Contains(page, "New") {
+		t.Errorf("Messages does not list it as new: %s", page)
+	}
+	if strings.Contains(ada.get("/").Body.String(), told) {
+		t.Error("read, it is still on the overview")
+	}
+	if !strings.Contains(ada.get("/messages").Body.String(), told) {
+		t.Error("read, it is no longer listed")
+	}
+}
+
+// Making a team, naming its owner and making a sign-in link stay commands on
+// the server: a stolen sign-in must not be able to do them (R30).
+func TestWhatStaysOnTheServer(t *testing.T) {
+	for _, op := range apiOperations {
+		for _, word := range []string{"Team", "Owner", "Member", "Link", "Passkey", "Person", "People"} {
+			if strings.Contains(op.name, word) {
+				t.Errorf("%s is served over the API: decide in a spec whether that may leave the server (intent/teams/spec.md, R30)", op.name)
 			}
 		}
 	}

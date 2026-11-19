@@ -107,6 +107,16 @@ Flags:
 			pairs = append(pairs, pair{hc, c})
 		}
 	}
+	// It reads checks of every team, which each team is told in its log.
+	read := map[string]bool{}
+	for _, p := range pairs {
+		if !read[p.ours.ProjectID] {
+			read[p.ours.ProjectID] = true
+			if err := st.LogCommandRead(ctx, ws, "compare", p.ours.ProjectID); err != nil {
+				return err
+			}
+		}
+	}
 	if len(pairs) == 0 && *project != "" {
 		return fmt.Errorf("no check of %s is at Healthchecks", *project)
 	}

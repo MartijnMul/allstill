@@ -69,3 +69,22 @@ WHERE alert_choices.person_id = sqlc.arg(person_id)
 
 -- name: ClearAlertChoice :execrows
 DELETE FROM alert_choices WHERE project_id = ? AND person_id = ?;
+
+-- The teams a person is in, or has a role of their own in a project of.
+-- name: TeamsConcerning :many
+SELECT tm.team_id FROM team_members tm WHERE tm.person_id = sqlc.arg(person_id)
+UNION
+SELECT p.team_id FROM memberships m JOIN projects p ON p.id = m.project_id WHERE m.person_id = sqlc.arg(person_id);
+
+-- name: CreateNotice :exec
+INSERT INTO notices (id, workspace_id, person_id, team_id, kind, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: NoticesOfPerson :many
+SELECT id, kind, details, created_at, read_at FROM notices WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?;
+
+-- name: MarkNoticesRead :exec
+UPDATE notices SET read_at = sqlc.arg(read_at) WHERE person_id = sqlc.arg(person_id) AND read_at IS NULL AND created_at <= sqlc.arg(up_to);
+
+-- The channels a notice goes to: every one its person has confirmed.
+-- name: ConfirmedChannelsOfPerson :many
+SELECT id, workspace_id, kind FROM channels WHERE person_id = ? AND verified_at IS NOT NULL ORDER BY created_at, id;

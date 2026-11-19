@@ -65,6 +65,10 @@ func (s *Store) PersonByEmail(ctx context.Context, workspaceID, email string) (P
 	return personOf(p), err
 }
 
+// newPersonLink is how long after someone was added a link for them is their
+// first, which is not told apart from adding them.
+const newPersonLink = 10 * time.Minute
+
 // CreatePasskeyLink returns a one-time link token that lets a person add a
 // passkey. Their earlier unused links stop working.
 func (s *Store) CreatePasskeyLink(ctx context.Context, by Actor, workspaceID, personID string, at time.Time) (string, error) {
@@ -96,6 +100,19 @@ func (s *Store) CreatePasskeyLink(ctx context.Context, by Actor, workspaceID, pe
 		By: by, Person: Actor{ID: personID, Name: p.Name},
 	}); err != nil {
 		return "", err
+	}
+	// Whoever holds the link can become this person. Their teams' owners are told,
+	// but for someone added a moment ago who has no passkey: adding them was told
+	// by the command that did it, and the link is how they come in at all. Once
+	// a person can be added away from the server, that must tell as well.
+	keys, err := q.PasskeysOfPerson(ctx, db.PasskeysOfPersonParams{WorkspaceID: workspaceID, PersonID: personID})
+	if err != nil {
+		return "", err
+	}
+	if len(keys) > 0 || at.Sub(time.UnixMilli(p.CreatedAt)) > newPersonLink {
+		if err := tellOwnersAbout(ctx, q, by, workspaceID, personID, noticeLinkMade, map[string]any{"person": p.Name}, at); err != nil {
+			return "", err
+		}
 	}
 	return token, tx.Commit()
 }

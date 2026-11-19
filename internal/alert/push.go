@@ -53,6 +53,8 @@ func (p *Push) render(d store.Pending, token string) payload {
 		}
 	case "digest":
 		return payload{Title: "Allstill digest", Body: digestLine(d.Items), URL: p.Base + "/messages", Tag: "digest"}
+	case store.NoticeKind:
+		return payload{Title: "Allstill: a command on the server reached into your team", Body: noticeLine(d.Items), URL: p.Base + "/messages", Tag: "notice"}
 	}
 	lines := make([]string, len(d.Items))
 	for i, it := range d.Items {
@@ -66,6 +68,15 @@ func (p *Push) render(d store.Pending, token string) payload {
 		m.Body = strings.Join(lines, "\n")
 	}
 	return m
+}
+
+// noticeLine is what a notice says.
+func noticeLine(items []store.Item) string {
+	lines := make([]string, len(items))
+	for i, it := range items {
+		lines[i] = oneLine(it.Title)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // itemLine is an incident's title, which says what went wrong, and that it
@@ -255,12 +266,15 @@ func (s *Sender) key() string {
 }
 
 // checkAgain checks, before every attempt, what may still go (R10, R13,
-// R15): in shadow mode only tests; only to a channel that is still the
+// R15): in shadow mode only tests and notices; only to a channel that is still the
 // person's and confirmed; of an alert only what is still true for them; to
 // a device only when it subscribed for the current key. It records what it
 // stops, and says whether d may go.
 func (s *Sender) checkAgain(ctx context.Context, d *store.Pending, shadow bool, now time.Time) (bool, error) {
-	if d.Kind != "test" && shadow {
+	// A notice about a command on the server goes whatever the alerts switch
+	// says, as a test does (teams spec, R29). A server told to stay in shadow
+	// mode serves a copy of a database, and must message nobody for it.
+	if held := shadow && d.Kind != store.NoticeKind || s.Shadow && d.Kind == store.NoticeKind; d.Kind != "test" && held {
 		return false, s.Store.Shadowed(ctx, *d)
 	}
 	if d.ChannelID == "" {

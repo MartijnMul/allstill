@@ -285,7 +285,7 @@ Flags:
 		return err
 	}
 	if !on {
-		fmt.Fprintln(stdout, "Shadow mode: alerts are recorded under Messages and not sent; test messages still go.")
+		fmt.Fprintln(stdout, "Shadow mode: alerts are recorded under Messages and not sent; test messages still go, and what a command on the server does to who can get in.")
 		return nil
 	}
 	fmt.Fprintln(stdout, "Alerts are on: people are told when a check goes down (unless the server runs with -shadow).")

@@ -171,6 +171,17 @@ type Membership struct {
 	CreatedAt   int64
 }
 
+type Notice struct {
+	ID          string
+	WorkspaceID string
+	PersonID    string
+	TeamID      string
+	Kind        string
+	Details     string
+	CreatedAt   int64
+	ReadAt      sql.NullInt64
+}
+
 type Passkey struct {
 	ID           string
 	WorkspaceID  string

@@ -125,6 +125,15 @@ func createPerson(ctx context.Context, q *db.Queries, by Actor, workspaceID stri
 		if err != nil {
 			return "", err
 		}
+		team, err := q.Team(ctx, db.TeamParams{WorkspaceID: workspaceID, ID: teamID})
+		if err != nil {
+			return "", err
+		}
+		err = tellOwners(ctx, q, by, workspaceID, []string{teamID}, nil, noticeTeamRoleGiven,
+			map[string]any{"person": p.Name, "role": string(Owner), "team": team.Name}, time.Now())
+		if err != nil {
+			return "", err
+		}
 	}
 	return personID, writeLog(ctx, q, logEntry{
 		WorkspaceID: workspaceID, At: time.Now(), Kind: "person.added", AboutKind: "person", AboutID: personID, AboutName: p.Name,
@@ -239,6 +248,11 @@ func setMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, projec
 	switch {
 	case keep && was != string(role):
 		err = logMember(ctx, q, by, workspaceID, projectID, personID, "member.set", map[string]any{"from": was, "to": role})
+		if err == nil {
+			// A command on the server that lets someone in tells the team it is
+			// done to. A role that gives nothing is not told: nobody was let in.
+			err = tellOfRole(ctx, q, by, workspaceID, projectID, personID, role, at)
+		}
 	case !keep && told != (before > 0):
 		err = logMember(ctx, q, by, workspaceID, projectID, personID, "alerts.chosen", map[string]any{"told": told})
 	}
@@ -262,6 +276,27 @@ func setMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, projec
 		}
 	}
 	return nil
+}
+
+// tellOfRole tells the owners of a project's team that someone was given a role in it.
+func tellOfRole(ctx context.Context, q *db.Queries, by Actor, workspaceID, projectID, personID string, role Role, at int64) error {
+	if by.Kind != "command" {
+		return nil
+	}
+	teamID, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: workspaceID, ID: projectID})
+	if err != nil {
+		return err
+	}
+	person, err := personActor(ctx, q, workspaceID, personID)
+	if err != nil {
+		return err
+	}
+	name, err := q.NameOfProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	return tellOwners(ctx, q, by, workspaceID, []string{teamID}, nil, noticeRoleGiven,
+		map[string]any{"person": person.Name, "role": string(role), "project": name}, time.UnixMilli(at))
 }
 
 // settleChoice makes a person told about a project or not, keeping that as a

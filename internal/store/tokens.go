@@ -279,6 +279,9 @@ func (s *Store) EndEverySignIn(ctx context.Context, by Actor, workspaceID, perso
 			return 0, 0, err
 		}
 	}
+	if err := tellOwnersAbout(ctx, q, by, workspaceID, personID, noticeSignInsEnded, map[string]any{"person": who.Name}, at); err != nil {
+		return 0, 0, err
+	}
 	return len(ts), len(ss), tx.Commit()
 }
 
@@ -326,6 +329,9 @@ func (s *Store) RemovePasskey(ctx context.Context, by Actor, workspaceID, person
 	if err := writeLog(ctx, q, logEntry{
 		WorkspaceID: workspaceID, At: at, Kind: "passkey.removed", AboutKind: "person", AboutID: personID, AboutName: who.Name, By: by, Person: who,
 	}); err != nil {
+		return 0, 0, err
+	}
+	if err := tellOwnersAbout(ctx, q, by, workspaceID, personID, noticePasskeyGone, map[string]any{"person": who.Name}, at); err != nil {
 		return 0, 0, err
 	}
 	return len(ts), len(ss), tx.Commit()

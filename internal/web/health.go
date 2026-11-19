@@ -49,6 +49,16 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 // projects they see where nobody would be told (R11).
 func (s *Server) alertCards(ctx context.Context, v viewer, now time.Time) ([]card, error) {
 	var cards []card
+	// What a command on the server did in a team they own comes first, until read.
+	notices, err := s.Store.Notices(ctx, v.ID, listedNotices)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range notices {
+		if !n.Read {
+			cards = append(cards, card{Href: "/messages", Class: "warn", Title: n.Title, Line: clock(now, n.At, v.Loc) + " · open Messages to mark it read"})
+		}
+	}
 	// How the sending is doing is for those who can do something about it.
 	if s.Behind != nil && v.Access.Admin {
 		behind, err := s.Behind(ctx)

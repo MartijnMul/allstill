@@ -27,6 +27,7 @@ const (
 	Channel   = "chn"
 	Probe     = "prb"
 	Delivery  = "dlv"
+	Notice    = "ntc"
 	LogGroup  = "grp"
 	SignIn    = "sgn"
 	APIKey    = "key"

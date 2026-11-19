@@ -640,7 +640,8 @@ func (s *Store) Failed(ctx context.Context, p Pending, reason string, gone, chan
 	if err != nil {
 		return err
 	}
-	if p.Kind != "test" && reason != NoLongerTrue {
+	// A notice went to every way at once, so there is no other way to fall back to.
+	if p.Kind != "test" && p.Kind != NoticeKind && reason != NoLongerTrue {
 		if err := fallBack(ctx, q, p, reason, at, ways); err != nil {
 			return err
 		}

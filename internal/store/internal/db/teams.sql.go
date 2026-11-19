@@ -9,6 +9,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 )
 
 const addTeamMember = `-- name: AddTeamMember :exec
@@ -71,6 +72,67 @@ func (q *Queries) ClearAlertChoicesOutside(ctx context.Context, arg ClearAlertCh
 	return err
 }
 
+const confirmedChannelsOfPerson = `-- name: ConfirmedChannelsOfPerson :many
+SELECT id, workspace_id, kind FROM channels WHERE person_id = ? AND verified_at IS NOT NULL ORDER BY created_at, id
+`
+
+type ConfirmedChannelsOfPersonRow struct {
+	ID          string
+	WorkspaceID string
+	Kind        string
+}
+
+// The channels a notice goes to: every one its person has confirmed.
+func (q *Queries) ConfirmedChannelsOfPerson(ctx context.Context, personID sql.NullString) ([]ConfirmedChannelsOfPersonRow, error) {
+	rows, err := q.db.QueryContext(ctx, confirmedChannelsOfPerson, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ConfirmedChannelsOfPersonRow{}
+	for rows.Next() {
+		var i ConfirmedChannelsOfPersonRow
+		if err := rows.Scan(&i.ID, &i.WorkspaceID, &i.Kind); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const createNotice = `-- name: CreateNotice :exec
+INSERT INTO notices (id, workspace_id, person_id, team_id, kind, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type CreateNoticeParams struct {
+	ID          string
+	WorkspaceID string
+	PersonID    string
+	TeamID      string
+	Kind        string
+	Details     string
+	CreatedAt   int64
+}
+
+func (q *Queries) CreateNotice(ctx context.Context, arg CreateNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, createNotice,
+		arg.ID,
+		arg.WorkspaceID,
+		arg.PersonID,
+		arg.TeamID,
+		arg.Kind,
+		arg.Details,
+		arg.CreatedAt,
+	)
+	return err
+}
+
 const createTeam = `-- name: CreateTeam :exec
 
 INSERT INTO teams (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?)
@@ -125,6 +187,67 @@ func (q *Queries) IsAlerted(ctx context.Context, arg IsAlertedParams) (int64, er
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const markNoticesRead = `-- name: MarkNoticesRead :exec
+UPDATE notices SET read_at = ?1 WHERE person_id = ?2 AND read_at IS NULL AND created_at <= ?3
+`
+
+type MarkNoticesReadParams struct {
+	ReadAt   sql.NullInt64
+	PersonID string
+	UpTo     int64
+}
+
+func (q *Queries) MarkNoticesRead(ctx context.Context, arg MarkNoticesReadParams) error {
+	_, err := q.db.ExecContext(ctx, markNoticesRead, arg.ReadAt, arg.PersonID, arg.UpTo)
+	return err
+}
+
+const noticesOfPerson = `-- name: NoticesOfPerson :many
+SELECT id, kind, details, created_at, read_at FROM notices WHERE person_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
+`
+
+type NoticesOfPersonParams struct {
+	PersonID string
+	Limit    int64
+}
+
+type NoticesOfPersonRow struct {
+	ID        string
+	Kind      string
+	Details   string
+	CreatedAt int64
+	ReadAt    sql.NullInt64
+}
+
+func (q *Queries) NoticesOfPerson(ctx context.Context, arg NoticesOfPersonParams) ([]NoticesOfPersonRow, error) {
+	rows, err := q.db.QueryContext(ctx, noticesOfPerson, arg.PersonID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NoticesOfPersonRow{}
+	for rows.Next() {
+		var i NoticesOfPersonRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Details,
+			&i.CreatedAt,
+			&i.ReadAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const ownRolesInTeam = `-- name: OwnRolesInTeam :many
@@ -353,6 +476,36 @@ func (q *Queries) Teams(ctx context.Context, workspaceID string) ([]TeamsRow, er
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const teamsConcerning = `-- name: TeamsConcerning :many
+SELECT tm.team_id FROM team_members tm WHERE tm.person_id = ?1
+UNION
+SELECT p.team_id FROM memberships m JOIN projects p ON p.id = m.project_id WHERE m.person_id = ?1
+`
+
+// The teams a person is in, or has a role of their own in a project of.
+func (q *Queries) TeamsConcerning(ctx context.Context, personID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, teamsConcerning, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var team_id string
+		if err := rows.Scan(&team_id); err != nil {
+			return nil, err
+		}
+		items = append(items, team_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

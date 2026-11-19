@@ -120,6 +120,10 @@ func (s *Sender) compose(d store.Pending, token string) (subject, body string) {
 				fmt.Fprintf(&b, "%s\n%s\n\n", section.heading, strings.Join(lines, "\n"))
 			}
 		}
+	case store.NoticeKind:
+		subject = "Allstill: a command on the server reached into your team"
+		b.WriteString(noticeLine(d.Items) + "\n\n")
+		b.WriteString("You are told because you own the team. It was run on the server itself, by whoever keeps the installation or has its shell. If you did not expect it, ask them.\n\n")
 	default:
 		lines := make([]string, len(d.Items))
 		for i, it := range d.Items {

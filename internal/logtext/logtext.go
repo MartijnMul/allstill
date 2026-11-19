@@ -241,6 +241,8 @@ func (w *writer) write() {
 		} else {
 			w.say(by, text(" stopped the alerts for this project to "), party(e.Person), text("."))
 		}
+	case "command.read":
+		w.say(by, text(" read this project's checks."))
 	case "team.created":
 		w.say(by, text(" made the team "), Part{Text: e.AboutName, Name: true}, text("."))
 	case "team.member_set":

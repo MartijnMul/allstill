@@ -67,6 +67,9 @@ func setup(t *testing.T) fixture {
 	st.Ping(ctx, store.PingIn{CheckUUID: c.PingUUID, Kind: check.Success, ExitStatus: 0, Method: "POST", At: at.Add(40 * time.Minute),
 		Body: []byte("uploaded <1284> files\n"), Values: map[string]float64{"size": 18.4e9}})
 
+	// What the commands above did was told to the team's owner, and has been read.
+	st.ReadNotices(ctx, f.ada, time.Now().Add(time.Minute))
+
 	base, _ := ParseBaseURL(site)
 	f.srv, err = New(st, f.ws, base, slog.New(slog.DiscardHandler))
 	if err != nil {

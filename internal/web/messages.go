@@ -4,6 +4,7 @@ package web
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/MartijnMul/allstill/internal/store"
 )
@@ -11,10 +12,19 @@ import (
 // listedMessages is how many of a person's newest messages the page shows.
 const listedMessages = 100
 
+// listedNotices is how many of the newest notices the page and the overview read.
+const listedNotices = 20
+
 type messagesData struct {
+	Notices  []noticeRow // what commands on the server did in a team they own
 	Shadow   bool
 	Nobody   []string // projects the person may see where nobody gets alerts
 	Messages []messageRow
+}
+
+type noticeRow struct {
+	When, Title string
+	New         bool
 }
 
 type messageRow struct {
@@ -35,9 +45,10 @@ var whatLabel = map[string]string{
 	"silent_check":    "Cannot alert, never pinged or never worked, or its schedule unreadable",
 	"paused_check":    "Paused",
 	"warning":         "Warning",
+	store.NoticeKind:  "From the server",
 }
 
-var kindLabel = map[string]string{"alert": "Alert", "digest": "Digest", "test": "Test"}
+var kindLabel = map[string]string{"alert": "Alert", "digest": "Digest", "test": "Test", store.NoticeKind: "Notice"}
 
 // GET /messages: every message to the person, sent or, in shadow mode, only
 // recorded.
@@ -59,6 +70,14 @@ func (s *Server) messagesPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		return
 	}
 	d := messagesData{Shadow: shadow}
+	notices, err := s.Store.Notices(ctx, v.ID, listedNotices)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	for _, n := range notices {
+		d.Notices = append(d.Notices, noticeRow{When: clock(s.Now(), n.At, v.Loc), Title: n.Title, New: !n.Read})
+	}
 	for _, p := range nobody {
 		if _, ok := v.Access.Role(p.ID); ok {
 			d.Nobody = append(d.Nobody, p.Name)
@@ -94,6 +113,13 @@ func (s *Server) messagesPage(w http.ResponseWriter, r *http.Request, v viewer) 
 	}
 	crumbs := []crumb{{"Messages", ""}}
 	s.render(w, r, http.StatusOK, "messages", page{Title: "Messages", Person: v.Name, Crumbs: crumbs, Here: "messages", Nav: nav, Data: d})
+	// Shown, so read: they leave the top of the overview. A failure here only
+	// leaves them there.
+	if r.Method == http.MethodGet && slices.ContainsFunc(d.Notices, func(n noticeRow) bool { return n.New }) {
+		if err := s.Store.ReadNotices(ctx, v.ID, notices[0].At); err != nil {
+			s.Log.Warn("marking notices as read", "error", err)
+		}
+	}
 }
 
 // failedState says a message could not go. Why is for an administrator: the error
