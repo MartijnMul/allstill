@@ -180,7 +180,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 	keepLog := fs.Int("keep-log", logDays, "how many days the log is kept (ALLSTILL_KEEP_LOG)")
 	mailSettings := smtpFlags(fs)
 	shadow := fs.Bool("shadow", os.Getenv("ALLSTILL_SHADOW") == "1", "record alerts without sending them, whatever the setting in the database, such as to serve a copy of it (ALLSTILL_SHADOW=1)")
-	allowPrivate := fs.String("allow-private", os.Getenv("ALLSTILL_ALLOW_PRIVATE"), "private ranges the checks Allstill runs may reach, such as 10.0.0.0/8, comma-separated; they are open to every project's checks (ALLSTILL_ALLOW_PRIVATE)")
+	allowPrivate := fs.String("allow-private", os.Getenv("ALLSTILL_ALLOW_PRIVATE"), "private ranges the checks Allstill runs may reach, such as 10.0.0.0/8, comma-separated; they are open to the checks of the first team, and of each team that 'allstill admin set-team -private on' names (ALLSTILL_ALLOW_PRIVATE)")
 	canaryAddrs := fs.String("canary", os.Getenv("ALLSTILL_CANARY"), "host:port addresses independent of the sites checked, such as a public DNS server's 9.9.9.9:53, comma-separated: when none answers, the server's own network is down and its checks are unknown instead of down (ALLSTILL_CANARY)")
 	sourceURL := fs.String("source-url", envOr("ALLSTILL_SOURCE_URL", defaultSource()), "where the source of this version is; every page links to it, so a changed version points it at its own (ALLSTILL_SOURCE_URL)")
 	contact := fs.String("contact", os.Getenv("ALLSTILL_CONTACT"), "an address for site owners, sent in the User-Agent of every check's request (ALLSTILL_CONTACT)")
@@ -338,7 +338,7 @@ func serve(ctx context.Context, args []string, stderr io.Writer) error {
 		log.Info("checks: no canary is set, so if the server's own network goes down, the checks it runs go down and alert")
 	}
 	if len(allow) > 0 {
-		log.Warn("checks may reach these private ranges, for every project", "allow_private", *allowPrivate)
+		log.Warn("checks may reach these private ranges, for the teams they are open to", "allow_private", *allowPrivate)
 	}
 	dashboard.Offline = checks.Offline
 	dashboard.Nudge = sched.Nudge

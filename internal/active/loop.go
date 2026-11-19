@@ -40,10 +40,15 @@ const NotJudged = "not judged: the server's network was down"
 type Check struct {
 	ID, WorkspaceID string
 	ProjectID       string // its share of the running attempts; a probe's have none
-	Revision        string // names its settings, so an attempt under older ones does not count
-	Every           time.Duration
-	HTTP            HTTP
-	TCP             *TCP // a TCP check; otherwise it is an HTTP check
+	TeamID          string // whose turn it is when attempts wait for room
+	// Private says it may reach the private ranges its runner was given. The
+	// zero value holds it to the public internet, so a check made without
+	// saying whose it is reaches nothing that was opened for someone else.
+	Private  bool
+	Revision string // names its settings, so an attempt under older ones does not count
+	Every    time.Duration
+	HTTP     HTTP
+	TCP      *TCP // a TCP check; otherwise it is an HTTP check
 }
 
 // offset is when within its interval a check's attempts start, from its id,
@@ -82,6 +87,11 @@ func (c Check) Certificate() (host, port string, watched bool) {
 
 // Attempt makes one attempt of a check.
 func (r *Runner) Attempt(ctx context.Context, c Check) Result {
+	if !c.Private && len(r.Allow) > 0 {
+		public := *r
+		public.Allow = nil
+		r = &public
+	}
 	if c.TCP != nil {
 		return r.TCP(ctx, *c.TCP)
 	}
@@ -167,6 +177,7 @@ func (l *Loop) Run(ctx context.Context) error {
 	var queue []*entry
 	busy := map[string]bool{}
 	perProject := map[string]int{}
+	perTeam := map[string]int{}
 	running := 0
 	results := make(chan finished, MaxRunning)
 	var pending []Done
@@ -230,22 +241,29 @@ func (l *Loop) Run(ctx context.Context) error {
 				return cmp.Or(a.slot.Compare(b.slot), cmp.Compare(a.c.ID, b.c.ID))
 			})
 		}
-		kept := queue[:0]
-		for _, e := range queue {
-			host := e.c.host()
-			switch {
-			case e.gone:
-				continue
-			case running >= MaxRunning || busy[host]:
-				kept = append(kept, e)
-				continue
-			case e.c.ProjectID != "" && perProject[e.c.ProjectID] >= MaxPerProject:
-				kept = append(kept, e)
-				continue
+		// Teams take turns: the next to start is the earliest waiting check of
+		// the team with the fewest running, so one team's slow hosts cannot hold
+		// every place (teams spec, R35). With one team that is the queue's order.
+		for running < MaxRunning {
+			next := -1
+			for i, e := range queue {
+				switch {
+				case e.gone || e.running || !e.waiting:
+				case busy[e.c.host()]:
+				case e.c.ProjectID != "" && perProject[e.c.ProjectID] >= MaxPerProject:
+				case next < 0 || perTeam[e.c.TeamID] < perTeam[queue[next].c.TeamID]:
+					next = i
+				}
 			}
+			if next < 0 {
+				break
+			}
+			e := queue[next]
+			host := e.c.host()
 			e.waiting, e.running = false, true
 			busy[host] = true
 			perProject[e.c.ProjectID]++
+			perTeam[e.c.TeamID]++
 			running++
 			c, slot := e.c, e.slot
 			wg.Go(func() {
@@ -253,8 +271,7 @@ func (l *Loop) Run(ctx context.Context) error {
 				results <- finished{Done{Check: c, Slot: slot, Result: r}, host, attempts.Err() != nil}
 			})
 		}
-		clear(queue[len(kept):])
-		queue = kept
+		queue = slices.DeleteFunc(queue, func(e *entry) bool { return e.gone || !e.waiting })
 	}
 	record := func(ctx context.Context) {
 		if len(pending) == 0 {
@@ -311,6 +328,9 @@ func (l *Loop) Run(ctx context.Context) error {
 			delete(busy, f.host)
 			if perProject[f.Check.ProjectID]--; perProject[f.Check.ProjectID] == 0 {
 				delete(perProject, f.Check.ProjectID)
+			}
+			if perTeam[f.Check.TeamID]--; perTeam[f.Check.TeamID] == 0 {
+				delete(perTeam, f.Check.TeamID)
 			}
 			if e, ok := entries[f.Check.ID]; ok {
 				e.running = false

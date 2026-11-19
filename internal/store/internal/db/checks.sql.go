@@ -13,9 +13,10 @@ import (
 )
 
 const activeChecks = `-- name: ActiveChecks :many
-SELECT id, workspace_id, project_id, version, kind, interval_seconds, settings FROM checks
-WHERE kind IN ('http', 'tcp') AND deleted_at IS NULL AND state <> 'paused' AND probe_id IS NULL
-ORDER BY id
+SELECT c.id, c.workspace_id, c.project_id, c.version, c.kind, c.interval_seconds, c.settings, p.team_id, t.private_ranges
+FROM checks c JOIN projects p ON p.id = c.project_id JOIN teams t ON t.id = p.team_id
+WHERE c.kind IN ('http', 'tcp') AND c.deleted_at IS NULL AND c.state <> 'paused' AND c.probe_id IS NULL
+ORDER BY c.id
 `
 
 type ActiveChecksRow struct {
@@ -26,6 +27,8 @@ type ActiveChecksRow struct {
 	Kind            string
 	IntervalSeconds sql.NullInt64
 	Settings        string
+	TeamID          string
+	PrivateRanges   string
 }
 
 // The checks Allstill runs itself, for its loop; a paused one does not run.
@@ -46,6 +49,8 @@ func (q *Queries) ActiveChecks(ctx context.Context) ([]ActiveChecksRow, error) {
 			&i.Kind,
 			&i.IntervalSeconds,
 			&i.Settings,
+			&i.TeamID,
+			&i.PrivateRanges,
 		); err != nil {
 			return nil, err
 		}

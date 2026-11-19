@@ -210,8 +210,18 @@ func an(kind string) string {
 // reachable refuses an address the server may not reach, saying what to do: this
 // is the server's own shell, so it names what the address resolved to (ADR 0004). A
 // host name that does not resolve now is only a warning: the check reports it.
-func reachable(ctx context.Context, host string, allow []netip.Prefix, stdout io.Writer) error {
-	err := outbound.CheckHost(ctx, host, allow)
+//
+// The ranges the server was given are for the teams they were opened to, so a
+// project of any other team is held to the public internet (teams spec, R13).
+func reachable(ctx context.Context, st *store.Store, projectID, host string, allow []netip.Prefix, stdout io.Writer) error {
+	private, err := st.ReachesPrivate(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if !private {
+		allow = nil
+	}
+	err = outbound.CheckHost(ctx, host, allow)
 	if errors.Is(err, outbound.ErrNoSuchHost) {
 		fmt.Fprintf(stdout, "Note: %s does not resolve now; the check will say so until it does.\n", host)
 		return nil
@@ -220,7 +230,10 @@ func reachable(ctx context.Context, host string, allow []netip.Prefix, stdout io
 		if u.Own {
 			return fmt.Errorf("%s is %s, this server's own address, which checks never reach", u.Host, u.Addr)
 		}
-		return fmt.Errorf("%s is %s, which is not on the public internet; to let the server reach it, allow its range when it starts, such as `allstill serve -allow-private %s` (ALLSTILL_ALLOW_PRIVATE). That opens the range to every project's checks", u.Host, u.Addr, rangeOf(u.Addr))
+		if !private {
+			return fmt.Errorf("%s is %s, which is not on the public internet, and this project's team is held to it. `allstill admin set-team TEAM -private on` lets its checks reach the ranges the server was started with, or use a probe in that network", u.Host, u.Addr)
+		}
+		return fmt.Errorf("%s is %s, which is not on the public internet; to let the server reach it, allow its range when it starts, such as `allstill serve -allow-private %s` (ALLSTILL_ALLOW_PRIVATE). That opens the range to the checks of every team that may reach private ranges", u.Host, u.Addr, rangeOf(u.Addr))
 	}
 	return err
 }
@@ -310,6 +323,7 @@ Flags:
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	project := fs.String("project", "", "the project to add it to")
 	name := fs.String("name", "", "the check's name")
 	description := fs.String("description", "", "what it watches, for people")
@@ -345,7 +359,7 @@ Flags:
 		return err
 	}
 	defer st.Close()
-	projectID, err := st.ProjectByName(ctx, ws, *project)
+	projectID, err := projectNamed(ctx, st, ws, *team, *project)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no project is named %q", *project)
 	} else if err != nil {
@@ -367,7 +381,7 @@ Flags:
 		} else if err != nil {
 			return err
 		}
-	} else if err := reachable(ctx, hostIn(kind, settings), allow, stdout); err != nil {
+	} else if err := reachable(ctx, st, projectID, hostIn(kind, settings), allow, stdout); err != nil {
 		return err
 	}
 	created, err := st.CreateCheck(ctx, admin, projectID, store.NewCheck{
@@ -386,6 +400,13 @@ Flags:
 	}
 	if canary == "" {
 		fmt.Fprintln(stdout, "This server has no canary (-canary): if its own network goes down, this check goes down and alerts with it.")
+	}
+	// Tried as the loop will run it: with the server's private ranges only for a
+	// team they are open to.
+	if private, err := st.ReachesPrivate(ctx, projectID); err != nil {
+		return err
+	} else if !private {
+		allow = nil
 	}
 	return tryOnce(ctx, &active.Runner{Allow: allow, UserAgent: active.UserAgent(version(), "")}, kind, settings, stdout)
 }
@@ -437,6 +458,8 @@ func tryOnce(ctx context.Context, runner *active.Runner, kind string, settings m
 	} else if c.HTTP, err = active.ParseHTTP(raw); err != nil {
 		return err
 	}
+	// The runner was given what this check may reach, and nothing more.
+	c.Private = true
 	r := runner.Attempt(ctx, c)
 	line := "Tried it now: " + map[string]string{"passed": "up", "warned": "up, with a warning", "failed": "it fails"}[string(r.Outcome)]
 	if r.Reason != "" {
@@ -478,6 +501,7 @@ Flags:
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	project := fs.String("project", "", "the project of the check")
 	name := fs.String("check", "", "the check's name")
 	probeName := fs.String("probe", "", `the probe to run it on; "" for the server`)
@@ -497,7 +521,7 @@ Flags:
 		return err
 	}
 	defer st.Close()
-	projectID, err := st.ProjectByName(ctx, ws, *project)
+	projectID, err := projectNamed(ctx, st, ws, *team, *project)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no project is named %q", *project)
 	} else if err != nil {
@@ -561,7 +585,7 @@ Flags:
 		}
 	}
 	if probeID == "" && (moving || visited(fs, "http") || visited(fs, "tcp")) {
-		if err := reachable(ctx, hostIn(c.Kind, settings), allow, stdout); err != nil {
+		if err := reachable(ctx, st, c.ProjectID, hostIn(c.Kind, settings), allow, stdout); err != nil {
 			return err
 		}
 	}
@@ -622,8 +646,8 @@ func setPingCheck(ctx context.Context, fs *flag.FlagSet, st *store.Store, admin 
 }
 
 // oneCheck finds a check by project and name, for the commands.
-func oneCheck(ctx context.Context, st *store.Store, command, ws, project, name string) (store.Access, store.CheckView, error) {
-	projectID, err := st.ProjectByName(ctx, ws, project)
+func oneCheck(ctx context.Context, st *store.Store, command, ws, team, project, name string) (store.Access, store.CheckView, error) {
+	projectID, err := projectNamed(ctx, st, ws, team, project)
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Access{}, store.CheckView{}, fmt.Errorf("no project is named %q", project)
 	} else if err != nil {
@@ -661,6 +685,7 @@ func checkCommand(ctx context.Context, name, help string, args []string, stdout,
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	project := fs.String("project", "", "the project of the check")
 	check := fs.String("check", "", "the check's name")
 	if err := fs.Parse(args); err != nil {
@@ -675,7 +700,7 @@ func checkCommand(ctx context.Context, name, help string, args []string, stdout,
 		return err
 	}
 	defer st.Close()
-	admin, c, err := oneCheck(ctx, st, name, ws, *project, *check)
+	admin, c, err := oneCheck(ctx, st, name, ws, *team, *project, *check)
 	if err != nil {
 		return err
 	}

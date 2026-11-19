@@ -106,6 +106,41 @@ func (q *Queries) ConfirmedChannelsOfPerson(ctx context.Context, personID sql.Nu
 	return items, nil
 }
 
+const countActiveChecksOfTeam = `-- name: CountActiveChecksOfTeam :one
+SELECT COUNT(*) FROM checks c JOIN projects p ON p.id = c.project_id
+WHERE p.team_id = ? AND c.kind IN ('http', 'tcp') AND c.deleted_at IS NULL
+`
+
+func (q *Queries) CountActiveChecksOfTeam(ctx context.Context, teamID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countActiveChecksOfTeam, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countPingChecksOfTeam = `-- name: CountPingChecksOfTeam :one
+SELECT COUNT(*) FROM checks c JOIN projects p ON p.id = c.project_id
+WHERE p.team_id = ? AND c.kind NOT IN ('http', 'tcp') AND c.deleted_at IS NULL
+`
+
+func (q *Queries) CountPingChecksOfTeam(ctx context.Context, teamID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPingChecksOfTeam, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countProjectsOfTeam = `-- name: CountProjectsOfTeam :one
+SELECT COUNT(*) FROM projects WHERE team_id = ?
+`
+
+func (q *Queries) CountProjectsOfTeam(ctx context.Context, teamID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countProjectsOfTeam, teamID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createNotice = `-- name: CreateNotice :exec
 INSERT INTO notices (id, workspace_id, person_id, team_id, kind, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
@@ -135,14 +170,17 @@ func (q *Queries) CreateNotice(ctx context.Context, arg CreateNoticeParams) erro
 
 const createTeam = `-- name: CreateTeam :exec
 
-INSERT INTO teams (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?)
+INSERT INTO teams (id, workspace_id, name, created_at, max_active_checks, max_ping_checks, private_ranges) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateTeamParams struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	CreatedAt   int64
+	ID              string
+	WorkspaceID     string
+	Name            string
+	CreatedAt       int64
+	MaxActiveChecks sql.NullInt64
+	MaxPingChecks   sql.NullInt64
+	PrivateRanges   string
 }
 
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -152,7 +190,24 @@ func (q *Queries) CreateTeam(ctx context.Context, arg CreateTeamParams) error {
 		arg.WorkspaceID,
 		arg.Name,
 		arg.CreatedAt,
+		arg.MaxActiveChecks,
+		arg.MaxPingChecks,
+		arg.PrivateRanges,
 	)
+	return err
+}
+
+const deleteTeam = `-- name: DeleteTeam :exec
+DELETE FROM teams WHERE workspace_id = ? AND id = ?
+`
+
+type DeleteTeamParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) DeleteTeam(ctx context.Context, arg DeleteTeamParams) error {
+	_, err := q.db.ExecContext(ctx, deleteTeam, arg.WorkspaceID, arg.ID)
 	return err
 }
 
@@ -325,6 +380,57 @@ func (q *Queries) OwnersOfTeam(ctx context.Context, teamID string) ([]OwnersOfTe
 	return items, nil
 }
 
+const peopleWithTeams = `-- name: PeopleWithTeams :many
+SELECT p.id, p.name, CAST(COALESCE(p.email, '') AS TEXT) AS email, p.workspace_admin, p.disabled_at,
+       CAST(COALESCE(t.name, '') AS TEXT) AS team, CAST(COALESCE(tm.role, '') AS TEXT) AS role
+FROM people p
+LEFT JOIN team_members tm ON tm.person_id = p.id
+LEFT JOIN teams t ON t.id = tm.team_id
+WHERE p.workspace_id = ? ORDER BY p.name, p.id, t.created_at
+`
+
+type PeopleWithTeamsRow struct {
+	ID             string
+	Name           string
+	Email          string
+	WorkspaceAdmin int64
+	DisabledAt     sql.NullInt64
+	Team           string
+	Role           string
+}
+
+// Everyone with an account and the teams they are in (spec, R11).
+func (q *Queries) PeopleWithTeams(ctx context.Context, workspaceID string) ([]PeopleWithTeamsRow, error) {
+	rows, err := q.db.QueryContext(ctx, peopleWithTeams, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PeopleWithTeamsRow{}
+	for rows.Next() {
+		var i PeopleWithTeamsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.WorkspaceAdmin,
+			&i.DisabledAt,
+			&i.Team,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const projectsOfTeam = `-- name: ProjectsOfTeam :many
 SELECT id, name FROM projects WHERE team_id = ? AND deleted_at IS NULL ORDER BY name, id
 `
@@ -433,6 +539,31 @@ func (q *Queries) SetAlertChoice(ctx context.Context, arg SetAlertChoiceParams) 
 	return err
 }
 
+const setTeamLimits = `-- name: SetTeamLimits :exec
+UPDATE teams SET name = ?, max_active_checks = ?, max_ping_checks = ?, private_ranges = ? WHERE workspace_id = ? AND id = ?
+`
+
+type SetTeamLimitsParams struct {
+	Name            string
+	MaxActiveChecks sql.NullInt64
+	MaxPingChecks   sql.NullInt64
+	PrivateRanges   string
+	WorkspaceID     string
+	ID              string
+}
+
+func (q *Queries) SetTeamLimits(ctx context.Context, arg SetTeamLimitsParams) error {
+	_, err := q.db.ExecContext(ctx, setTeamLimits,
+		arg.Name,
+		arg.MaxActiveChecks,
+		arg.MaxPingChecks,
+		arg.PrivateRanges,
+		arg.WorkspaceID,
+		arg.ID,
+	)
+	return err
+}
+
 const team = `-- name: Team :one
 SELECT id, name FROM teams WHERE workspace_id = ? AND id = ?
 `
@@ -452,6 +583,87 @@ func (q *Queries) Team(ctx context.Context, arg TeamParams) (TeamRow, error) {
 	var i TeamRow
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
+}
+
+const teamLimitsOfProject = `-- name: TeamLimitsOfProject :one
+SELECT t.id, t.max_active_checks, t.max_ping_checks, t.private_ranges
+FROM projects p JOIN teams t ON t.id = p.team_id WHERE p.id = ?
+`
+
+type TeamLimitsOfProjectRow struct {
+	ID              string
+	MaxActiveChecks sql.NullInt64
+	MaxPingChecks   sql.NullInt64
+	PrivateRanges   string
+}
+
+// What a team may take, with the team a project is in.
+func (q *Queries) TeamLimitsOfProject(ctx context.Context, id string) (TeamLimitsOfProjectRow, error) {
+	row := q.db.QueryRowContext(ctx, teamLimitsOfProject, id)
+	var i TeamLimitsOfProjectRow
+	err := row.Scan(
+		&i.ID,
+		&i.MaxActiveChecks,
+		&i.MaxPingChecks,
+		&i.PrivateRanges,
+	)
+	return i, err
+}
+
+const teamSummaries = `-- name: TeamSummaries :many
+SELECT t.id, t.name, t.max_active_checks, t.max_ping_checks, t.private_ranges,
+       (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) AS people,
+       (SELECT COUNT(*) FROM projects p WHERE p.team_id = t.id AND p.deleted_at IS NULL) AS projects,
+       (SELECT COUNT(*) FROM checks c JOIN projects p ON p.id = c.project_id WHERE p.team_id = t.id AND c.deleted_at IS NULL) AS checks,
+       (SELECT COUNT(*) FROM probes pr WHERE pr.team_id = t.id) AS probes
+FROM teams t WHERE t.workspace_id = ? ORDER BY t.created_at, t.id
+`
+
+type TeamSummariesRow struct {
+	ID              string
+	Name            string
+	MaxActiveChecks sql.NullInt64
+	MaxPingChecks   sql.NullInt64
+	PrivateRanges   string
+	People          int64
+	Projects        int64
+	Checks          int64
+	Probes          int64
+}
+
+// A team as whoever keeps the installation may know it: its name, what it may
+// take, and how much it holds. No name of a project or a check (spec, R10).
+func (q *Queries) TeamSummaries(ctx context.Context, workspaceID string) ([]TeamSummariesRow, error) {
+	rows, err := q.db.QueryContext(ctx, teamSummaries, workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TeamSummariesRow{}
+	for rows.Next() {
+		var i TeamSummariesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.MaxActiveChecks,
+			&i.MaxPingChecks,
+			&i.PrivateRanges,
+			&i.People,
+			&i.Projects,
+			&i.Checks,
+			&i.Probes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const teams = `-- name: Teams :many

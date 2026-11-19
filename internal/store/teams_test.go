@@ -591,12 +591,14 @@ func TestRolesAndAlertsAreSaidInOnePlace(t *testing.T) {
 	teams := map[string]bool{
 		"AddTeamMember": true, "RemoveTeamMember": true, "TeamsOfPerson": true, "RoleInTeam": true, "OwnersOfTeam": true,
 		"RoleInTeamOfProject": true, "TeamsConcerning": true,
+		"TeamSummaries": true, "PeopleWithTeams": true,
 	}
 	for name, q := range queriesNamed(t) {
 		if strings.Contains(q, "alert_choices") && !writers[name] {
 			t.Errorf("%s reads alert_choices: ask project_alerted", name)
 		}
-		if admin.MatchString(q) {
+		// Listing who has an account says both, and works out no role from them.
+		if admin.MatchString(q) && name != "PeopleWithTeams" {
 			t.Errorf("%s works out a role from workspace_admin: ask project_roles", name)
 		}
 		if strings.Contains(q, "team_members") && !teams[name] {

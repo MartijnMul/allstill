@@ -486,3 +486,140 @@ func TestNarrowingDoesNotReadThroughAnotherTeam(t *testing.T) {
 		t.Errorf("their own check by its name: %+v", page.Entries)
 	}
 }
+
+// What a team may take is its own: the first team has no limit, a new one
+// starts with one, and reaching it refuses a new check without stopping one
+// that exists (R34, R36).
+func TestATeamHasItsOwnLimits(t *testing.T) {
+	w := newWall(t)
+	ctx := t.Context()
+	by := Command("set-team")
+	teams, err := w.s.TeamSummaries(ctx, w.ws)
+	must(t, err)
+	if first, second := teams[0], teams[1]; first.MaxActive != -1 || first.MaxPing != -1 || !first.Private ||
+		second.MaxActive != NewTeamActiveChecks || second.MaxPing != NewTeamPingChecks || second.Private {
+		t.Fatalf("the first team %+v, a new team %+v", first, second)
+	}
+	if second := teams[1]; second.People != 3 || second.Projects != 1 || len(second.Owners) != 1 || second.Owners[0] != "Hal" {
+		t.Errorf("%+v", second)
+	}
+	one, none := 1, -1
+	must(t, w.s.SetTeam(ctx, by, w.ws, w.second, TeamChange{MaxActive: &one, MaxPing: &one}))
+	ping := NewCheck{Name: "job", Interval: time.Hour, Grace: time.Hour}
+	site := NewCheck{Name: "site", Kind: "http", Interval: time.Minute, Settings: map[string]any{"url": "https://example.com/"}}
+	first, err := w.s.CreateCheck(ctx, w.hedy, w.theirs, ping)
+	must(t, err)
+	_, err = w.s.CreateCheck(ctx, w.hedy, w.theirs, site)
+	must(t, err)
+	var invalid *InvalidError
+	for kind, n := range map[string]NewCheck{"a check jobs ping": ping, "a check Allstill runs": site} {
+		n.Name += "-2"
+		if _, err := w.s.CreateCheck(ctx, w.hedy, w.theirs, n); !errors.As(err, &invalid) || !strings.Contains(invalid.Problem, "the administrator of this installation can raise that") {
+			t.Errorf("%s past the team's limit: %v", kind, err)
+		}
+	}
+	// A second project of the team counts toward the same limit, and another
+	// team is not held to it. Moving a check there adds nothing to the team, so
+	// a full team can still move one.
+	other, _, err := w.s.CreateProjectIn(ctx, Command("test"), w.ws, w.second, "Sites")
+	must(t, err)
+	must(t, w.s.SetMember(ctx, Command("test"), w.ws, other, w.hedy.PersonID, Editor))
+	if _, err := w.s.CreateCheck(ctx, w.access(t, w.hedy.PersonID), other, ping); !errors.As(err, &invalid) {
+		t.Errorf("past the limit in another project of the team: %v", err)
+	}
+	if _, err := w.s.CreateCheck(ctx, w.ada, w.ours, ping); err != nil {
+		t.Errorf("another team: %v", err)
+	}
+	if err := w.s.MoveCheckAs(ctx, w.access(t, w.hedy.PersonID), first.ID, other, w.at); err != nil {
+		t.Errorf("a full team moving a check between its projects: %v", err)
+	}
+	must(t, w.s.MoveCheckAs(ctx, w.access(t, w.hedy.PersonID), first.ID, w.theirs, w.at))
+	// A ping that would make a check makes none, and says no more than that.
+	_, key, err := w.s.CreateProjectIn(ctx, Command("test"), w.ws, w.second, "Jobs")
+	must(t, err)
+	if _, err := w.s.Ping(ctx, PingIn{PingKey: key, Slug: "made-by-a-ping", Create: true, Kind: "success", ExitStatus: -1, Method: "POST", At: w.at}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a ping with create=1 past the team's limit: %v", err)
+	}
+	// A command on the server is not held to it, as it is not held to a project's.
+	admin, err := w.s.AdminAccess(ctx, w.ws, "add-check")
+	must(t, err)
+	if _, err := w.s.CreateCheck(ctx, admin, w.theirs, NewCheck{Name: "by-command", Interval: time.Hour, Grace: time.Hour}); err != nil {
+		t.Errorf("a command: %v", err)
+	}
+	// Nothing that exists stopped, and with the limit gone there is room again.
+	var standing int
+	must(t, w.s.r.QueryRow(`SELECT count(*) FROM checks WHERE id = ? AND deleted_at IS NULL AND state <> 'paused'`, first.ID).Scan(&standing))
+	if standing != 1 {
+		t.Error("a check that existed was stopped")
+	}
+	must(t, w.s.SetTeam(ctx, by, w.ws, w.second, TeamChange{MaxPing: &none}))
+	ping.Name = "job-3"
+	if _, err := w.s.CreateCheck(ctx, w.hedy, w.theirs, ping); err != nil {
+		t.Errorf("with no limit: %v", err)
+	}
+	// Whether its checks may reach the server's private ranges is the team's too.
+	for project, want := range map[string]bool{w.ours: true, w.theirs: false} {
+		if got, err := w.s.ReachesPrivate(ctx, project); err != nil || got != want {
+			t.Errorf("private ranges for %s: %v %v", project, got, err)
+		}
+	}
+	yes := true
+	must(t, w.s.SetTeam(ctx, by, w.ws, w.second, TeamChange{Private: &yes}))
+	if got, _ := w.s.ReachesPrivate(ctx, w.theirs); !got {
+		t.Error("opened, they are still closed")
+	}
+	// The loop is told whose each check is, and what it may reach.
+	checks, err := w.s.ActiveChecks(ctx)
+	must(t, err)
+	for _, c := range checks {
+		if c.TeamID != w.second || !c.Private {
+			t.Errorf("%+v", c)
+		}
+	}
+	// The owners read that their team was changed; an administrator does too.
+	for who, a := range map[string]Access{"the owner": w.hal, "an administrator": w.zed} {
+		page, err := w.s.ReadLog(ctx, a, LogFilter{Limit: 200})
+		must(t, err)
+		if !slices.ContainsFunc(page.Entries, func(e LogEntry) bool { return e.Kind == "team.changed" }) {
+			t.Errorf("%s does not read that the team was changed", who)
+		}
+	}
+}
+
+// A team that holds anything stays, and the installation keeps one (R33).
+func TestRemovingATeam(t *testing.T) {
+	w := newWall(t)
+	ctx := t.Context()
+	by := Command("remove-team")
+	var holds *TeamHolds
+	if err := w.s.RemoveTeam(ctx, by, w.ws, w.second); !errors.As(err, &holds) || holds.Projects != 1 {
+		t.Fatalf("a team with a project: %v", err)
+	}
+	empty, err := w.s.CreateTeam(ctx, Command("create-team"), w.ws, "Harbour")
+	must(t, err)
+	if _, err := w.s.TeamNamed(ctx, w.ws, "Harbour"); err == nil || !strings.Contains(err.Error(), empty) {
+		t.Errorf("two teams of one name: %v", err)
+	}
+	if got, err := w.s.TeamNamed(ctx, w.ws, empty); err != nil || got.ID != empty {
+		t.Errorf("by id: %v %v", got, err)
+	}
+	dora := w.person(t, "Dora", false, false)
+	must(t, w.s.SetTeamMember(ctx, by, w.ws, empty, dora, Owner))
+	must(t, w.s.RemoveTeam(ctx, by, w.ws, empty))
+	if _, err := w.s.TeamNamed(ctx, w.ws, empty); !errors.Is(err, ErrNotFound) {
+		t.Errorf("removed, it is still there: %v", err)
+	}
+	if a := w.access(t, dora); len(a.Teams) != 0 {
+		t.Errorf("its owner is still in it: %+v", a.Teams)
+	}
+	// On an installation with one team, that one stays.
+	s := open(t)
+	ws, err := s.Workspace(ctx)
+	must(t, err)
+	teams, err := s.Teams(ctx, ws)
+	must(t, err)
+	var invalid *InvalidError
+	if err := s.RemoveTeam(ctx, by, ws, teams[0].ID); !errors.As(err, &invalid) {
+		t.Errorf("the only team: %v", err)
+	}
+}

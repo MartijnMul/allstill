@@ -32,6 +32,13 @@ type overviewData struct {
 	AddFirst  bool   // the list is empty, and adding a check is the next step
 	Import    bool   // the list is empty for an administrator, who can import checks
 	Notice    *notice
+	// Teams are the teams an administrator is not in, as far as whoever keeps
+	// the installation is told of them: no project and no check by name.
+	Teams []teamLine
+}
+
+type teamLine struct {
+	Name, Owners, Holds string
 }
 
 // healthPart is one state's share of every check, in the bar across the top
@@ -198,6 +205,24 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 		default:
 			d.Empty = "No checks here."
 			d.AddFirst = project != "" && show == "" && strings.Contains(d.Add, "project=")
+		}
+	}
+	if v.Access.Admin && project == "" && show == "" && query == "" {
+		teams, err := s.Store.TeamSummaries(r.Context(), v.WorkspaceID)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		for _, t := range teams {
+			if _, in := v.Access.TeamRole(t.ID); in || len(teams) < 2 {
+				continue
+			}
+			owners := "No owner"
+			if len(t.Owners) > 0 {
+				owners = "Owned by " + strings.Join(t.Owners, ", ")
+			}
+			d.Teams = append(d.Teams, teamLine{Name: t.Name, Owners: owners,
+				Holds: plural(t.People, "person", "people") + ", " + plural(t.Projects, "project", "projects") + ", " + plural(t.Checks, "check", "checks")})
 		}
 	}
 	// The tab says how many need someone, so it shows among other tabs.

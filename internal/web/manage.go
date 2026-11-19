@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"strings"
@@ -573,8 +574,8 @@ func (f checkForm) addressField() string {
 }
 
 // reachable refuses an address the server may not reach, on a form.
-func (s *Server) reachable(ctx context.Context, v viewer, f checkForm, errs fieldErrors) {
-	if problem := s.addressProblem(ctx, v.ID, f.hostOf()); problem != "" {
+func (s *Server) reachable(ctx context.Context, v viewer, projectID string, f checkForm, errs fieldErrors) {
+	if problem := s.addressProblem(ctx, v.ID, projectID, f.hostOf()); problem != "" {
 		errs[f.addressField()] = problem
 	}
 }
@@ -582,14 +583,24 @@ func (s *Server) reachable(ctx context.Context, v viewer, f checkForm, errs fiel
 // addressProblem says why the server may not reach a host, for one credential, or ""
 // when it may. It says only that: a person is not told what a name resolves to, nor
 // that it is the server's own (R27).
-func (s *Server) addressProblem(ctx context.Context, credential, host string) string {
+func (s *Server) addressProblem(ctx context.Context, credential, projectID, host string) string {
 	if !s.within("lookup|"+credential, lookupsPerMinute) {
 		return "That is many new addresses in a minute. Wait a moment, and save again."
 	}
-	if _, refused := errors.AsType[*outbound.Unreachable](outbound.CheckHost(ctx, host, s.Allow)); refused {
+	if _, refused := errors.AsType[*outbound.Unreachable](outbound.CheckHost(ctx, host, s.allowFor(ctx, projectID))); refused {
 		return "This address is not on the public internet, and this server may not reach it. Ask your administrator, or use a probe."
 	}
 	return ""
+}
+
+// allowFor is the private ranges a project's checks may reach from the server:
+// those it was given, for a team they were opened to, and none for any other
+// (teams spec, R13). A project that cannot be read gets none.
+func (s *Server) allowFor(ctx context.Context, projectID string) []netip.Prefix {
+	if ok, err := s.Store.ReachesPrivate(ctx, projectID); err != nil || !ok {
+		return nil
+	}
+	return s.Allow
 }
 
 // fieldOf says which field on a form a refusal from the store belongs to, and what
@@ -814,7 +825,7 @@ func (s *Server) addCheck(w http.ResponseWriter, r *http.Request, v viewer) {
 		errs["critical"] = "Only an owner can turn this on: it wakes people during their quiet hours."
 	}
 	if len(errs) == 0 && store.Active(kind) && f.Probe == "" {
-		s.reachable(r.Context(), v, f, errs)
+		s.reachable(r.Context(), v, f.Project, f, errs)
 	}
 	if len(errs) > 0 {
 		refuse("")
@@ -925,6 +936,7 @@ func (s *Server) tryCheck(ctx context.Context, credential string, c store.CheckV
 		return found
 	}
 	var attempt active.Check
+	attempt.Private = len(s.allowFor(ctx, c.ProjectID)) > 0
 	if c.Kind == "tcp" {
 		t := tcpOf(c)
 		attempt.TCP = &t
@@ -1118,7 +1130,7 @@ func (s *Server) saveCheck(w http.ResponseWriter, r *http.Request, v viewer) {
 	ch := f.change(c, was, errs)
 	addressChanged := store.Active(c.Kind) && (ch.Settings != nil && (f.URL != was.URL || f.Host != was.Host || f.Port != was.Port || f.TLS != was.TLS) || f.Probe != was.Probe)
 	if len(errs) == 0 && addressChanged && f.Probe == "" {
-		s.reachable(r.Context(), v, f, errs)
+		s.reachable(r.Context(), v, c.ProjectID, f, errs)
 	}
 	if len(errs) > 0 {
 		refused("")

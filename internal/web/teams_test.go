@@ -4,18 +4,21 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/MartijnMul/allstill/internal/active"
 	"github.com/MartijnMul/allstill/internal/alert"
 	"github.com/MartijnMul/allstill/internal/api"
 	"github.com/MartijnMul/allstill/internal/check"
@@ -680,5 +683,72 @@ func TestWhatStaysOnTheServer(t *testing.T) {
 				t.Errorf("%s is served over the API: decide in a spec whether that may leave the server (intent/teams/spec.md, R30)", op.name)
 			}
 		}
+	}
+}
+
+// The private ranges the server was given are open to the teams they were
+// opened to: the first team after an upgrade, and no new team until said (R13).
+func TestPrivateRangesAreOpenedPerTeam(t *testing.T) {
+	w := setupTwoTeams(t)
+	w.srv.Allow = []netip.Prefix{netip.MustParsePrefix("192.0.2.0/24")}
+	tried := map[bool]int{}
+	w.srv.Try = func(_ context.Context, c active.Check) active.Result {
+		tried[c.Private]++
+		return active.Result{Outcome: check.Passed, Measured: map[string]float64{"status": 200, "ms": 12}}
+	}
+	form := func(project string) url.Values {
+		v := w.typed("http", "url", "http://192.0.2.7/")
+		v.Set("project", project)
+		return v
+	}
+	theirs := w.browser(t)
+	w.register(t, theirs, w.b.editor)
+	if rec := theirs.post("/checks/new", form(w.b.project)); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "not on the public internet") {
+		t.Errorf("a team the ranges are not open to saved a check on one: %d", rec.Code)
+	}
+	ours := w.browser(t)
+	w.register(t, ours, w.a.editor)
+	if rec := ours.post("/checks/new", form(w.a.project)); rec.Code != http.StatusSeeOther {
+		t.Errorf("the first team was refused its own range: %d %s", rec.Code, rec.Body)
+	}
+	// Opened to the second team, it may too; and what is tried from the form
+	// is tried as the team's, never with ranges it was not given.
+	yes := true
+	if err := w.st.SetTeam(t.Context(), store.Command("set-team"), w.ws, w.b.team, store.TeamChange{Private: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := theirs.post("/checks/new", form(w.b.project)); rec.Code != http.StatusSeeOther {
+		t.Errorf("opened to them, still refused: %d %s", rec.Code, rec.Body)
+	}
+	if tried[false] != 0 {
+		t.Errorf("%d tries were made without the ranges for a team that has them", tried[false])
+	}
+}
+
+// An administrator is shown the teams they are not in by name, owners and
+// counts, and nothing else of them (R10).
+func TestAnAdministratorSeesTeamsAsCounts(t *testing.T) {
+	w := setupTwoTeams(t)
+	for who, person := range map[string]string{"in no team": w.zed, "who owns the first": w.a.owner} {
+		b := w.browser(t)
+		w.register(t, b, person)
+		page := b.get("/").Body.String()
+		if !strings.Contains(page, "Harbour Works") || !strings.Contains(page, "Owned by Hal Harrow") || !strings.Contains(page, "3 people, 2 projects, 5 checks") {
+			t.Errorf("an administrator %s is not shown the other team", who)
+		}
+	}
+	for who, person := range map[string]string{"another team's owner": w.b.owner, "the first team's editor": w.a.editor} {
+		b := w.browser(t)
+		w.register(t, b, person)
+		if strings.Contains(b.get("/").Body.String(), "Other teams") {
+			t.Errorf("%s is shown the teams of the installation", who)
+		}
+	}
+	// With one team there is nothing to list.
+	f := setup(t)
+	b := f.browser(t)
+	f.register(t, b, f.ada)
+	if strings.Contains(b.get("/").Body.String(), "Other teams") {
+		t.Error("an installation with one team lists teams")
 	}
 }

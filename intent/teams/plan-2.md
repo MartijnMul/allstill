@@ -4,7 +4,7 @@
 Intent: [intent.md](intent.md)
 Spec: [spec.md](spec.md), accepted 2026-11-19
 Step 1: [plan.md](plan.md), running on a real installation since 2026-11-19
-Status: accepted
+Status: built (2026-11-19), in three commits; each part is still to be tried on a copy of a real database and rolled out
 Approved: 2026-11-19, by the maintainer's word to carry out step 2; the changes to the spec listed below are put to them with the first part
 Risk: higher risk (the wall between parties who must not see each other, three migrations that cannot be edited once committed, and messages that go out whatever the alerts switch says)
 Codebase: MartijnMul/allstill at 2523cb4
@@ -142,7 +142,7 @@ A command that only reads writes `command.read` and sends nothing: `compare` in 
 - `allstill admin set-team TEAM [-name N] [-active-checks N|none] [-ping-checks N|none] [-private on|off]`.
 - `allstill admin set-team-member (-email E | -person ID) -team TEAM -role owner|editor|viewer|none`. The last owner cannot be taken out or made less; name another first. Someone who becomes owner or editor is told of what is open in the team's projects, as `set-member` does for one project.
 - `allstill admin remove-team TEAM`, refused with a count while it holds projects or probes (R33).
-- `-team` on `create-project`, `create-probe`, `rekey-probe` and wherever `-project NAME` matches projects of two teams. With one team it is never needed (R18).
+- `-team` on `create-project`, `create-probe`, `rekey-probe` and wherever `-project NAME` matches projects of two teams. With one team it is never needed (R18). `move-checks -to` looks for its project, and makes it, in the team the checks are in.
 - `create-user` without `-project` and without `-team` makes an administrator who owns the one team, as today. With several teams it asks: `-team TEAM -role ROLE` for a member of one, `-admin` for an administrator who is in none, or both.
 
 **What an administrator sees (R10).** With more than one team, their overview lists each team they are not in as a line: name, owners, people, projects, checks. No link leads further.
@@ -178,6 +178,6 @@ Going back is as in step 1: the copy the store keeps from before each migration,
 - **Probes and moves (R24, R37).** A probe cannot serve another team's project; a check cannot move to one; both refusals say why to someone who can see both, and nothing to someone who cannot.
 - **Notices (R28, R29).** Each command that should tell does, to every owner and nobody else, in shadow mode and during quiet hours, once; a command that should not, does not. The card goes when the notice is read. A failed notice is retried as a message is.
 - **Limits and turns (R34 to R36).** At the limit a person, a key and `create=1` are refused and a command is not; no check stops. With one team holding twenty dead hosts and another one check due, the other's check starts next.
-- **Private ranges (R13).** A check of a team without them is refused on saving and unjudged in the loop for a private address, and a team with them is not.
+- **Private ranges (R13).** A check of a team without them is refused on saving, and fails in the loop for a private address as one the server may not reach, and a team with them is not.
 - **What stays on the server (R30).** No operation in the API description makes a team, names an owner, or makes a sign-in link.
 - **Pings and checks keep running (R45)** through each of the three migrations, as step 1 showed for 0016.

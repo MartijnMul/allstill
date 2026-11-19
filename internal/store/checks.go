@@ -176,6 +176,9 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 		if len(n.Description) > MaxDescription {
 			return CreatedCheck{}, &InvalidError{"description", fmt.Sprintf("at most %d characters", MaxDescription)}
 		}
+		if err := teamRoom(ctx, q, projectID, cmp.Or(n.Kind, "ping")); err != nil {
+			return CreatedCheck{}, err
+		}
 		if err := checkRoom(ctx, q, projectID, n.Kind); err != nil {
 			return CreatedCheck{}, err
 		}
@@ -498,7 +501,7 @@ func (s *Store) ActiveChecks(ctx context.Context) ([]active.Check, error) {
 	}
 	var checks []active.Check
 	for _, r := range rows {
-		c := active.Check{ID: r.ID, WorkspaceID: r.WorkspaceID, ProjectID: r.ProjectID, Revision: revisionOf(r.Settings), Every: time.Duration(r.IntervalSeconds.Int64) * time.Second}
+		c := active.Check{ID: r.ID, WorkspaceID: r.WorkspaceID, ProjectID: r.ProjectID, TeamID: r.TeamID, Private: r.PrivateRanges != "", Revision: revisionOf(r.Settings), Every: time.Duration(r.IntervalSeconds.Int64) * time.Second}
 		switch r.Kind {
 		case "http":
 			if c.HTTP, err = active.ParseHTTP([]byte(r.Settings)); err != nil {

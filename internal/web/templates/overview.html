@@ -81,5 +81,15 @@
     </div>
     {{end}}
   </section>
+  {{if .Teams}}
+  <section class="panel" aria-labelledby="teams">
+    <div class="panel-head"><h2 id="teams">Other teams</h2><span class="count">{{len .Teams}}</span></div>
+    <p class="muted">You keep this installation. What is in a team you are not in is its own: you are shown who owns it and how much it holds.</p>
+    <ul class="notices">
+      {{range .Teams}}<li><strong>{{.Name}}</strong> · {{.Owners}} · {{.Holds}}</li>
+      {{end}}
+    </ul>
+  </section>
+  {{end}}
 </main>
 {{end}}{{end}}

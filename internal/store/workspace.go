@@ -51,7 +51,9 @@ func (s *Store) Workspace(ctx context.Context) (string, error) {
 		return "", err
 	}
 	// An installation is never without a team: every project belongs to one.
-	if err := q.CreateTeam(ctx, db.CreateTeamParams{ID: id.New(id.Team), WorkspaceID: wsID, Name: "Allstill", CreatedAt: now()}); err != nil {
+	// It has no limits, and reaches whatever private ranges the server is given:
+	// whoever runs a new installation is its first team.
+	if err := q.CreateTeam(ctx, db.CreateTeamParams{ID: id.New(id.Team), WorkspaceID: wsID, Name: "Allstill", CreatedAt: now(), PrivateRanges: "*"}); err != nil {
 		return "", err
 	}
 	return wsID, tx.Commit()

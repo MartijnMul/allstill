@@ -359,7 +359,8 @@ func (p *Probe) fetch(ctx context.Context) error {
 // checkOf reads a check as the API gives it, through the rules the store
 // holds it to.
 func checkOf(c api.ProbeCheck) (active.Check, error) {
-	ac := active.Check{ID: c.Id, Every: time.Duration(c.Interval) * time.Second}
+	// What a probe may reach is what whoever runs it allowed, for all its checks.
+	ac := active.Check{ID: c.Id, Every: time.Duration(c.Interval) * time.Second, Private: true}
 	if c.Revision != nil {
 		ac.Revision = *c.Revision
 	}

@@ -61,7 +61,7 @@ Get your devices ready meanwhile. Under **Devices**, *Get alerts on this device*
 - The overview says when alerts may not reach you: a message to you failed in the last day and no alert or digest has reached you since, a device needs you, Allstill is behind with sending, or nobody gets alerts for a project you see. A device whose pushes failed, say while Allstill or the push service was cut off, is cleared by the next push it takes.
 - Serving a copy of the database? Start it with `-shadow` (`ALLSTILL_SHADOW=1`): it then sends no alerts, whatever the copy says.
 
-- Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them, and so do workspace administrators, for every project unless they are a viewer of it; viewers do not.
+- Everyone who gets alerts for a project is told once per incident, and again when it is resolved. Owners and editors get them: of the project, or of the team that owns it. On an installation with one team its administrators own that team, so they get them for every project, unless they were made a viewer of one. Viewers do not.
 - New people have quiet hours from 22:00 to 07:00 in their time zone. An alert waits for the morning unless its check is critical.
 - After Allstill was down, or its host slept or its clock jumped forward, checks whose deadline passed meanwhile become unknown, not down, and nobody is alerted for them.
 - `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` (the daily digest at 08:00) or `none`. `-critical` breaks through quiet hours.
@@ -121,9 +121,30 @@ They are not told what a host name resolves to, or that an address is the server
 
 Only an owner can have a check wake people during their quiet hours.
 
+## Teams
+
+An installation holds one or more teams. A team owns projects, and its members have one role in all of them: owner, editor or viewer. With one team you never meet the word: an upgrade puts every project in a team named as the installation, which its administrators own, and everything works as it did.
+
+A second team is for someone who should run their own checks on your server without you looking over their shoulder: a friend, another company, another department ([ADR 0005](adr/0005-teams.md)).
+
+```sh
+allstill admin create-team "Harbour" -owner-name "Bob" -owner-email bob@example.com
+allstill admin create-project "Jobs" -team "Harbour"
+allstill admin create-user -name "Dave" -team "Harbour" -role editor
+allstill admin teams
+```
+
+- **What its people see.** Their own team's projects, and nothing of another team: no name, no state, no address, and the same answer for something of another team as for something that does not exist.
+- **What you see as an administrator.** You keep the installation: its people, its mail, its teams and its alerts switch. Of a team you are not in you are shown its name, its owners and how many people, projects and checks it has, on your overview and with `allstill admin teams`. `allstill admin teams -people` lists everyone with an account and their teams. You also read in the log that a message reached someone by no way, with who and why, and not what it was about.
+- **What a team may take.** A new team may have 400 checks Allstill runs and 2000 that jobs ping; `allstill admin set-team TEAM -active-checks N -ping-checks N` changes that, and `none` lifts it. A limit refuses a new check and never stops one. When more attempts are due than can run at once, teams take turns, so one team's dead hosts do not keep another's checks waiting; one host is still tried by one attempt at a time for everyone. A new team reaches none of the private ranges you opened, until `allstill admin set-team TEAM -private on`.
+- **People in a team.** `allstill admin set-team-member (-email E | -person ID) -team TEAM -role owner|editor|viewer|none`. A team's last owner cannot be taken out or made less. A probe belongs to one team and serves its projects, and a check moves only between projects of one team.
+- **Names.** A project's name is told apart within its team, so two teams can each have a `Backups`. A command then takes `-team`, and with one team never needs it.
+- **Commands on the server reach every team.** Whoever has the shell has the database, so `allstill admin` is not held back by teams. It tells on itself instead, as below. `allstill admin remove-team` removes a team that holds no project and no probe.
+- **What a team is not.** It keeps Allstill from showing one party's checks to another. It does not protect a team from whoever holds the server: the database, every backup and every ping URL are theirs to read, a team's checks are fetched from the server's own address, and a sign-in link for someone can be used by whoever makes it, which is why making one is told. Parties who cannot trust the host with that run their own installation.
+
 ## People
 
-`allstill admin create-user` without `-project` adds a workspace administrator, who sees every project and gets alerts for all of them. To add someone who should only see their own, such as a customer:
+`allstill admin create-user` without `-project` adds a workspace administrator. On an installation with one team they own that team, so they see every project and get alerts for all of them. With several teams it asks which: see Teams. To add someone who should only see their own, such as a customer:
 
 ```sh
 allstill admin create-user -name "Bob" -email bob@example.com -project Customer -role viewer
@@ -210,7 +231,7 @@ allstill admin add-check -project Sites -name database -tcp db.example.com:5432
 - **Ports.** `-tcp host:port` is up while the port accepts a connection; nothing is sent over it. `-tls` also finishes a TLS handshake. STARTTLS is not covered: on mail ports 25 and 587, which begin in plain text, watch the port without `-tls`.
 - **Certificates.** Every attempt over TLS reads the certificate. The check is in warning when fewer than 14 days are left (`-warn-days`), or less than a third of its lifetime when that is shorter, and the morning digest lists it; an attempt fails under 3 days (`-fail-days`), or a tenth of its lifetime. An automatically renewed certificate, even one that lives six days, never warns. `-ca` trusts an internal CA's certificates; `-no-verify` skips verification, for a self-signed certificate, and still watches its expiry. Two checks on one host and port read the same certificate: within a project, `add-check` says so, and `-warn-days 0` on one of them has it warn once.
 - **Being a good visitor.** Attempts are spread over their interval, one at a time per host and at most 20 at once, of which at most 5 for one project, so one project's dead hosts cannot blind the others'. Requests are sent as `Allstill/<version>`; `-contact` (`ALLSTILL_CONTACT`) adds an address for site owners. A site behind a bot challenge says so in the reason; let Allstill through there.
-- **Private addresses.** The server refuses addresses that are not on the public internet, for every connection and every redirect. `-allow-private 10.0.0.0/8` (`ALLSTILL_ALLOW_PRIVATE`, comma-separated) lets checks reach such ranges: they are then open to the checks of every project, so allow only what you mean to watch. The server's own addresses are never reached.
+- **Private addresses.** The server refuses addresses that are not on the public internet, for every connection and every redirect. `-allow-private 10.0.0.0/8` (`ALLSTILL_ALLOW_PRIVATE`, comma-separated) lets checks reach such ranges: they are then open to the checks of the installation's first team, and of each team you name with `allstill admin set-team TEAM -private on`, so allow only what you mean to watch. A new team is held to the public internet until then. The server's own addresses are never reached.
 - **Allstill's own network.** When the server's own network goes down, every site looks down. Give it a canary, addresses that answer independently of the sites you watch, such as `-canary 9.9.9.9:53,1.1.1.1:53` (`ALLSTILL_CANARY`): when a check times out or finds no route and no canary answers either, the check becomes unknown instead of down, nobody is alerted, and the overview and `/health` say the server is offline. Without a canary, Allstill alerts: it cannot tell its own outage from the sites'.
 - **Who sees the address.** A check's URL may hold a token: owners and editors of its project see it whole; viewers see only its scheme and host. It is never in a reason, a message or a log. A TCP check's host and port are shown to everyone who can see the check.
 - **Pings.** A ping to such a check is answered `409`: a script that pings with `curl -f` notices that Allstill runs this one itself.
@@ -254,7 +275,6 @@ Other assistants that support Agent Skills read the same file from a folder of t
 - **Upgrades.** Before a new version changes the database, it copies it next to itself, as `allstill.db.before-0003` for example. Delete the copy once the new version works.
   - **Going back** means stopping Allstill, putting that copy in the database's place and starting the version from before. It loses everything since the upgrade: pings, state changes, incidents, messages, the log and changes to checks. So it is for the first minutes after an upgrade that went wrong.
   - **A second try.** Allstill keeps a copy that is already there and makes no new one. Move or delete the old copy before upgrading again.
-- **Teams, from the next releases on.** An upgrade puts every project in one team, named as the installation, which its administrators own. That is how an administrator sees its projects from now on: being one gives no project. With one team little looks different: `allstill whoami` and `allstill admin set-member` say so in their words, and an administrator keeps no role of their own in a single project, only whether they are told about it. It prepares for giving someone else a team of their own on the same installation, which no command does yet ([ADR 0005](adr/0005-teams.md)).
 - **Commands on the server tell on themselves.** `allstill admin` works on every team, as whoever has the shell has the database. So what it does to who can get in is told to the owners of the team it is done in: giving someone a role (`create-user`, `set-member`), a sign-in link for someone who is in a team or a project (`passkey-link`), taking away a passkey and ending sign-ins. On an installation with one team, those owners are its administrators.
   - **How they are told.** On every device and address they have confirmed, at once, also in shadow mode and during their quiet hours, and at the top of their overview until they open Messages. A server started with `-shadow` sends none of it, as it sends nothing.
   - **What is only written down.** `allstill compare` reads checks, and says so in the log of each project it read. `allstill backup` copies everything, and `allstill admin set-alerts` names who cannot be reached: neither is written anywhere.

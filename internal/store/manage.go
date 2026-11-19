@@ -467,7 +467,42 @@ func (s *Store) MoveCheckAs(ctx context.Context, a Access, checkID, toProjectID 
 	return tx.Commit()
 }
 
-// checkRoom refuses a check a project has no more room for (R30).
+// teamRoom refuses a check the team that owns a project has no more room for
+// (teams spec, R34, R36). A team with no limit has room.
+func teamRoom(ctx context.Context, q *db.Queries, projectID, kind string) error {
+	t, err := q.TeamLimitsOfProject(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if Active(kind) {
+		if !t.MaxActiveChecks.Valid {
+			return nil
+		}
+		n, err := q.CountActiveChecksOfTeam(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		if n >= t.MaxActiveChecks.Int64 {
+			return &InvalidError{"project", fmt.Sprintf("is in a team that holds the %d checks Allstill runs that it may have; the administrator of this installation can raise that", t.MaxActiveChecks.Int64)}
+		}
+		return nil
+	}
+	if !t.MaxPingChecks.Valid {
+		return nil
+	}
+	n, err := q.CountPingChecksOfTeam(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	if n >= t.MaxPingChecks.Int64 {
+		return &InvalidError{"project", fmt.Sprintf("is in a team that holds the %d checks jobs ping that it may have; the administrator of this installation can raise that", t.MaxPingChecks.Int64)}
+	}
+	return nil
+}
+
+// checkRoom refuses a check a project has no more room for (R30). A new check
+// also needs room in its team: see teamRoom. A move does not, as a check moves
+// within its team.
 func checkRoom(ctx context.Context, q *db.Queries, projectID, kind string) error {
 	if Active(kind) {
 		n, err := q.CountActiveChecksOfProject(ctx, projectID)

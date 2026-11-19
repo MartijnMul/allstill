@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: AGPL-3.0-only
 
 -- name: CreateTeam :exec
-INSERT INTO teams (id, workspace_id, name, created_at) VALUES (?, ?, ?, ?);
+INSERT INTO teams (id, workspace_id, name, created_at, max_active_checks, max_ping_checks, private_ranges) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: Teams :many
 SELECT id, name FROM teams WHERE workspace_id = ? ORDER BY created_at, id;
@@ -88,3 +88,44 @@ UPDATE notices SET read_at = sqlc.arg(read_at) WHERE person_id = sqlc.arg(person
 -- The channels a notice goes to: every one its person has confirmed.
 -- name: ConfirmedChannelsOfPerson :many
 SELECT id, workspace_id, kind FROM channels WHERE person_id = ? AND verified_at IS NOT NULL ORDER BY created_at, id;
+
+-- What a team may take, with the team a project is in.
+-- name: TeamLimitsOfProject :one
+SELECT t.id, t.max_active_checks, t.max_ping_checks, t.private_ranges
+FROM projects p JOIN teams t ON t.id = p.team_id WHERE p.id = ?;
+
+-- name: CountActiveChecksOfTeam :one
+SELECT COUNT(*) FROM checks c JOIN projects p ON p.id = c.project_id
+WHERE p.team_id = ? AND c.kind IN ('http', 'tcp') AND c.deleted_at IS NULL;
+
+-- name: CountPingChecksOfTeam :one
+SELECT COUNT(*) FROM checks c JOIN projects p ON p.id = c.project_id
+WHERE p.team_id = ? AND c.kind NOT IN ('http', 'tcp') AND c.deleted_at IS NULL;
+
+-- A team as whoever keeps the installation may know it: its name, what it may
+-- take, and how much it holds. No name of a project or a check (spec, R10).
+-- name: TeamSummaries :many
+SELECT t.id, t.name, t.max_active_checks, t.max_ping_checks, t.private_ranges,
+       (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) AS people,
+       (SELECT COUNT(*) FROM projects p WHERE p.team_id = t.id AND p.deleted_at IS NULL) AS projects,
+       (SELECT COUNT(*) FROM checks c JOIN projects p ON p.id = c.project_id WHERE p.team_id = t.id AND c.deleted_at IS NULL) AS checks,
+       (SELECT COUNT(*) FROM probes pr WHERE pr.team_id = t.id) AS probes
+FROM teams t WHERE t.workspace_id = ? ORDER BY t.created_at, t.id;
+
+-- name: SetTeamLimits :exec
+UPDATE teams SET name = ?, max_active_checks = ?, max_ping_checks = ?, private_ranges = ? WHERE workspace_id = ? AND id = ?;
+
+-- name: DeleteTeam :exec
+DELETE FROM teams WHERE workspace_id = ? AND id = ?;
+
+-- Everyone with an account and the teams they are in (spec, R11).
+-- name: PeopleWithTeams :many
+SELECT p.id, p.name, CAST(COALESCE(p.email, '') AS TEXT) AS email, p.workspace_admin, p.disabled_at,
+       CAST(COALESCE(t.name, '') AS TEXT) AS team, CAST(COALESCE(tm.role, '') AS TEXT) AS role
+FROM people p
+LEFT JOIN team_members tm ON tm.person_id = p.id
+LEFT JOIN teams t ON t.id = tm.team_id
+WHERE p.workspace_id = ? ORDER BY p.name, p.id, t.created_at;
+
+-- name: CountProjectsOfTeam :one
+SELECT COUNT(*) FROM projects WHERE team_id = ?;

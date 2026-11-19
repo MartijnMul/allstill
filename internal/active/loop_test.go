@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
@@ -646,4 +647,84 @@ func TestAProjectHasItsShareOfTheAttempts(t *testing.T) {
 		stop()
 		<-end
 	})
+}
+
+// Teams take turns when attempts wait for room: one team's dead hosts cannot
+// keep another team's checks from starting (teams spec, R35).
+func TestTeamsTakeTurns(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, stop := context.WithCancel(t.Context())
+		defer stop()
+		var mu sync.Mutex
+		done := map[string]int{}
+		var firstLive time.Duration
+		began := time.Now()
+		attempt := func(ctx context.Context, c Check) Result {
+			// One team's hosts hang until they time out; the other's answer at once.
+			if c.TeamID == "slow" {
+				select {
+				case <-time.After(30 * time.Second):
+				case <-ctx.Done():
+				}
+			}
+			mu.Lock()
+			if done[c.TeamID]++; c.TeamID == "quick" && firstLive == 0 {
+				firstLive = time.Since(began)
+			}
+			mu.Unlock()
+			return Result{Outcome: check.Passed, Started: time.Now(), Ended: time.Now()}
+		}
+		// Forty projects of the slow team, so that its share per project is no
+		// limit: two hundred dead hosts a minute for twenty places, which is five
+		// times what fits, so its checks always wait.
+		var checks []Check
+		for i := range 200 {
+			checks = append(checks, Check{ID: fmt.Sprintf("chk_a%03d", i), ProjectID: fmt.Sprintf("slow%d", i%40), TeamID: "slow", Every: time.Minute,
+				HTTP: HTTP{URL: fmt.Sprintf("https://slow%d.example.com/", i)}})
+		}
+		for i := range 3 {
+			checks = append(checks, Check{ID: fmt.Sprintf("chk_z%02d", i), ProjectID: "quick", TeamID: "quick", Every: time.Minute,
+				HTTP: HTTP{URL: fmt.Sprintf("https://quick%d.example.com/", i)}})
+		}
+		l := &Loop{
+			Checks:  func(context.Context) ([]Check, error) { return checks, nil },
+			Attempt: attempt,
+			Record:  func(context.Context, []Done) error { return nil },
+			Log:     slog.New(slog.DiscardHandler),
+		}
+		end := make(chan error)
+		go func() { end <- l.Run(ctx) }()
+		time.Sleep(10 * time.Minute)
+		synctest.Wait()
+		mu.Lock()
+		// Each of the quick team's checks ran in nearly every one of its minutes,
+		// where in the queue's order alone the slow team would have held every place.
+		if done["quick"] < 3*8 {
+			t.Errorf("the quick team's 3 checks ran %d times in ten minutes, beside a team of dead hosts", done["quick"])
+		}
+		if done["slow"] == 0 {
+			t.Error("the slow team's checks never ran")
+		}
+		mu.Unlock()
+		stop()
+		<-end
+	})
+}
+
+// A check reaches the private ranges its runner was given only when it may:
+// one that does not say so is held to the public internet (teams spec, R13).
+func TestACheckReachesPrivateRangesOnlyWhenItMay(t *testing.T) {
+	r := &Runner{Allow: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}}
+	c := Check{TCP: &TCP{Host: "10.0.0.5", Port: 5432, Timeout: 1}}
+	if res := r.Attempt(t.Context(), c); !res.Local {
+		t.Errorf("a check of a team the ranges are not open to reached one: %+v", res)
+	}
+	// Within a range it may reach it tries; nothing answers there.
+	c.Private = true
+	if res := r.Attempt(t.Context(), c); res.Local {
+		t.Errorf("a check of a team they are open to was refused: %+v", res)
+	}
+	if len(r.Allow) != 1 {
+		t.Error("the runner lost its ranges")
+	}
 }

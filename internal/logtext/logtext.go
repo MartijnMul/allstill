@@ -110,6 +110,32 @@ func party(p Party) Part {
 	return text("Someone")
 }
 
+// teamChange says what of a team was changed, from the line's details.
+func teamChange(d map[string]any) string {
+	var parts []string
+	if to := detailString(d, "to"); to != "" {
+		parts = append(parts, "renamed from "+detailString(d, "from"))
+	}
+	limit := func(key, what string) {
+		if n, ok := d[key].(float64); ok && n < 0 {
+			parts = append(parts, "no limit on "+what)
+		} else if ok {
+			parts = append(parts, fmt.Sprintf("at most %d %s", int(n), what))
+		}
+	}
+	limit("active_checks", "checks Allstill runs")
+	limit("ping_checks", "checks jobs ping")
+	if private, ok := d["private"].(bool); ok && private {
+		parts = append(parts, "its checks may reach the server's private ranges")
+	} else if ok {
+		parts = append(parts, "its checks are held to the public internet")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return ": " + strings.Join(parts, ", ")
+}
+
 func detailString(d map[string]any, key string) string {
 	s, _ := d[key].(string)
 	return s
@@ -245,6 +271,10 @@ func (w *writer) write() {
 		w.say(by, text(" read this project's checks."))
 	case "team.created":
 		w.say(by, text(" made the team "), Part{Text: e.AboutName, Name: true}, text("."))
+	case "team.changed":
+		w.say(by, text(" changed the team "), Part{Text: e.AboutName, Name: true}, text(teamChange(d)+"."))
+	case "team.removed":
+		w.say(by, text(" removed the team "), Part{Text: e.AboutName, Name: true}, text("."))
 	case "team.member_set":
 		team := detailString(d, "team")
 		if from := detailString(d, "from"); from != "" {

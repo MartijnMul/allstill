@@ -241,6 +241,13 @@ func (s *Store) findCheck(ctx context.Context, q *db.Queries, in PingIn, out *Pi
 	} else if n >= CreateLimit {
 		return db.Check{}, ErrNotFound
 	}
+	// Nor past what its team may have.
+	if err := teamRoom(ctx, q, p.ID, "ping"); err != nil {
+		if _, full := errors.AsType[*InvalidError](err); full {
+			return db.Check{}, ErrNotFound
+		}
+		return db.Check{}, err
+	}
 	// The project's defaults, as Healthchecks gives a check made by a ping.
 	checkID, at := id.New(id.Check), in.At.UnixMilli()
 	err = q.CreateCheck(ctx, db.CreateCheckParams{

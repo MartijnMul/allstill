@@ -332,10 +332,13 @@ type Session struct {
 }
 
 type Team struct {
-	ID          string
-	WorkspaceID string
-	Name        string
-	CreatedAt   int64
+	ID              string
+	WorkspaceID     string
+	Name            string
+	CreatedAt       int64
+	MaxActiveChecks sql.NullInt64
+	MaxPingChecks   sql.NullInt64
+	PrivateRanges   string
 }
 
 type TeamMember struct {

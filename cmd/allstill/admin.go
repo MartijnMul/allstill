@@ -31,7 +31,12 @@ const adminUsage = `Usage:
   allstill admin passkey-link (-email EMAIL | -person ID) [flags]
   allstill admin end-sessions (-email EMAIL | -person ID) [-db file]
   allstill admin remove-passkey (-email EMAIL | -person ID) [-passkey ID] [-db file]
-  allstill admin create-project [-db file] NAME
+  allstill admin create-team NAME (-owner EMAIL|ID | -owner-name NAME [-owner-email EMAIL]) [flags]
+  allstill admin teams [-people] [-db file]
+  allstill admin set-team TEAM [-name NAME] [-active-checks N|none] [-ping-checks N|none] [-private on|off]
+  allstill admin set-team-member (-email EMAIL | -person ID) -team TEAM -role ROLE [-db file]
+  allstill admin remove-team TEAM [-db file]
+  allstill admin create-project [-team TEAM] [-db file] NAME
   allstill admin rename-project [-db file] NAME NEW-NAME
   allstill admin move-checks -from PROJECT -to PROJECT (-tag TAG | -check NAME)... [-db file]
   allstill admin set-alerting -project PROJECT -check NAME -urgency now|digest|none [-critical] [-db file]
@@ -52,6 +57,16 @@ func adminCommand(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return errors.New("no admin command given")
 	}
 	switch args[0] {
+	case "create-team":
+		return createTeam(ctx, args[1:], stdout, stderr)
+	case "teams":
+		return listTeams(ctx, args[1:], stdout, stderr)
+	case "set-team":
+		return setTeam(ctx, args[1:], stdout, stderr)
+	case "set-team-member":
+		return setTeamMember(ctx, args[1:], stdout, stderr)
+	case "remove-team":
+		return removeTeam(ctx, args[1:], stdout, stderr)
 	case "create-project":
 		return createProject(ctx, args[1:], stdout, stderr)
 	case "create-user":
@@ -97,10 +112,18 @@ func createProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 	fs := flag.NewFlagSet("admin create-project", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
-	if err := fs.Parse(args); err != nil {
+	team := teamFlag(fs)
+	// The name may come before the flags or after them.
+	name, rest := nameFirst(args)
+	if err := fs.Parse(rest); err != nil {
 		return err
 	}
-	if fs.NArg() != 1 {
+	if name == "" && fs.NArg() == 1 {
+		name = fs.Arg(0)
+	} else if fs.NArg() != 0 {
+		name = ""
+	}
+	if name == "" {
 		return errors.New("give the project's name")
 	}
 	st, ws, err := openStore(ctx, *dbPath)
@@ -108,14 +131,19 @@ func createProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return err
 	}
 	defer st.Close()
-	if _, err := st.ProjectByName(ctx, ws, fs.Arg(0)); err == nil {
-		return fmt.Errorf("a project named %q exists already", fs.Arg(0))
-	}
-	projectID, key, err := st.CreateProject(ctx, store.Command("create-project"), ws, fs.Arg(0))
+	in, err := teamFor(ctx, st, ws, *team)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "Created project %s (%s).\nIts ping key, for pings by slug, is shown only now:\n\n  %s\n", fs.Arg(0), projectID, key)
+	// Within its team: what another team calls its projects is not this one's to know.
+	if _, err := st.ProjectByNameIn(ctx, ws, in.ID, name); err == nil {
+		return fmt.Errorf("a project named %q exists already", name)
+	}
+	projectID, key, err := st.CreateProjectIn(ctx, store.Command("create-project"), ws, in.ID, name)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(stdout, "Created project %s (%s).\nIts ping key, for pings by slug, is shown only now:\n\n  %s\n", name, projectID, key)
 	return nil
 }
 
@@ -123,6 +151,7 @@ func renameProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 	fs := flag.NewFlagSet("admin rename-project", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -134,7 +163,7 @@ func renameProject(ctx context.Context, args []string, stdout, stderr io.Writer)
 		return err
 	}
 	defer st.Close()
-	projectID, err := st.ProjectByName(ctx, ws, fs.Arg(0))
+	projectID, err := projectNamed(ctx, st, ws, *team, fs.Arg(0))
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no project is named %q", fs.Arg(0))
 	} else if err != nil {
@@ -162,6 +191,7 @@ Flags:
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	from := fs.String("from", "", "the project the checks are in")
 	to := fs.String("to", "", "the project to move them to")
 	tags, names := map[string]bool{}, map[string]bool{}
@@ -188,7 +218,7 @@ Flags:
 		return err
 	}
 	defer st.Close()
-	fromID, err := st.ProjectByName(ctx, ws, *from)
+	fromID, err := projectNamed(ctx, st, ws, *team, *from)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no project is named %q", *from)
 	} else if err != nil {
@@ -221,10 +251,16 @@ Flags:
 	if len(moving) == 0 {
 		return fmt.Errorf("no check in %s matches", *from)
 	}
-	toID, err := st.ProjectByName(ctx, ws, *to)
+	// A check moves within its team, so that is where the other project is looked
+	// for, and made when it is not there.
+	fromTeam, err := st.TeamOfProject(ctx, ws, fromID)
+	if err != nil {
+		return err
+	}
+	toID, err := st.ProjectByNameIn(ctx, ws, fromTeam, *to)
 	if errors.Is(err, store.ErrNotFound) {
 		var pingKey string
-		if toID, pingKey, err = st.CreateProject(ctx, store.Command("move-checks"), ws, *to); err != nil {
+		if toID, pingKey, err = st.CreateProjectIn(ctx, store.Command("move-checks"), ws, fromTeam, *to); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "Created project %s. Its ping key, shown only now: %s\n\n", *to, pingKey)
@@ -329,6 +365,7 @@ Flags:
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	project := fs.String("project", "", "the project of the check")
 	name := fs.String("check", "", "the check's name")
 	urgency := fs.String("urgency", "now", "now, digest or none")
@@ -345,7 +382,7 @@ Flags:
 		return err
 	}
 	defer st.Close()
-	projectID, err := st.ProjectByName(ctx, ws, *project)
+	projectID, err := projectNamed(ctx, st, ws, *team, *project)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no project is named %q", *project)
 	} else if err != nil {
@@ -419,7 +456,7 @@ func createUser(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs := flag.NewFlagSet("admin create-user", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		fmt.Fprint(stderr, `Usage: allstill admin create-user -name NAME [-email EMAIL] [-project PROJECT -role ROLE] [flags]
+		fmt.Fprint(stderr, `Usage: allstill admin create-user -name NAME [-email EMAIL] [-project PROJECT -role ROLE | -team TEAM -role ROLE] [-admin] [flags]
 
 Adds a person and prints a link, valid for 24 hours, where they make a
 passkey to sign in with.
@@ -428,16 +465,23 @@ With -project, they see only those projects, with the role you give:
   viewer   sees the checks, their hosts and ports, last runs and what jobs
            printed; not full URLs or ping URLs; gets no alerts
   editor   also sees full URLs and ping URLs, and gets alerts for the project
-  owner    the same as an editor, for now
+  owner    also makes keys, and may let a check wake people at night
 
-Without -project, they are a workspace administrator, who sees every project
-and gets alerts for all of them, so do not add an outside party that way.
+With -team, they have that role in every project the team owns, and as its
+owner they run it.
+
+Without -project and -team, on an installation with one team, they are an
+administrator who owns that team: they keep the installation, and see every
+project and get alerts for all of them, so do not add an outside party that
+way. With several teams, say -admin for an administrator who keeps the
+installation and is in no team, and add -team to put them in one.
 
 Flags:
 `)
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	name := fs.String("name", "", "the person's name")
 	email := fs.String("email", "", "where their email alerts and digest go")
 	tz := fs.String("time-zone", "UTC", "the time zone the dashboard shows them, such as Europe/Amsterdam")
@@ -446,7 +490,8 @@ Flags:
 		projects = append(projects, v)
 		return nil
 	})
-	roleName := fs.String("role", "", "their role in those projects: viewer, editor or owner")
+	roleName := fs.String("role", "", "their role in those projects, or in the team: viewer, editor or owner")
+	asAdmin := fs.Bool("admin", false, "make them an administrator, who keeps the installation")
 	baseURL := fs.String("base-url", os.Getenv("ALLSTILL_BASE_URL"), "the dashboard's address (ALLSTILL_BASE_URL; default: the one the server last ran with)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -455,8 +500,12 @@ Flags:
 		fs.Usage()
 		return errors.New("give -name")
 	}
-	if (len(projects) == 0) != (*roleName == "") {
-		return errors.New("give -project and -role together, or neither for a workspace administrator")
+	inTeam := *team != "" && len(projects) == 0
+	if (len(projects) == 0 && !inTeam) != (*roleName == "") {
+		return errors.New("give -project and -role together, or -team and -role, or neither for a workspace administrator")
+	}
+	if *asAdmin && len(projects) > 0 {
+		return errors.New("-admin goes with -team or alone, not with -project")
 	}
 	var role store.Role
 	if *roleName != "" {
@@ -483,22 +532,54 @@ Flags:
 		}
 	}
 	person := store.NewPerson{Name: strings.TrimSpace(*name), Email: *email, TimeZone: *tz}
+	by := store.Command("create-user")
 	var personID, what string
-	if len(projects) == 0 {
-		person.WorkspaceAdmin = true
-		personID, err = st.CreatePerson(ctx, store.Command("create-user"), ws, person)
-		what = "a workspace administrator"
-	} else {
+	switch {
+	case len(projects) > 0:
 		ids := make([]string, len(projects))
 		for i, project := range projects {
-			if ids[i], err = st.ProjectByName(ctx, ws, project); errors.Is(err, store.ErrNotFound) {
+			if ids[i], err = projectNamed(ctx, st, ws, *team, project); errors.Is(err, store.ErrNotFound) {
 				return fmt.Errorf("no project is named %q", project)
 			} else if err != nil {
 				return err
 			}
 		}
-		personID, err = st.CreateMember(ctx, store.Command("create-user"), ws, person, ids, role)
+		personID, err = st.CreateMember(ctx, by, ws, person, ids, role)
 		what = fmt.Sprintf("%s of %s", role, strings.Join(projects, ", "))
+	case inTeam:
+		t, err := teamNamed(ctx, st, ws, *team)
+		if err != nil {
+			return err
+		}
+		person.WorkspaceAdmin, person.InNoTeam = *asAdmin, true
+		if personID, err = st.CreatePerson(ctx, by, ws, person); err != nil {
+			return err
+		}
+		if err := st.SetTeamMember(ctx, by, ws, t.ID, personID, role); err != nil {
+			return err
+		}
+		what = fmt.Sprintf("%s of the team %s", role, t.Name)
+		if *asAdmin {
+			what = "an administrator, and " + what
+		}
+	default:
+		// With one team an administrator owns it, as they always did. With several
+		// that would be a guess, so it is asked.
+		teams, err := st.Teams(ctx, ws)
+		if err != nil {
+			return err
+		}
+		if len(teams) > 1 && !*asAdmin {
+			return fmt.Errorf("this installation has %d teams: give -team TEAM -role ROLE to put them in one, or -admin for an administrator who keeps the installation and is in none", len(teams))
+		}
+		person.WorkspaceAdmin, person.InNoTeam = true, len(teams) > 1
+		if personID, err = st.CreatePerson(ctx, by, ws, person); err != nil {
+			return err
+		}
+		what = "a workspace administrator"
+		if person.InNoTeam {
+			what = "an administrator, in no team"
+		}
 	}
 	if err != nil {
 		return err
@@ -528,6 +609,7 @@ Flags:
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	email := fs.String("email", "", "the person's email address")
 	personID := fs.String("person", "", "the person's id, per_…")
 	project := fs.String("project", "", "the project")
@@ -563,7 +645,7 @@ Flags:
 	if err != nil {
 		return err
 	}
-	projectID, err := st.ProjectByName(ctx, ws, *project)
+	projectID, err := projectNamed(ctx, st, ws, *team, *project)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no project is named %q", *project)
 	} else if err != nil {
@@ -816,6 +898,7 @@ Flags:
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	base := fs.String("url", "https://healthchecks.io", "the Healthchecks site")
 	project := fs.String("project", "", "the Allstill project to import into")
 	var tags []string
@@ -846,10 +929,14 @@ Flags:
 			return errors.New("no check at Healthchecks has one of these tags")
 		}
 	}
-	projectID, err := st.ProjectByName(ctx, ws, *project)
+	projectID, err := projectNamed(ctx, st, ws, *team, *project)
 	if errors.Is(err, store.ErrNotFound) {
+		in, err := teamFor(ctx, st, ws, *team)
+		if err != nil {
+			return err
+		}
 		var pingKey string
-		if projectID, pingKey, err = st.CreateProject(ctx, store.Command("import healthchecks"), ws, *project); err != nil {
+		if projectID, pingKey, err = st.CreateProjectIn(ctx, store.Command("import healthchecks"), ws, in.ID, *project); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "Created project %s. Its ping key, shown only now: %s\n\n", *project, pingKey)

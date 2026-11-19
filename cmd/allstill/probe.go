@@ -108,13 +108,14 @@ Makes a probe, which runs checks inside a network the server cannot reach, and
 prints its key once. It has a check of its own in PROJECT, whose people are
 alerted when it goes quiet for 3 minutes. It serves PROJECT and the projects in
 -serves: only their checks can run on it, as anyone who can edit them can make
-it fetch from its network.
+it fetch from its network. A probe serves projects of one team.
 
 Flags:
 `)
 		fs.PrintDefaults()
 	}
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	project := fs.String("project", "", "the project of its own check")
 	serves := fs.String("serves", "", "other projects it serves, separated by commas")
 	name, rest := nameFirst(args)
@@ -136,7 +137,7 @@ Flags:
 	}
 	defer st.Close()
 	projectOf := func(n string) (string, error) {
-		id, err := st.ProjectByName(ctx, ws, n)
+		id, err := projectNamed(ctx, st, ws, *team, n)
 		if errors.Is(err, store.ErrNotFound) {
 			return "", fmt.Errorf("no project is named %q", n)
 		}
@@ -173,6 +174,7 @@ func rekeyProbe(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	fs := flag.NewFlagSet("admin rekey-probe", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dbPath := fs.String("db", envOr("ALLSTILL_DB", "allstill.db"), "the database file (ALLSTILL_DB)")
+	team := teamFlag(fs)
 	name, rest := nameFirst(args)
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -183,7 +185,7 @@ func rekeyProbe(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		name = ""
 	}
 	if name == "" {
-		return errors.New("usage: allstill admin rekey-probe NAME [-db file]")
+		return errors.New("usage: allstill admin rekey-probe NAME [-team TEAM] [-db file]")
 	}
 	st, ws, err := openStore(ctx, *dbPath)
 	if err != nil {
@@ -194,7 +196,15 @@ func rekeyProbe(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err != nil {
 		return err
 	}
-	key, err := st.RekeyProbe(ctx, admin, "", name)
+	var teamID string
+	if *team != "" {
+		t, err := teamNamed(ctx, st, ws, *team)
+		if err != nil {
+			return err
+		}
+		teamID = t.ID
+	}
+	key, err := st.RekeyProbe(ctx, admin, teamID, name)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no probe is named %q", name)
 	}

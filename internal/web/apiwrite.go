@@ -339,7 +339,7 @@ func (a apiServer) CreateCheck(ctx context.Context, req api.CreateCheckRequestOb
 			n.Interval = time.Minute
 		}
 		if n.ProbeID == "" {
-			if problem := a.s.addressProblem(ctx, c.id(), hostIn(kind, n.Settings)); problem != "" {
+			if problem := a.s.addressProblem(ctx, c.id(), req.ProjectId, hostIn(kind, n.Settings)); problem != "" {
 				return nil, &store.InvalidError{Field: addressField(kind), Problem: problem}
 			}
 		}
@@ -461,7 +461,7 @@ func (a apiServer) UpdateCheck(ctx context.Context, req api.UpdateCheckRequestOb
 			addressChanged = true
 		}
 		if addressChanged && probe == "" {
-			if problem := a.s.addressProblem(ctx, callerOf(ctx).id(), hostIn(c.Kind, settings)); problem != "" {
+			if problem := a.s.addressProblem(ctx, callerOf(ctx).id(), c.ProjectID, hostIn(c.Kind, settings)); problem != "" {
 				return nil, &store.InvalidError{Field: addressField(c.Kind), Problem: problem}
 			}
 		}
