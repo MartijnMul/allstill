@@ -399,13 +399,16 @@ func TestChangingARoleTellsWhoItDidBeforeTeams(t *testing.T) {
 		INSERT INTO projects (id, workspace_id, name, created_at) VALUES ('prj_a', 'ws_a', 'A', 0)`); err != nil {
 		t.Fatal(err)
 	}
+	// Not as a command on the server: that tells every owner of the team each
+	// time, and this makes hundreds of them.
+	quietly := Actor{Kind: "allstill"}
 	s := open(t)
 	ctx := t.Context()
 	ws, err := s.Workspace(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	project, _, err := s.CreateProject(ctx, Command("test"), ws, "A")
+	project, _, err := s.CreateProject(ctx, quietly, ws, "A")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +445,7 @@ func TestChangingARoleTellsWhoItDidBeforeTeams(t *testing.T) {
 				if _, err := old.w.Exec(`INSERT INTO people (id, workspace_id, name, workspace_admin, created_at) VALUES (?, 'ws_a', 'x', ?, 0)`, oldID, admin); err != nil {
 					t.Fatal(err)
 				}
-				person, err := s.CreatePerson(ctx, Command("test"), ws, NewPerson{Name: "x", WorkspaceAdmin: admin})
+				person, err := s.CreatePerson(ctx, quietly, ws, NewPerson{Name: "x", WorkspaceAdmin: admin})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -468,14 +471,14 @@ func TestChangingARoleTellsWhoItDidBeforeTeams(t *testing.T) {
 					if step == "none" {
 						_, err = old.w.Exec(removeMemberBeforeTeams, oldID)
 						if err == nil {
-							if err = s.RemoveMember(ctx, Command("test"), ws, project, person); errors.Is(err, ErrNotFound) {
+							if err = s.RemoveMember(ctx, quietly, ws, project, person); errors.Is(err, ErrNotFound) {
 								err = nil
 							}
 						}
 					} else {
 						_, err = old.w.Exec(addMemberBeforeTeams, oldID, step, step != "viewer")
 						if err == nil {
-							err = s.SetMember(ctx, Command("test"), ws, project, person, Role(step))
+							err = s.SetMember(ctx, quietly, ws, project, person, Role(step))
 						}
 					}
 					if err != nil {
