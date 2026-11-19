@@ -60,7 +60,7 @@ func (s *Server) channelsPage(w http.ResponseWriter, r *http.Request, v viewer) 
 		return
 	}
 	d := channelsData{Shadow: shadow, Confirmed: r.URL.Query().Has("confirmed"), MailOn: s.MailOn, Email: v.Email}
-	d.NoAlerts = !v.Access.Admin
+	d.NoAlerts = true
 	for _, p := range v.Access.Projects {
 		d.NoAlerts = d.NoAlerts && p.Role == store.Viewer
 	}

@@ -374,7 +374,7 @@ type ApiKey struct {
 	// `former_member`. A person's `id` is what to narrow to them with.
 	MadeBy LogParty `json:"made_by"`
 
-	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	// MadeVia The sign-in it was made through, for an owner of the project's team or the one who made it.
 	MadeVia *string `json:"made_via,omitempty"`
 	Name    string  `json:"name"`
 
@@ -405,7 +405,7 @@ type ApiKeyMade struct {
 	// `former_member`. A person's `id` is what to narrow to them with.
 	MadeBy LogParty `json:"made_by"`
 
-	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	// MadeVia The sign-in it was made through, for an owner of the project's team or the one who made it.
 	MadeVia *string `json:"made_via,omitempty"`
 	Name    string  `json:"name"`
 
@@ -903,7 +903,7 @@ type HttpCheck struct {
 
 	// Url What it fetches, http or https, without a user name or password. A token
 	// in its path or query is a secret, as a ping URL is: it is whole only for
-	// an editor or owner of the check's project, a workspace administrator, or
+	// an editor or owner of the check's project, or
 	// a project API key with the `manage` scope; everyone else, and anything
 	// with the `read` scope, gets its scheme and host alone, such as
 	// `https://shop.example.com`.
@@ -1014,6 +1014,10 @@ type Me struct {
 
 	// SignIn Present when a person is signed in, naming the sign-in this request came through.
 	SignIn *MeSignIn `json:"sign_in,omitempty"`
+
+	// Teams The teams the person is in, with their role in each, which is their role
+	// in every project the team owns. Left out for a key.
+	Teams *[]MeTeam `json:"teams,omitempty"`
 }
 
 // MeKind defines model for Me.Kind.
@@ -1031,9 +1035,12 @@ type MePerson struct {
 	Email *string `json:"email,omitempty"`
 
 	// Id An opaque identifier. Never a secret.
-	Id             Id     `json:"id"`
-	Name           string `json:"name"`
-	WorkspaceAdmin *bool  `json:"workspace_admin,omitempty"`
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// WorkspaceAdmin The person keeps the installation: its people, its mail and its teams.
+	// It gives no project. What they may see is in `projects`, as for anyone.
+	WorkspaceAdmin *bool `json:"workspace_admin,omitempty"`
 }
 
 // MeProject defines model for MeProject.
@@ -1042,6 +1049,10 @@ type MeProject struct {
 	Id   Id     `json:"id"`
 	Name string `json:"name"`
 	Role Role   `json:"role"`
+
+	// Team The team a project belongs to. Given only to a member of that team: someone
+	// with a role of their own in one project does not learn the team from it.
+	Team *Team `json:"team,omitempty"`
 }
 
 // MeSignIn Present when a person is signed in, naming the sign-in this request came through.
@@ -1049,6 +1060,14 @@ type MeSignIn struct {
 	// Id An opaque identifier. Never a secret.
 	Id   Id     `json:"id"`
 	Name string `json:"name"`
+}
+
+// MeTeam defines model for MeTeam.
+type MeTeam struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+	Role Role   `json:"role"`
 }
 
 // Probe defines model for Probe.
@@ -1182,6 +1201,10 @@ type Project struct {
 	Name string `json:"name"`
 	Role Role   `json:"role"`
 
+	// Team The team a project belongs to. Given only to a member of that team: someone
+	// with a role of their own in one project does not learn the team from it.
+	Team *Team `json:"team,omitempty"`
+
 	// WorstState Left out for a project with no checks.
 	WorstState *CheckState `json:"worst_state,omitempty"`
 }
@@ -1299,6 +1322,14 @@ type TcpCheck struct {
 	WarnDays *int `json:"warn_days,omitempty"`
 }
 
+// Team The team a project belongs to. Given only to a member of that team: someone
+// with a role of their own in one project does not learn the team from it.
+type Team struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+}
+
 // ChannelId An opaque identifier. Never a secret.
 type ChannelId = Id
 
@@ -1376,7 +1407,7 @@ type ListRunsParams struct {
 
 // ListKeysParams defines parameters for ListKeys.
 type ListKeysParams struct {
-	// ProjectId Only this project. Without it, every project the caller owns, which for an administrator is every project.
+	// ProjectId Only this project. Without it, every project the caller owns.
 	ProjectId *Id `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 

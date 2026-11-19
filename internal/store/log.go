@@ -28,7 +28,7 @@ type Actor struct {
 	Kind  string // person, key, probe, job, command or allstill
 	ID    string
 	Name  string
-	Admin bool   // a workspace administrator, who may not be a member of the project
+	Admin bool   // an administrator of the installation
 	Via   string // the sign-in a person acted through, from the command line
 }
 
@@ -58,6 +58,7 @@ type logEntry struct {
 	WorkspaceID string
 	At          time.Time // when it happened
 	Recorded    time.Time // when Allstill learned of it, if that is later
+	TeamID      string    // for a line about a team and no project
 	ProjectID   string
 	ProjectName string // looked up when empty; given when the name is about to change
 	Kind        string
@@ -84,21 +85,28 @@ func writeLog(ctx context.Context, q *db.Queries, e logEntry) error {
 		}
 		e.ProjectName = name
 	}
-	byOutsider, err := outsider(ctx, q, e.By, e.ProjectID)
+	byOutsider := notOwn
+	if e.By.Kind == "person" {
+		var err error
+		if byOutsider, err = apartFrom(ctx, q, e.By, e.ProjectID); err != nil {
+			return err
+		}
+		if byOutsider == elsewhere {
+			byOutsider = notOwn // whoever acts in a project is in it
+		}
+	}
+	personOutsider, err := apartFrom(ctx, q, e.Person, e.ProjectID)
 	if err != nil {
 		return err
 	}
-	personOutsider, err := notInProject(ctx, q, e.Person, e.ProjectID)
-	if err != nil {
-		return err
-	}
-	if personOutsider && !e.Person.Admin {
-		// Not an administrator: someone told of a check that has moved here since,
-		// whose name this project's people do not get to read either (R25).
+	if personOutsider == elsewhere {
+		// Someone told of a check that has moved here since, whose name this
+		// project's people do not get to read either (R25).
 		if e.Details == nil {
 			e.Details = map[string]any{}
 		}
 		e.Details["person_elsewhere"] = true
+		personOutsider = asAdministrator
 	}
 	if e.By.Via != "" {
 		if e.Details == nil {
@@ -110,35 +118,44 @@ func writeLog(ctx context.Context, q *db.Queries, e logEntry) error {
 		WorkspaceID: e.WorkspaceID, HappenedAt: e.At.UnixMilli(), RecordedAt: e.Recorded.UnixMilli(),
 		ProjectID: e.ProjectID, ProjectName: e.ProjectName, Kind: e.Kind,
 		AboutKind: e.AboutKind, AboutID: e.AboutID, AboutName: e.AboutName,
-		ByKind: e.By.Kind, ByID: e.By.ID, ByName: e.By.Name, ByOutsider: boolInt(byOutsider),
-		PersonID: e.Person.ID, PersonName: e.Person.Name, PersonOutsider: boolInt(personOutsider),
+		ByKind: e.By.Kind, ByID: e.By.ID, ByName: e.By.Name, ByOutsider: byOutsider,
+		PersonID: e.Person.ID, PersonName: e.Person.Name, PersonOutsider: personOutsider,
 		IncidentID: e.IncidentID, Hidden: boolInt(e.Hidden), GroupID: e.Group, Details: detailsOf(e.Details),
+		TeamID: e.TeamID,
 	})
 }
 
-// outsider says a person is an administrator with no membership of the project,
-// whose name editors and owners do not get to read (R22).
-func outsider(ctx context.Context, q *db.Queries, a Actor, projectID string) (bool, error) {
-	if !a.Admin || projectID == "" {
-		return false, nil
-	}
-	_, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: a.ID})
-	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
-	}
-	return false, err
-}
+// How a person stands apart from a project when a line is written, which the
+// tables, keeping no history, cannot say later. It is kept in by_outsider and
+// person_outsider, and on a key in made_by_outsider. The first two are what
+// those columns held before teams.
+const (
+	notOwn          int64 = 0 // they have a row of their own in the project, or it is no person or no project
+	asAdministrator int64 = 1 // an administrator with no row of their own, whose name its outside editors do not read (R22)
+	throughTeam     int64 = 2 // in the project through its team, and no administrator: "the team" to those outside it
+	elsewhere       int64 = 3 // neither: never written, see writeLog
+)
 
-// notInProject says the person an entry concerns has no membership of its project.
-func notInProject(ctx context.Context, q *db.Queries, a Actor, projectID string) (bool, error) {
+// apartFrom says how a person stands apart from a project.
+func apartFrom(ctx context.Context, q *db.Queries, a Actor, projectID string) (int64, error) {
 	if a.ID == "" || projectID == "" {
-		return false, nil
+		return notOwn, nil
 	}
 	_, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: a.ID})
-	if errors.Is(err, sql.ErrNoRows) {
-		return true, nil
+	if err == nil {
+		return notOwn, nil
 	}
-	return false, err
+	if !errors.Is(err, sql.ErrNoRows) {
+		return notOwn, err
+	}
+	if a.Admin {
+		return asAdministrator, nil
+	}
+	_, err = q.RoleInTeamOfProject(ctx, db.RoleInTeamOfProjectParams{ProjectID: projectID, PersonID: a.ID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return elsewhere, nil
+	}
+	return throughTeam, err
 }
 
 // detailsOf encodes an entry's details. Those that cannot be encoded are dropped

@@ -224,7 +224,7 @@
   </div>
   {{else if $e.critical}}{{template "field-error" $e.critical}}{{end}}
   {{else}}
-  <p class="muted">Alerts for a probe's own check stay at once; an administrator can change them.</p>
+  <p class="muted">Alerts for a probe's own check stay at once; an owner of its team can change them.</p>
   {{template "field-error" $e.urgency}}
   {{end}}
 

@@ -36,7 +36,7 @@ func (q *Queries) AddTeamMember(ctx context.Context, arg AddTeamMemberParams) er
 	return err
 }
 
-const clearAlertChoice = `-- name: ClearAlertChoice :exec
+const clearAlertChoice = `-- name: ClearAlertChoice :execrows
 DELETE FROM alert_choices WHERE project_id = ? AND person_id = ?
 `
 
@@ -45,8 +45,29 @@ type ClearAlertChoiceParams struct {
 	PersonID  string
 }
 
-func (q *Queries) ClearAlertChoice(ctx context.Context, arg ClearAlertChoiceParams) error {
-	_, err := q.db.ExecContext(ctx, clearAlertChoice, arg.ProjectID, arg.PersonID)
+func (q *Queries) ClearAlertChoice(ctx context.Context, arg ClearAlertChoiceParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearAlertChoice, arg.ProjectID, arg.PersonID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const clearAlertChoicesOutside = `-- name: ClearAlertChoicesOutside :exec
+DELETE FROM alert_choices
+WHERE alert_choices.person_id = ?1
+  AND project_id IN (SELECT p.id FROM projects p WHERE p.team_id = ?2)
+  AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.project_id = alert_choices.project_id AND m.person_id = alert_choices.person_id)
+`
+
+type ClearAlertChoicesOutsideParams struct {
+	PersonID string
+	TeamID   string
+}
+
+// What a person chose about a team's projects in which they have no row of their own.
+func (q *Queries) ClearAlertChoicesOutside(ctx context.Context, arg ClearAlertChoicesOutsideParams) error {
+	_, err := q.db.ExecContext(ctx, clearAlertChoicesOutside, arg.PersonID, arg.TeamID)
 	return err
 }
 
@@ -106,6 +127,166 @@ func (q *Queries) IsAlerted(ctx context.Context, arg IsAlertedParams) (int64, er
 	return count, err
 }
 
+const ownRolesInTeam = `-- name: OwnRolesInTeam :many
+SELECT m.project_id, m.role FROM memberships m
+JOIN projects p ON p.id = m.project_id
+WHERE p.team_id = ? AND m.person_id = ?
+`
+
+type OwnRolesInTeamParams struct {
+	TeamID   string
+	PersonID string
+}
+
+type OwnRolesInTeamRow struct {
+	ProjectID string
+	Role      string
+}
+
+// The rows of their own a person has in a team's projects.
+func (q *Queries) OwnRolesInTeam(ctx context.Context, arg OwnRolesInTeamParams) ([]OwnRolesInTeamRow, error) {
+	rows, err := q.db.QueryContext(ctx, ownRolesInTeam, arg.TeamID, arg.PersonID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OwnRolesInTeamRow{}
+	for rows.Next() {
+		var i OwnRolesInTeamRow
+		if err := rows.Scan(&i.ProjectID, &i.Role); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const ownersOfTeam = `-- name: OwnersOfTeam :many
+SELECT p.id, p.name FROM team_members tm
+JOIN people p ON p.id = tm.person_id
+WHERE tm.team_id = ? AND tm.role = 'owner' AND p.disabled_at IS NULL
+ORDER BY p.name, p.id
+`
+
+type OwnersOfTeamRow struct {
+	ID   string
+	Name string
+}
+
+func (q *Queries) OwnersOfTeam(ctx context.Context, teamID string) ([]OwnersOfTeamRow, error) {
+	rows, err := q.db.QueryContext(ctx, ownersOfTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OwnersOfTeamRow{}
+	for rows.Next() {
+		var i OwnersOfTeamRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const projectsOfTeam = `-- name: ProjectsOfTeam :many
+SELECT id, name FROM projects WHERE team_id = ? AND deleted_at IS NULL ORDER BY name, id
+`
+
+type ProjectsOfTeamRow struct {
+	ID   string
+	Name string
+}
+
+func (q *Queries) ProjectsOfTeam(ctx context.Context, teamID string) ([]ProjectsOfTeamRow, error) {
+	rows, err := q.db.QueryContext(ctx, projectsOfTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProjectsOfTeamRow{}
+	for rows.Next() {
+		var i ProjectsOfTeamRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const removeTeamMember = `-- name: RemoveTeamMember :execrows
+DELETE FROM team_members WHERE workspace_id = ? AND team_id = ? AND person_id = ?
+`
+
+type RemoveTeamMemberParams struct {
+	WorkspaceID string
+	TeamID      string
+	PersonID    string
+}
+
+func (q *Queries) RemoveTeamMember(ctx context.Context, arg RemoveTeamMemberParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, removeTeamMember, arg.WorkspaceID, arg.TeamID, arg.PersonID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const roleInTeam = `-- name: RoleInTeam :one
+SELECT role FROM team_members WHERE team_id = ? AND person_id = ?
+`
+
+type RoleInTeamParams struct {
+	TeamID   string
+	PersonID string
+}
+
+func (q *Queries) RoleInTeam(ctx context.Context, arg RoleInTeamParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, roleInTeam, arg.TeamID, arg.PersonID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
+const roleInTeamOfProject = `-- name: RoleInTeamOfProject :one
+SELECT tm.role FROM projects p
+JOIN team_members tm ON tm.team_id = p.team_id AND tm.person_id = ?1
+WHERE p.id = ?2
+`
+
+type RoleInTeamOfProjectParams struct {
+	PersonID  string
+	ProjectID string
+}
+
+// A person's role in the team that owns a project, when they are in it.
+func (q *Queries) RoleInTeamOfProject(ctx context.Context, arg RoleInTeamOfProjectParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, roleInTeamOfProject, arg.PersonID, arg.ProjectID)
+	var role string
+	err := row.Scan(&role)
+	return role, err
+}
+
 const setAlertChoice = `-- name: SetAlertChoice :exec
 INSERT INTO alert_choices (workspace_id, project_id, person_id, alerts)
 VALUES (?, ?, ?, ?)
@@ -129,6 +310,27 @@ func (q *Queries) SetAlertChoice(ctx context.Context, arg SetAlertChoiceParams) 
 	return err
 }
 
+const team = `-- name: Team :one
+SELECT id, name FROM teams WHERE workspace_id = ? AND id = ?
+`
+
+type TeamParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+type TeamRow struct {
+	ID   string
+	Name string
+}
+
+func (q *Queries) Team(ctx context.Context, arg TeamParams) (TeamRow, error) {
+	row := q.db.QueryRowContext(ctx, team, arg.WorkspaceID, arg.ID)
+	var i TeamRow
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
 const teams = `-- name: Teams :many
 SELECT id, name FROM teams WHERE workspace_id = ? ORDER BY created_at, id
 `
@@ -148,6 +350,48 @@ func (q *Queries) Teams(ctx context.Context, workspaceID string) ([]TeamsRow, er
 	for rows.Next() {
 		var i TeamsRow
 		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const teamsOfPerson = `-- name: TeamsOfPerson :many
+SELECT t.id, t.name, tm.role
+FROM team_members tm JOIN teams t ON t.id = tm.team_id
+WHERE tm.workspace_id = ? AND tm.person_id = ?
+ORDER BY t.created_at, t.id
+`
+
+type TeamsOfPersonParams struct {
+	WorkspaceID string
+	PersonID    string
+}
+
+type TeamsOfPersonRow struct {
+	ID   string
+	Name string
+	Role string
+}
+
+// The teams a person is in, with their role in each.
+func (q *Queries) TeamsOfPerson(ctx context.Context, arg TeamsOfPersonParams) ([]TeamsOfPersonRow, error) {
+	rows, err := q.db.QueryContext(ctx, teamsOfPerson, arg.WorkspaceID, arg.PersonID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []TeamsOfPersonRow{}
+	for rows.Next() {
+		var i TeamsOfPersonRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Role); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

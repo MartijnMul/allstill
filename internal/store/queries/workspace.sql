@@ -29,7 +29,7 @@ ON CONFLICT (project_id, person_id) DO UPDATE SET role = excluded.role;
 -- The projects a person may see, with their role: what the view project_roles
 -- says and nothing else.
 -- name: ProjectsOfPerson :many
-SELECT p.id, p.name, r.role
+SELECT p.id, p.name, r.role, p.team_id
 FROM projects p
 JOIN people per ON per.workspace_id = p.workspace_id AND per.id = sqlc.arg(person_id)
 JOIN project_roles r ON r.project_id = p.id AND r.person_id = per.id
@@ -38,11 +38,15 @@ WHERE p.workspace_id = sqlc.arg(workspace_id)
   AND per.disabled_at IS NULL
 ORDER BY p.name, p.id;
 
+-- A name is told apart within a team, so several teams can hold it.
 -- name: ProjectsByName :many
-SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY id;
+SELECT id, team_id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY id;
 
 -- name: AllProjects :many
-SELECT id, name FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY name, id;
+SELECT id, name, team_id FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY name, id;
+
+-- name: TeamOfProject :one
+SELECT team_id FROM projects WHERE workspace_id = ? AND id = ?;
 
 -- name: RenameProject :execrows
 UPDATE projects SET name = ? WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;

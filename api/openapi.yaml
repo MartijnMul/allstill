@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.12.0
+  version: 0.13.0
   summary: Pings from jobs, and the status of checks and their runs.
   description: |
     What jobs, people and programs use, in one document.
@@ -57,7 +57,7 @@ tags:
   - name: Probes
     description: The programs that run checks inside a network the server cannot reach.
   - name: Keys
-    description: A project's keys, for scripts. Only an owner or administrator manages them, with a person's sign-in.
+    description: A project's keys, for scripts. Only an owner of the project manages them, with a person's sign-in.
   - name: Log
     description: What happened, when and by whom, as far as the caller may know.
   - name: Events
@@ -585,7 +585,7 @@ paths:
       tags: [Probes]
       operationId: listProbes
       summary: The probes that serve projects the caller may edit
-      description: Someone who may only look is not told of a project's probes. An administrator sees all.
+      description: Someone who may only look is not told of a project's probes.
       responses:
         '200':
           description: The probes.
@@ -1088,8 +1088,8 @@ paths:
       operationId: createKey
       summary: Make a key for a project
       description: |
-        Needs a person's sign-in with the `manage` scope, as an owner of the project or
-        an administrator. With `read` the key acts as a viewer of this project, and with
+        Needs a person's sign-in with the `manage` scope, as an owner of the project.
+        With `read` the key acts as a viewer of this project, and with
         `manage` as an editor, and it reaches nothing else. It is shown here, once.
       security:
         - bearer: [manage]
@@ -1122,13 +1122,13 @@ paths:
       operationId: listKeys
       summary: The keys of a project, or of all the caller owns
       description: |
-        Needs a person's sign-in, as an owner of the project or an administrator. Who
-        made a key reads as in the log, and which sign-in only for an administrator or
-        the one who made it. A key's value is never here.
+        Needs a person's sign-in, as an owner of the project. Who made a key reads as
+        in the log, and which sign-in only for an owner of the project's team or the
+        one who made it. A key's value is never here.
       parameters:
         - name: project_id
           in: query
-          description: Only this project. Without it, every project the caller owns, which for an administrator is every project.
+          description: Only this project. Without it, every project the caller owns.
           schema: {$ref: '#/components/schemas/Id'}
       responses:
         '200':
@@ -1151,7 +1151,7 @@ paths:
       tags: [Keys]
       operationId: revokeKey
       summary: Revoke a key
-      description: It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+      description: It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project.
       security:
         - bearer: [manage]
       responses:
@@ -1608,6 +1608,30 @@ components:
         projects:
           type: array
           items: {$ref: '#/components/schemas/MeProject'}
+        teams:
+          description: |
+            The teams the person is in, with their role in each, which is their role
+            in every project the team owns. Left out for a key.
+          type: array
+          items: {$ref: '#/components/schemas/MeTeam'}
+
+    MeTeam:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+
+    Team:
+      type: object
+      description: |
+        The team a project belongs to. Given only to a member of that team: someone
+        with a role of their own in one project does not learn the team from it.
+      required: [id, name]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
 
     MeSignIn:
       type: object
@@ -1633,7 +1657,11 @@ components:
         id: {$ref: '#/components/schemas/Id'}
         name: {type: string}
         email: {type: string}
-        workspace_admin: {type: boolean}
+        workspace_admin:
+          description: |
+            The person keeps the installation: its people, its mail and its teams.
+            It gives no project. What they may see is in `projects`, as for anyone.
+          type: boolean
 
     MeProject:
       type: object
@@ -1642,6 +1670,7 @@ components:
         id: {$ref: '#/components/schemas/Id'}
         name: {type: string}
         role: {$ref: '#/components/schemas/Role'}
+        team: {$ref: '#/components/schemas/Team'}
 
     QuietHours:
       type: object
@@ -1689,6 +1718,7 @@ components:
         id: {$ref: '#/components/schemas/Id'}
         name: {type: string}
         role: {$ref: '#/components/schemas/Role'}
+        team: {$ref: '#/components/schemas/Team'}
         counts: {$ref: '#/components/schemas/StateCounts'}
         worst_state:
           $ref: '#/components/schemas/CheckState'
@@ -1755,7 +1785,7 @@ components:
           description: |
             What it fetches, http or https, without a user name or password. A token
             in its path or query is a secret, as a ping URL is: it is whole only for
-            an editor or owner of the check's project, a workspace administrator, or
+            an editor or owner of the check's project, or
             a project API key with the `manage` scope; everyone else, and anything
             with the `read` scope, gets its scheme and host alone, such as
             `https://shop.example.com`.
@@ -2348,7 +2378,7 @@ components:
         made_by: {$ref: '#/components/schemas/LogParty'}
         made_via:
           type: string
-          description: The sign-in it was made through, for an administrator or the one who made it.
+          description: The sign-in it was made through, for an owner of the project's team or the one who made it.
         created_at: {type: string, format: date-time}
         last_used_at: {type: string, format: date-time}
 

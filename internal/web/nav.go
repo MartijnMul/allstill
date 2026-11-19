@@ -88,7 +88,7 @@ func navOf(checks []store.CheckView, v viewer, here, show, project string) *navD
 			worst.Class = "quiet"
 		}
 		n.Projects = append(n.Projects, navItem{
-			Name: p.Name, Href: overviewLink("", p.ID), Class: worst.Class, Count: len(perProject[p.ID]), Current: current(project == p.ID, where),
+			Name: v.Access.Label(p.ID), Href: overviewLink("", p.ID), Class: worst.Class, Count: len(perProject[p.ID]), Current: current(project == p.ID, where),
 		})
 	}
 	return n

@@ -328,7 +328,16 @@ func (a apiServer) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 		}
 	}
 	for _, project := range c.Access.Projects {
-		me.Projects = append(me.Projects, api.MeProject{Id: project.ID, Name: project.Name, Role: api.Role(project.Role)})
+		me.Projects = append(me.Projects, api.MeProject{
+			Id: project.ID, Name: project.Name, Role: api.Role(project.Role), Team: teamOf(c.Access, project.ID),
+		})
+	}
+	if c.Key.ID == "" {
+		teams := []api.MeTeam{}
+		for _, t := range c.Access.Teams {
+			teams = append(teams, api.MeTeam{Id: t.ID, Name: t.Name, Role: api.Role(t.Role)})
+		}
+		me.Teams = &teams
 	}
 	return me, nil
 }

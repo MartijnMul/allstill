@@ -144,9 +144,24 @@ func PrintProjects(w io.Writer, projects []apiclient.Project) {
 	t := table(w)
 	fmt.Fprintln(t, "PROJECT\tYOU ARE\tCHECKS\tID")
 	for _, p := range projects {
-		fmt.Fprintf(t, "%s\t%s\t%s\t%s\n", Clean(p.Name), Clean(string(p.Role)), countWords(p.Counts), Clean(p.Id))
+		fmt.Fprintf(t, "%s\t%s\t%s\t%s\n", Clean(ProjectLabel(p, projects)), Clean(string(p.Role)), countWords(p.Counts), Clean(p.Id))
 	}
 	t.Flush()
+}
+
+// ProjectLabel is a project's name in a list: where another project in it has the
+// same name, the team comes before it, for a team the caller is in.
+func ProjectLabel(p apiclient.Project, among []apiclient.Project) string {
+	shared := 0
+	for _, o := range among {
+		if o.Name == p.Name && (o.Team == nil || p.Team == nil || o.Team.Id != p.Team.Id) {
+			shared++
+		}
+	}
+	if shared > 0 && p.Team != nil {
+		return p.Team.Name + " / " + p.Name
+	}
+	return p.Name
 }
 
 // scheduleWords says when a check is due or tried.

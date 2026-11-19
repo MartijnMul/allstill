@@ -41,7 +41,7 @@ type APIKey struct {
 }
 
 // mayManageKeys says what a caller may do with a project's keys: not found when they
-// may not see it, forbidden unless they own it, which an administrator counts as.
+// may not see it, forbidden unless they own it by any way in.
 func mayManageKeys(a Access, projectID string) error {
 	role, ok := a.Role(projectID)
 	switch {
@@ -72,14 +72,19 @@ func (s *Store) CreateAPIKey(ctx context.Context, a Access, projectID, name, sco
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	apart, err := outsider(ctx, q, a.Actor, projectID)
-	if err != nil {
-		return APIKey{}, "", err
+	apart := notOwn
+	if a.Actor.Kind == "person" {
+		if apart, err = apartFrom(ctx, q, a.Actor, projectID); err != nil {
+			return APIKey{}, "", err
+		}
+		if apart == elsewhere {
+			apart = notOwn
+		}
 	}
 	key, keyID := apiKeyPrefix+id.Key(), id.New(id.APIKey)
 	err = q.CreateAPIKey(ctx, db.CreateAPIKeyParams{
 		ID: keyID, KeyHash: hash(key), WorkspaceID: a.WorkspaceID, ProjectID: projectID, Name: name, Scope: scope,
-		MadeByKind: a.Actor.Kind, MadeByID: a.Actor.ID, MadeByName: a.Actor.Name, MadeByOutsider: boolInt(apart), MadeVia: a.Actor.Via,
+		MadeByKind: a.Actor.Kind, MadeByID: a.Actor.ID, MadeByName: a.Actor.Name, MadeByOutsider: apart, MadeVia: a.Actor.Via,
 		CreatedAt: at.UnixMilli(),
 	})
 	if err != nil {
@@ -100,8 +105,7 @@ func (s *Store) CreateAPIKey(ctx context.Context, a Access, projectID, name, sco
 	return APIKey{ID: keyID, ProjectID: projectID, Name: name, Scope: scope, MadeBy: LogParty{a.Actor.Kind, a.Actor.ID, a.Actor.Name}, Via: a.Actor.Via, Created: at.UTC()}, key, nil
 }
 
-// APIKeys lists a project's keys, or with "" those of every project the caller owns,
-// which for an administrator is every project.
+// APIKeys lists a project's keys, or with "" those of every project the caller owns.
 func (s *Store) APIKeys(ctx context.Context, a Access, projectID string) ([]APIKey, error) {
 	var projects []string
 	if projectID != "" {
@@ -132,12 +136,17 @@ func (s *Store) APIKeys(ctx context.Context, a Access, projectID string) ([]APIK
 				k.LastUsed = time.UnixMilli(r.UsedAt.Int64).UTC()
 			}
 			own := a.PersonID != "" && r.MadeByID == a.PersonID
-			// As the log reads: who an administrator is, is theirs to say, and the
-			// sign-in is for an administrator or the one who made it (spec, Design).
-			if r.MadeByOutsider == 1 && !own && !a.Admin {
-				k.MadeBy = LogParty{Kind: "administrator"}
+			// As the log reads: who is in a team is the team's to say, and the
+			// sign-in is for the team's owners or the one who made it.
+			if !own && !a.knowsTeamOf(r.ProjectID) {
+				switch r.MadeByOutsider {
+				case asAdministrator:
+					k.MadeBy = LogParty{Kind: "administrator"}
+				case throughTeam:
+					k.MadeBy = LogParty{Kind: "team"}
+				}
 			}
-			if a.Admin || own {
+			if a.OwnsTeamOf(r.ProjectID) || own {
 				k.Via = r.MadeVia
 			}
 			keys = append(keys, k)

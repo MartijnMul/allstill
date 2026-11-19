@@ -362,7 +362,7 @@ Flags:
 	var probeID string
 	if *probeName != "" {
 		// What the server may reach says nothing of a probe's network.
-		if probeID, err = st.ProbeIDByName(ctx, ws, *probeName); errors.Is(err, store.ErrNotFound) {
+		if probeID, err = st.ProbeIDByName(ctx, ws, projectID, *probeName); errors.Is(err, store.ErrNotFound) {
 			return fmt.Errorf("no probe is named %q", *probeName)
 		} else if err != nil {
 			return err
@@ -553,7 +553,7 @@ Flags:
 	if moving {
 		probeID = ""
 		if *probeName != "" {
-			if probeID, err = st.ProbeIDByName(ctx, ws, *probeName); errors.Is(err, store.ErrNotFound) {
+			if probeID, err = st.ProbeIDByName(ctx, ws, projectID, *probeName); errors.Is(err, store.ErrNotFound) {
 				return fmt.Errorf("no probe is named %q", *probeName)
 			} else if err != nil {
 				return err

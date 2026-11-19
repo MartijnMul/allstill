@@ -5,8 +5,8 @@
 INSERT INTO log_entries (
     workspace_id, happened_at, recorded_at, project_id, project_name, kind,
     about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider,
-    person_id, person_name, person_outsider, incident_id, hidden, group_id, details
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: NameOfProject :one
 SELECT name FROM projects WHERE id = ?;
@@ -70,10 +70,7 @@ DELETE FROM log_entries WHERE id IN (
 -- Who may see what is judged in one place, on what these return (logread.go), so a
 -- filter cannot reach past it. Late lines have queries and indexes of their own, used
 -- only when asked for, so a job that goes late on every run cannot use up what a page
--- may read and hide an older outage. Only an administrator's whole list skips them here.
-
--- name: LogEntriesAll :many
-SELECT * FROM log_entries WHERE (kind <> 'check.late' OR CAST(sqlc.arg(late) AS INTEGER) = 1) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+-- may read and hide an older outage.
 
 -- name: LogEntriesOfProject :many
 SELECT * FROM log_entries WHERE project_id = sqlc.arg(of) AND kind <> 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
@@ -81,26 +78,25 @@ SELECT * FROM log_entries WHERE project_id = sqlc.arg(of) AND kind <> 'check.lat
 -- name: LogEntriesAbout :many
 SELECT * FROM log_entries WHERE about_id = sqlc.arg(of) AND kind <> 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
--- name: LogEntriesNamed :many
-SELECT * FROM log_entries WHERE about_name = sqlc.arg(of) COLLATE NOCASE AND about_name <> '' AND kind <> 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
-
--- name: LogEntriesBy :many
-SELECT * FROM log_entries WHERE by_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
-
--- name: LogEntriesConcerning :many
-SELECT * FROM log_entries WHERE person_id = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
-
 -- name: LogEntriesLateOfProject :many
 SELECT * FROM log_entries WHERE project_id = sqlc.arg(of) AND kind = 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
 -- name: LogEntriesLateAbout :many
 SELECT * FROM log_entries WHERE about_id = sqlc.arg(of) AND kind = 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
 
--- name: LogEntriesLateNamed :many
-SELECT * FROM log_entries WHERE about_name = sqlc.arg(of) COLLATE NOCASE AND about_name <> '' AND kind = 'check.late' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
-
 -- name: LogEntriesOwn :many
 SELECT * FROM log_entries WHERE person_id = sqlc.arg(of) AND project_id = '' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- A team's own lines, which are about no project.
+-- name: LogEntriesOfTeam :many
+SELECT * FROM log_entries WHERE team_id = sqlc.arg(of) AND team_id <> '' AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);
+
+-- Whether a later line says the same person was not reached about the same
+-- incident at the same moment: one was written per check of the incident.
+-- name: LaterUnreached :one
+SELECT COUNT(*) FROM log_entries
+WHERE incident_id = sqlc.arg(incident_id) AND incident_id <> '' AND person_id = sqlc.arg(person_id)
+  AND kind = 'message.unreached' AND happened_at = sqlc.arg(happened_at) AND id > sqlc.arg(id);
 
 -- name: LogEntriesOfKind :many
 SELECT * FROM log_entries WHERE kind = sqlc.arg(of) AND id < sqlc.arg(before) ORDER BY id DESC LIMIT sqlc.arg(batch);

@@ -114,7 +114,7 @@ func TestWhoSeesWhat(t *testing.T) {
 		{"message.reached", false, true, true, true, false},
 		{"message.unreached", false, true, true, true, false},
 		{"member.set", false, false, true, true, false},
-		{"project.created", false, false, false, true, false},
+		{"project.created", false, false, true, true, false},
 		{"person.added", false, false, false, true, false},
 		{"probe.created", false, false, false, true, false},
 		{"alerts.mode", false, false, false, true, false},
@@ -375,8 +375,8 @@ func TestWhatTheListLeavesOut(t *testing.T) {
 	}
 }
 
-// A kind this version does not list is for administrators, so a new kind starts out
-// hidden.
+// A kind this version does not list is read by nobody in a project, so a new kind
+// starts out hidden, and outside any project by an administrator.
 func TestAnUnknownKindIsForAdministrators(t *testing.T) {
 	w := newLogWorld(t)
 	_, err := w.s.w.ExecContext(t.Context(), `INSERT INTO log_entries (workspace_id, happened_at, recorded_at, project_id, kind, by_kind) VALUES (?, 1, 1, ?, 'something.new', 'allstill')`, w.ws, w.project)
@@ -384,8 +384,16 @@ func TestAnUnknownKindIsForAdministrators(t *testing.T) {
 	if es := w.read(t, w.owner, LogFilter{ProjectID: w.project, Limit: 200}); slices.Contains(kindsSeen(es), "something.new") {
 		t.Error("an owner reads it")
 	}
-	if es := w.read(t, w.dan, LogFilter{ProjectID: w.project, Limit: 200}); !slices.Contains(kindsSeen(es), "something.new") {
-		t.Error("an administrator does not")
+	if es := w.read(t, w.dan, LogFilter{ProjectID: w.project, Limit: 200}); slices.Contains(kindsSeen(es), "something.new") {
+		t.Error("an administrator reads it, who has no way into a project by being one")
+	}
+	_, err = w.s.w.ExecContext(t.Context(), `INSERT INTO log_entries (workspace_id, happened_at, recorded_at, kind, by_kind) VALUES (?, 1, 1, 'something.else', 'allstill')`, w.ws)
+	must(t, err)
+	if es := w.read(t, w.owner, LogFilter{Limit: 200}); slices.Contains(kindsSeen(es), "something.else") {
+		t.Error("an owner reads what concerns the installation")
+	}
+	if es := w.read(t, w.dan, LogFilter{Limit: 200}); !slices.Contains(kindsSeen(es), "something.else") {
+		t.Error("an administrator does not read what concerns the installation")
 	}
 }
 
@@ -395,7 +403,7 @@ func TestTheLogsQueriesUseTheirIndexes(t *testing.T) {
 	raw, err := os.ReadFile("queries/log.sql")
 	must(t, err)
 	queries := regexp.MustCompile(`(?s)-- name: (LogEntries\w+) :many\n(.*?);`).FindAllStringSubmatch(string(raw), -1)
-	if len(queries) != 12 {
+	if len(queries) != 8 {
 		t.Fatalf("%d queries found", len(queries))
 	}
 	args := regexp.MustCompile(`sqlc\.arg\((\w+)\)`)
@@ -426,10 +434,9 @@ func TestTheLogsQueriesUseTheirIndexes(t *testing.T) {
 			t.Errorf("%s sorts: %s", q[1], text)
 		}
 		want, ok := map[string]string{
-			"LogEntriesAll": "INTEGER PRIMARY KEY", "LogEntriesOfProject": "log_entries_project (", "LogEntriesAbout": "log_entries_about (",
-			"LogEntriesNamed": "log_entries_name (", "LogEntriesBy": "log_entries_by (", "LogEntriesConcerning": "log_entries_person (",
+			"LogEntriesOfProject": "log_entries_project (", "LogEntriesAbout": "log_entries_about (", "LogEntriesOfTeam": "log_entries_team (",
 			"LogEntriesOwn": "log_entries_own (", "LogEntriesOfKind": "log_entries_kind (", "LogEntriesOfGroup": "log_entries_group (",
-			"LogEntriesLateOfProject": "log_entries_project_late (", "LogEntriesLateAbout": "log_entries_about_late (", "LogEntriesLateNamed": "log_entries_name_late (",
+			"LogEntriesLateOfProject": "log_entries_project_late (", "LogEntriesLateAbout": "log_entries_about_late (",
 		}[q[1]]
 		if !ok {
 			t.Errorf("%s: which index should it use?", q[1])

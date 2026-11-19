@@ -235,6 +235,23 @@ func (w *writer) write() {
 		}
 	case "member.removed":
 		w.say(by, text(" took "), party(e.Person), text(" out of this project."))
+	case "alerts.chosen":
+		if told, _ := d["told"].(bool); told {
+			w.say(by, text(" had "), party(e.Person), text(" told about this project again."))
+		} else {
+			w.say(by, text(" stopped the alerts for this project to "), party(e.Person), text("."))
+		}
+	case "team.created":
+		w.say(by, text(" made the team "), Part{Text: e.AboutName, Name: true}, text("."))
+	case "team.member_set":
+		team := detailString(d, "team")
+		if from := detailString(d, "from"); from != "" {
+			w.say(by, text(" made "), party(e.Person), text(" "+article(detailString(d, "to"))+" of the team "+team+" instead of "+article(from)+"."))
+		} else {
+			w.say(by, text(" made "), party(e.Person), text(" "+article(detailString(d, "to"))+" of the team "+team+"."))
+		}
+	case "team.member_removed":
+		w.say(by, text(" took "), party(e.Person), text(" out of the team "+detailString(d, "team")+"."))
 	case "key.made":
 		w.say(by, text(" made the "+detailString(d, "scope")+" key "), Part{Text: e.AboutName, Name: true}, text("."))
 	case "key.revoked":

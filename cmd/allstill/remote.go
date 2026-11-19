@@ -313,7 +313,7 @@ Flags:
 	case !manage:
 		fmt.Fprintln(stdout, "This sign-in can only read, as a viewer in every project you can see.")
 	case me.Person != nil && me.Person.WorkspaceAdmin != nil && *me.Person.WorkspaceAdmin:
-		fmt.Fprintln(stdout, "This sign-in can do everything you can, and you are an administrator, who can see and change every project.")
+		fmt.Fprintln(stdout, "This sign-in can do everything your roles allow, and you are an administrator, who keeps this installation.")
 	default:
 		fmt.Fprintln(stdout, "This sign-in can do everything your roles allow.")
 	}

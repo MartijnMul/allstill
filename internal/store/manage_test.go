@@ -536,7 +536,7 @@ func TestAProbesOwnCheckIsProtected(t *testing.T) {
 	}
 }
 
-// C4: critical wakes people at night, so only an owner or administrator turns it on.
+// C4: critical wakes people at night, so only an owner turns it on.
 func TestWhoMayMakeACheckCritical(t *testing.T) {
 	f := setup(t)
 	ctx := t.Context()

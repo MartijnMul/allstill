@@ -425,10 +425,17 @@ func TestPeopleWithARole(t *testing.T) {
 	if a := access("ada@example.com"); !a.Admin || len(a.Projects) != 2 {
 		t.Errorf("%+v", a)
 	}
-	if out, err := admin("set-member", "-email", "ada@example.com", "-project", "Other", "-role", "viewer"); err != nil || !strings.Contains(out, "still see every project") || !strings.Contains(out, "no longer get alerts for Other") {
+	if out, err := admin("set-member", "-email", "ada@example.com", "-project", "Other", "-role", "viewer"); err != nil || !strings.Contains(out, "they still see it") || !strings.Contains(out, "no longer get alerts for it") {
 		t.Errorf("%q, %v", out, err)
 	}
-	if _, err := admin("set-member", "-email", "ada@example.com", "-project", "Customer", "-role", "none"); err == nil || !strings.Contains(err.Error(), "as a workspace administrator") {
+	// The role still counts as the team gives it, and none gives the alerts back.
+	if a := access("ada@example.com"); len(a.Projects) != 2 || a.Projects[1].Role != store.Owner {
+		t.Errorf("%+v", a.Projects)
+	}
+	if out, err := admin("set-member", "-email", "ada@example.com", "-project", "Other", "-role", "none"); err != nil || !strings.Contains(out, "get its alerts as that role gives") {
+		t.Errorf("%q, %v", out, err)
+	}
+	if _, err := admin("set-member", "-email", "ada@example.com", "-project", "Customer", "-role", "none"); err == nil || !strings.Contains(err.Error(), "as owner of its team") {
 		t.Errorf("an administrator with no role: %v", err)
 	}
 }

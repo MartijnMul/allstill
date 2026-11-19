@@ -342,5 +342,9 @@ func (a Access) ReadOnly() Access {
 	for i := range a.Projects {
 		a.Projects[i].Role = Viewer
 	}
+	a.Teams = slices.Clone(a.Teams)
+	for i := range a.Teams {
+		a.Teams[i].Role = Viewer
+	}
 	return a
 }

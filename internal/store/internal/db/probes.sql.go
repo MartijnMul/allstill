@@ -159,23 +159,23 @@ func (q *Queries) ProbeByKeyHash(ctx context.Context, keyHash []byte) (ProbeByKe
 	return i, err
 }
 
-const probeByName = `-- name: ProbeByName :one
-SELECT id, name FROM probes WHERE workspace_id = ? AND name = ?
+const probeInTeam = `-- name: ProbeInTeam :one
+SELECT id, name FROM probes WHERE team_id = ? AND name = ?
 `
 
-type ProbeByNameParams struct {
-	WorkspaceID string
-	Name        string
+type ProbeInTeamParams struct {
+	TeamID string
+	Name   string
 }
 
-type ProbeByNameRow struct {
+type ProbeInTeamRow struct {
 	ID   string
 	Name string
 }
 
-func (q *Queries) ProbeByName(ctx context.Context, arg ProbeByNameParams) (ProbeByNameRow, error) {
-	row := q.db.QueryRowContext(ctx, probeByName, arg.WorkspaceID, arg.Name)
-	var i ProbeByNameRow
+func (q *Queries) ProbeInTeam(ctx context.Context, arg ProbeInTeamParams) (ProbeInTeamRow, error) {
+	row := q.db.QueryRowContext(ctx, probeInTeam, arg.TeamID, arg.Name)
+	var i ProbeInTeamRow
 	err := row.Scan(&i.ID, &i.Name)
 	return i, err
 }
@@ -227,6 +227,45 @@ func (q *Queries) ProbeServes(ctx context.Context, arg ProbeServesParams) (int64
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const probesByName = `-- name: ProbesByName :many
+SELECT id, name, team_id FROM probes WHERE workspace_id = ? AND name = ? ORDER BY id
+`
+
+type ProbesByNameParams struct {
+	WorkspaceID string
+	Name        string
+}
+
+type ProbesByNameRow struct {
+	ID     string
+	Name   string
+	TeamID string
+}
+
+// A probe's name is told apart within its team.
+func (q *Queries) ProbesByName(ctx context.Context, arg ProbesByNameParams) ([]ProbesByNameRow, error) {
+	rows, err := q.db.QueryContext(ctx, probesByName, arg.WorkspaceID, arg.Name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ProbesByNameRow{}
+	for rows.Next() {
+		var i ProbesByNameRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.TeamID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const probesOfProject = `-- name: ProbesOfProject :many
@@ -293,17 +332,17 @@ func (q *Queries) SetCheckProbe(ctx context.Context, arg SetCheckProbeParams) er
 }
 
 const updateProbeKey = `-- name: UpdateProbeKey :execrows
-UPDATE probes SET key_hash = ? WHERE workspace_id = ? AND name = ?
+UPDATE probes SET key_hash = ? WHERE workspace_id = ? AND id = ?
 `
 
 type UpdateProbeKeyParams struct {
 	KeyHash     []byte
 	WorkspaceID string
-	Name        string
+	ID          string
 }
 
 func (q *Queries) UpdateProbeKey(ctx context.Context, arg UpdateProbeKeyParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, updateProbeKey, arg.KeyHash, arg.WorkspaceID, arg.Name)
+	result, err := q.db.ExecContext(ctx, updateProbeKey, arg.KeyHash, arg.WorkspaceID, arg.ID)
 	if err != nil {
 		return 0, err
 	}

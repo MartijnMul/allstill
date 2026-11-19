@@ -13,14 +13,18 @@ SELECT p.id, p.workspace_id, p.name, p.check_id, c.ping_uuid FROM probes p
 JOIN checks c ON c.id = p.check_id
 WHERE p.key_hash = ?;
 
--- name: ProbeByName :one
-SELECT id, name FROM probes WHERE workspace_id = ? AND name = ?;
+-- A probe's name is told apart within its team.
+-- name: ProbesByName :many
+SELECT id, name, team_id FROM probes WHERE workspace_id = ? AND name = ? ORDER BY id;
+
+-- name: ProbeInTeam :one
+SELECT id, name FROM probes WHERE team_id = ? AND name = ?;
 
 -- name: ProbeNameByID :one
 SELECT name FROM probes WHERE workspace_id = ? AND id = ?;
 
 -- name: UpdateProbeKey :execrows
-UPDATE probes SET key_hash = ? WHERE workspace_id = ? AND name = ?;
+UPDATE probes SET key_hash = ? WHERE workspace_id = ? AND id = ?;
 
 -- name: ProbeServes :one
 SELECT count(*) FROM probe_projects WHERE workspace_id = ? AND probe_id = ? AND project_id = ?;

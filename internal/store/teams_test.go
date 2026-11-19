@@ -198,10 +198,19 @@ func TestTheUpgradeToTeamsChangesNothingAnyoneSees(t *testing.T) {
 	if now := lines(t, s.r, "SELECT person_id || ' ' || project_id FROM project_alerted"); !reflect.DeepEqual(now, told) {
 		t.Errorf("who is told changed.\nbefore: %v\nafter:  %v", told, now)
 	}
-	// A row of one's own in a project still says whether the log and a key name
-	// an administrator, so each stays.
-	if now := lines(t, s.r, ownRowsBeforeTeams); !reflect.DeepEqual(now, own) {
-		t.Errorf("people's own rows changed.\nbefore: %v\nafter:  %v", own, now)
+	// A row of one's own stays, but for an owner of the team: theirs gave nothing,
+	// and went in the second step (0017), their choice about alerts staying.
+	var kept []string
+	for _, row := range own {
+		if !strings.HasPrefix(row, "per_admin") {
+			kept = append(kept, row)
+		}
+	}
+	if len(kept) == len(own) {
+		t.Fatal("the fixture has no administrator with a row of their own")
+	}
+	if now := lines(t, s.r, ownRowsBeforeTeams); !reflect.DeepEqual(now, kept) {
+		t.Errorf("people's own rows changed.\nbefore: %v\nafter:  %v", kept, now)
 	}
 	for i, q := range carriedByTeams {
 		if now := lines(t, s.r, q); !reflect.DeepEqual(now, carried[i]) {
@@ -422,6 +431,13 @@ func TestChangingARoleTellsWhoItDidBeforeTeams(t *testing.T) {
 	for _, from := range []start{{}, {"editor", false}, {"viewer", true}} {
 		for _, admin := range []bool{false, true} {
 			for n, run := range runs {
+				// An administrator owns the team, so keeps no row of their own, and
+				// what such a row said is a choice. The two rows only an old database
+				// holds cannot be told from those the code makes once the row has
+				// gone, so they are played for someone who is not in the team.
+				if admin && from.role != "" {
+					continue
+				}
 				oldID := fmt.Sprintf("per_%s%v_%v_%d", from.role, from.alerts, admin, n)
 				if _, err := old.w.Exec(`INSERT INTO people (id, workspace_id, name, workspace_admin, created_at) VALUES (?, 'ws_a', 'x', ?, 0)`, oldID, admin); err != nil {
 					t.Fatal(err)
@@ -476,6 +492,13 @@ func TestChangingARoleTellsWhoItDidBeforeTeams(t *testing.T) {
 					const row = `SELECT COALESCE((SELECT role FROM memberships WHERE person_id = ?), 'no row')`
 					before := one(old.w, `SELECT count(*) FROM (`+toldBeforeTeams+` AND p.id = ?)`, oldID) + " " + one(old.w, row, oldID)
 					after := one(s.w, `SELECT count(*) FROM project_alerted WHERE person_id = ?`, person) + " " + one(s.w, row, person)
+					if admin {
+						// Who is told, not which row: an owner of the team has none.
+						if after != before[:1]+" no row" {
+							t.Fatalf("administrator, after %v: told was %q before teams and told and row are %q now", run[:i+1], before[:1], after)
+						}
+						continue
+					}
 					if before != after {
 						t.Fatalf("administrator %v, from %+v, after %v: told and row were %q before teams and are %q now",
 							admin, from, run[:i+1], before, after)
@@ -562,7 +585,13 @@ func TestTheHighestRoleCountsAndAChoiceDecides(t *testing.T) {
 // A query that works either out for itself would drift from them (R42).
 func TestRolesAndAlertsAreSaidInOnePlace(t *testing.T) {
 	admin := regexp.MustCompile(`(?s)workspace_admin.*(memberships|team_members)|(memberships|team_members).*workspace_admin`)
-	writers := map[string]bool{"SetAlertChoice": true, "ClearAlertChoice": true}
+	writers := map[string]bool{"SetAlertChoice": true, "ClearAlertChoice": true, "ClearAlertChoicesOutside": true}
+	// Who is in a team, which is not the same question as their role in a project:
+	// the team's own members, and whether a row of one's own gives more than it.
+	teams := map[string]bool{
+		"AddTeamMember": true, "RemoveTeamMember": true, "TeamsOfPerson": true, "RoleInTeam": true, "OwnersOfTeam": true,
+		"RoleInTeamOfProject": true,
+	}
 	for name, q := range queriesNamed(t) {
 		if strings.Contains(q, "alert_choices") && !writers[name] {
 			t.Errorf("%s reads alert_choices: ask project_alerted", name)
@@ -570,7 +599,7 @@ func TestRolesAndAlertsAreSaidInOnePlace(t *testing.T) {
 		if admin.MatchString(q) {
 			t.Errorf("%s works out a role from workspace_admin: ask project_roles", name)
 		}
-		if strings.Contains(q, "team_members") && name != "AddTeamMember" {
+		if strings.Contains(q, "team_members") && !teams[name] {
 			t.Errorf("%s reads team_members: ask project_roles", name)
 		}
 	}
@@ -592,4 +621,14 @@ func TestSeveralTeamsAreNotGuessedBetween(t *testing.T) {
 	if _, err := s.CreatePerson(t.Context(), Command("test"), ws, NewPerson{Name: "x", WorkspaceAdmin: true}); !errors.Is(err, ErrSeveralTeams) {
 		t.Fatalf("an administrator with two teams: %v", err)
 	}
+}
+
+// teamOf is the team a project belongs to.
+func teamOf(t *testing.T, s *Store, projectID string) string {
+	t.Helper()
+	var id string
+	if err := s.r.QueryRow(`SELECT team_id FROM projects WHERE id = ?`, projectID).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }

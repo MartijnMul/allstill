@@ -29,7 +29,7 @@ For all:
   -description TEXT  what it watches, for people
   -tags a,b          tags, separated by commas
   -urgency now       how fast its problems reach people: now, digest or none
-  -critical          breaks through quiet hours; an owner or administrator turns it on
+  -critical          breaks through quiet hours; an owner turns it on
 
 For a job that reports in:
   -every 1h          how often it is expected
@@ -101,7 +101,7 @@ func commonFlags(fs *flag.FlagSet) *commonCheckFlags {
 		description: fs.String("description", "", "what it watches, for people"),
 		tags:        fs.String("tags", "", "tags, separated by commas"),
 		urgency:     fs.String("urgency", "", "how fast its problems reach people: now, digest or none"),
-		critical:    fs.Bool("critical", false, "break through quiet hours; an owner or administrator turns it on"),
+		critical:    fs.Bool("critical", false, "break through quiet hours; an owner turns it on"),
 		probe:       fs.String("probe", "", `the probe to run it on, by name or id; "" for the server`),
 		cron:        fs.String("cron", "", "for a job that reports in: when it is expected, as a cron expression"),
 		timeZone:    fs.String("time-zone", "", "for a job that reports in: the time zone of -cron"),
@@ -689,6 +689,8 @@ func madeBy(k apiclient.ApiKey) string {
 	switch k.MadeBy.Kind {
 	case "administrator":
 		who = "an administrator"
+	case "team":
+		who = "the team"
 	case "command":
 		who = "a command on the server"
 	case "person":

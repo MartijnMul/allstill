@@ -74,7 +74,7 @@ Someone who may edit a project needs no access to the server to add and change i
 
 - **Add check** asks what to watch. A new job's page shows a line with its ping URL, to run at the end of the job. That URL is a secret, so handle it as above, and see "Report a job" for how to report a failure too.
 - A check's page has **Edit**, and **Pause** or **Resume**. Its form also deletes it, moves it to another project the person may edit, and for a job replaces its ping URL, each after saying what will happen.
-- A probe's own check, which tells when the probe goes quiet, can be renamed but not deleted or paused, and only an administrator can move it.
+- A probe's own check, which tells when the probe goes quiet, can be renamed but not deleted or paused, and only an owner of its team can move it.
 - Someone who may only view a project can only look. For more, they ask an administrator, who sets it on the server.
 
 ## On the server
@@ -130,7 +130,7 @@ allstill checks delete -check nightly
 
 `allstill checks add` and `allstill checks change` take the flags of `allstill admin add-check` and `allstill admin set-check`, with `-json-field` for what those call `-json`, as `-json` here is how the answer is printed. A job's check made without a schedule expects a run once a day with an hour's grace, and `-cron` without `-time-zone` uses this machine's. Adding or changing an address tries it once, and says what it found. Only adding a job's check and `allstill checks ping-url` print a ping URL: keep it with the project's secrets.
 
-**A script gets a key, not a person's sign-in.** An owner of the project or an administrator makes one:
+**A script gets a key, not a person's sign-in.** An owner of the project makes one:
 
 ```sh
 allstill keys make monitor -project Shop -scope read      # or -scope manage, to change its checks too

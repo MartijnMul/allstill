@@ -160,6 +160,7 @@ type LogEntry struct {
 	Hidden         int64
 	GroupID        string
 	Details        string
+	TeamID         string
 }
 
 type Membership struct {

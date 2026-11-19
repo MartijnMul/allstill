@@ -518,9 +518,10 @@ func setMember(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		fmt.Fprint(stderr, `Usage: allstill admin set-member (-email EMAIL | -person ID) -project PROJECT -role ROLE [flags]
 
 Gives someone a role in a project: viewer, editor or owner, or none to take
-them out of it. It applies from their next click. A workspace administrator
-sees every project whatever their roles say, but as a viewer of one gets no
-alerts for it; -role none gives those back.
+them out of it. It applies from their next click. Someone who is in the team
+that owns the project has their role from the team, and a role of their own
+counts only where it is higher: as a viewer of one project they still see it
+and get no alerts for it; -role none gives those back.
 
 Flags:
 `)
@@ -568,27 +569,40 @@ Flags:
 	} else if err != nil {
 		return err
 	}
+	// Someone in the project's team has their role in it from the team. A role of
+	// their own counts only where it is higher: viewer then only stops the alerts.
+	inTeam, through, err := st.TeamRoleInProject(ctx, projectID, p.ID)
+	if err != nil {
+		return err
+	}
 	if *roleName == "none" {
 		if err := st.RemoveMember(ctx, store.Command("set-member"), ws, projectID, p.ID); errors.Is(err, store.ErrNotFound) {
-			if p.Admin {
-				return fmt.Errorf("%s has no role in %s, and sees it as a workspace administrator", p.Name, *project)
+			if through {
+				return fmt.Errorf("%s has no role of their own in %s, and sees it as %s of its team", p.Name, *project, inTeam)
 			}
 			return fmt.Errorf("%s is not in %s", p.Name, *project)
 		} else if err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "%s is no longer in %s.\n", p.Name, *project)
-	} else {
-		if err := st.SetMember(ctx, store.Command("set-member"), ws, projectID, p.ID, role); err != nil {
-			return err
+		if through {
+			fmt.Fprintf(stdout, "%s has no role of their own in %s any more. They still see it as %s of its team, and get its alerts as that role gives.\n", p.Name, *project, inTeam)
+		} else {
+			fmt.Fprintf(stdout, "%s is no longer in %s.\n", p.Name, *project)
 		}
-		fmt.Fprintf(stdout, "%s is now %s of %s.\n", p.Name, role, *project)
+		return nil
+	}
+	if err := st.SetMember(ctx, store.Command("set-member"), ws, projectID, p.ID, role); err != nil {
+		return err
 	}
 	switch {
-	case p.Admin && role == store.Viewer:
-		fmt.Fprintf(stdout, "They are a workspace administrator, so they still see every project, but they no longer get alerts for %s. -role none gives those back.\n", *project)
-	case p.Admin:
-		fmt.Fprintln(stdout, "They are a workspace administrator, so they still see every project.")
+	case !through || !store.RoleAtLeast(inTeam, role):
+		fmt.Fprintf(stdout, "%s is now %s of %s.\n", p.Name, role, *project)
+	case inTeam == store.Viewer:
+		fmt.Fprintf(stdout, "%s is viewer of the team that owns %s, which a role of their own as viewer does not add to, so they have none there now.\n", p.Name, *project)
+	case role == store.Viewer:
+		fmt.Fprintf(stdout, "%s is %s of the team that owns %s, so they still see it and may do there what that role allows, but they no longer get alerts for it. -role none gives those back.\n", p.Name, inTeam, *project)
+	default:
+		fmt.Fprintf(stdout, "%s is %s of the team that owns %s, which a role of their own as %s does not add to, so they have none there now. They get its alerts.\n", p.Name, inTeam, *project, role)
 	}
 	return nil
 }

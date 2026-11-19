@@ -15,5 +15,6 @@ The first release is still to come. What it holds so far:
 - **Dashboard.** Sign in with a passkey; see checks by project, their runs and output, and a log of what happened, when and by whom. Those who may edit a project add and change its checks there.
 - **Alerts, in shadow mode.** Incidents, what each person would be told, quiet hours and the morning digest, recorded under Messages and not sent until an administrator turns them on. People add devices (Web Push) and email addresses and get test messages.
 - **From any machine.** `allstill login` signs in by approving a code with a passkey; `allstill status`, `checks`, `log` and the rest read and change what you may see over the JSON API, and `allstill keys` gives a script its project's key.
+- **Teams, begun.** Every project belongs to the installation's team, which its administrators own; being an administrator gives no project by itself. The API's projects say their `team` to its members and `me` lists `teams`. `allstill whoami` and `allstill admin set-member` word an administrator's access accordingly. A second team cannot be made yet.
 - **The source on every page.** Every page links to the source of the running version; `-source-url` points a changed version at its own.
 - **Packaging.** Linux packages, a container image and plain archives, built by GoReleaser from a tag.

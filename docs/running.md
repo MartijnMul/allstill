@@ -119,7 +119,7 @@ Someone who may edit a project can have the server, or a probe serving that proj
 
 They are not told what a host name resolves to, or that an address is the server's own: only that it may not be reached. A project holds at most 200 checks Allstill runs and 1000 ping checks when added this way, of the 20 attempts running at once at most 5 belong to one project, and a person gets 6 tries and 30 new addresses a minute. A shared probe also opens each served project's editors to the others' network, and whoever runs it receives the addresses of its checks, so one probe per party is the safe setup. Choose editors accordingly.
 
-Only an owner or administrator can have a check wake people during their quiet hours.
+Only an owner can have a check wake people during their quiet hours.
 
 ## People
 
@@ -169,7 +169,7 @@ Adding a job's check prints its ping URL with a line for `allstill run`. `allsti
 
 ## Keys, for scripts
 
-A script gets a key of its project instead of a person's sign-in. An owner of the project or an administrator makes one with `allstill keys make NAME -project P -scope read` (or `manage`), and it is printed once: only its hash is kept. `allstill keys` lists them with who made each, through which sign-in for those who may read that, and when it was last used. `allstill keys revoke NAME` ends one on its next request.
+A script gets a key of its project instead of a person's sign-in. An owner of the project makes one with `allstill keys make NAME -project P -scope read` (or `manage`), and it is printed once: only its hash is kept. `allstill keys` lists them with who made each, through which sign-in for those who may read that, and when it was last used. `allstill keys revoke NAME` ends one on its next request.
 
 Give it to a command as `ALLSTILL_TOKEN`, with `ALLSTILL_SERVER` for the address. With `read` it acts as a viewer of its one project, and with `manage` as an editor, under the limits a person has: the counts, the tries, and 120 requests a minute. It cannot reach another project, make a key, or turn on `critical`. It belongs to the project and keeps working when whoever made it has gone, so when someone leaves, look through what they made. The log names the key on what it does, and who made it on the line saying it was made.
 
@@ -182,8 +182,10 @@ Allstill writes down what happens as it happens, from the day this version first
 - **Who was reached:** each message that arrives, per check it mentions: who, what it said, at once or in the digest, and the kind of channel. It is written when the message arrives, not when it is queued, so a message taken back because it was no longer true is not there. In shadow mode a line says the message was recorded and not sent. Someone who cannot be reached is one line per incident, with why in Allstill's own words, until a message reaches them. Test messages are not written.
 - **Who reads what:** nobody reads a project they are not in, and what you may see is judged as it is today, so someone added now can read back and someone removed cannot.
   - A viewer reads what happened and what was done, signed "the team", with no names and nothing about who was reached. The times still show when your team works.
-  - An editor or owner also reads names and who was reached, by name and kind of channel only. An administrator who is no member of the project reads as "an administrator". Owners also read changes to roles.
-  - An administrator reads everything, including why a message failed. Others' sign-ins, new projects, people, probes and whether alerts are on are for administrators; everyone reads their own sign-ins and devices.
+  - An editor or owner also reads names and who was reached, by name and kind of channel only. Owners also read changes to roles, new keys and that the project was made.
+  - Who is in the team that owns a project is the team's to say. To an editor or owner who has a role in that one project and is not in its team, or only views in it, someone of the team reads as "the team", and an administrator as "an administrator".
+  - An administrator reads what concerns the installation, and no project by being one: others' sign-ins, people, teams, probes and whether alerts are on. They also read that a message reached someone by no way, with who and why, and without the project or check it was about. Everyone reads their own sign-ins and devices.
+  - A line's number counts for the whole installation, so the gaps between the numbers someone reads say roughly how much happens where they cannot look.
 - **Left out:** URLs, tokens, settings other than a few the check's page shows anyway, output, email addresses, device names, IP addresses and user agents. Names are copied as typed, so a check named after a secret keeps it in the log until the entry is removed. That goes for a sign-in's name too, by default its machine's host name: it stays with what that sign-in did, for those who may read who did it. A failed sign-in is not written, as anyone can cause one; it stays in the server's log.
 
 It is a lasting record of what named people did and when they signed in. If you run Allstill for a company in the EU, that is personal data, and in some places monitoring of staff: you answer for it, and `-keep-log` is how long you keep it. No command removes someone from it yet.
@@ -210,7 +212,7 @@ allstill admin add-check -project Sites -name database -tcp db.example.com:5432
 - **Being a good visitor.** Attempts are spread over their interval, one at a time per host and at most 20 at once, of which at most 5 for one project, so one project's dead hosts cannot blind the others'. Requests are sent as `Allstill/<version>`; `-contact` (`ALLSTILL_CONTACT`) adds an address for site owners. A site behind a bot challenge says so in the reason; let Allstill through there.
 - **Private addresses.** The server refuses addresses that are not on the public internet, for every connection and every redirect. `-allow-private 10.0.0.0/8` (`ALLSTILL_ALLOW_PRIVATE`, comma-separated) lets checks reach such ranges: they are then open to the checks of every project, so allow only what you mean to watch. The server's own addresses are never reached.
 - **Allstill's own network.** When the server's own network goes down, every site looks down. Give it a canary, addresses that answer independently of the sites you watch, such as `-canary 9.9.9.9:53,1.1.1.1:53` (`ALLSTILL_CANARY`): when a check times out or finds no route and no canary answers either, the check becomes unknown instead of down, nobody is alerted, and the overview and `/health` say the server is offline. Without a canary, Allstill alerts: it cannot tell its own outage from the sites'.
-- **Who sees the address.** A check's URL may hold a token: owners and editors of its project and administrators see it whole; viewers see only its scheme and host. It is never in a reason, a message or a log. A TCP check's host and port are shown to everyone who can see the check.
+- **Who sees the address.** A check's URL may hold a token: owners and editors of its project see it whole; viewers see only its scheme and host. It is never in a reason, a message or a log. A TCP check's host and port are shown to everyone who can see the check.
 - **Pings.** A ping to such a check is answered `409`: a script that pings with `curl -f` notices that Allstill runs this one itself.
 
 ## Probes
@@ -252,7 +254,7 @@ Other assistants that support Agent Skills read the same file from a folder of t
 - **Upgrades.** Before a new version changes the database, it copies it next to itself, as `allstill.db.before-0003` for example. Delete the copy once the new version works.
   - **Going back** means stopping Allstill, putting that copy in the database's place and starting the version from before. It loses everything since the upgrade: pings, state changes, incidents, messages, the log and changes to checks. So it is for the first minutes after an upgrade that went wrong.
   - **A second try.** Allstill keeps a copy that is already there and makes no new one. Move or delete the old copy before upgrading again.
-- **Teams, from the next releases on.** An upgrade puts every project in one team, named as the installation, which its administrators own. Nothing looks or works differently yet: it prepares for giving someone else a team of their own on the same installation ([ADR 0005](adr/0005-teams.md)).
+- **Teams, from the next releases on.** An upgrade puts every project in one team, named as the installation, which its administrators own. That is how an administrator sees its projects from now on: being one gives no project. With one team little looks different: `allstill whoami` and `allstill admin set-member` say so in their words, and an administrator keeps no role of their own in a single project, only whether they are told about it. It prepares for giving someone else a team of their own on the same installation, which no command does yet ([ADR 0005](adr/0005-teams.md)).
 - **History.** Each check keeps its newest 1000 runs, and the output of its newest 100; `-keep-runs` and `-keep-output` change that.
 - **The log.** Allstill keeps a record of what happened to checks and what was done, for 400 days; `-keep-log` (`ALLSTILL_KEEP_LOG`) changes that, to at least 30 days. See [What the log records](#what-the-log-records).
 - **A changed version.** Every page links to the source of the version that runs, as the AGPL asks: a release links its own tag in the official repository. Running Allstill with changes of your own? Point `-source-url` (`ALLSTILL_SOURCE_URL`) at where your changed source is.

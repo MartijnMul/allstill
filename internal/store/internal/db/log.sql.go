@@ -62,8 +62,8 @@ const createLogEntry = `-- name: CreateLogEntry :exec
 INSERT INTO log_entries (
     workspace_id, happened_at, recorded_at, project_id, project_name, kind,
     about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider,
-    person_id, person_name, person_outsider, incident_id, hidden, group_id, details
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type CreateLogEntryParams struct {
@@ -87,6 +87,7 @@ type CreateLogEntryParams struct {
 	Hidden         int64
 	GroupID        string
 	Details        string
+	TeamID         string
 }
 
 // SPDX-License-Identifier: AGPL-3.0-only
@@ -113,6 +114,7 @@ func (q *Queries) CreateLogEntry(ctx context.Context, arg CreateLogEntryParams) 
 		arg.Hidden,
 		arg.GroupID,
 		arg.Details,
+		arg.TeamID,
 	)
 	return err
 }
@@ -230,8 +232,35 @@ func (q *Queries) LastReachOfIncident(ctx context.Context, arg LastReachOfIncide
 	return kind, err
 }
 
+const laterUnreached = `-- name: LaterUnreached :one
+SELECT COUNT(*) FROM log_entries
+WHERE incident_id = ?1 AND incident_id <> '' AND person_id = ?2
+  AND kind = 'message.unreached' AND happened_at = ?3 AND id > ?4
+`
+
+type LaterUnreachedParams struct {
+	IncidentID string
+	PersonID   string
+	HappenedAt int64
+	ID         int64
+}
+
+// Whether a later line says the same person was not reached about the same
+// incident at the same moment: one was written per check of the incident.
+func (q *Queries) LaterUnreached(ctx context.Context, arg LaterUnreachedParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, laterUnreached,
+		arg.IncidentID,
+		arg.PersonID,
+		arg.HappenedAt,
+		arg.ID,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const logEntriesAbout = `-- name: LogEntriesAbout :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_id = ?1 AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE about_id = ?1 AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesAboutParams struct {
@@ -271,177 +300,7 @@ func (q *Queries) LogEntriesAbout(ctx context.Context, arg LogEntriesAboutParams
 			&i.Hidden,
 			&i.GroupID,
 			&i.Details,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const logEntriesAll = `-- name: LogEntriesAll :many
-
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE (kind <> 'check.late' OR CAST(?1 AS INTEGER) = 1) AND id < ?2 ORDER BY id DESC LIMIT ?3
-`
-
-type LogEntriesAllParams struct {
-	Late   int64
-	Before int64
-	Batch  int64
-}
-
-// Each way of reading the log: the newest entries before a number, from one index.
-// Who may see what is judged in one place, on what these return (logread.go), so a
-// filter cannot reach past it. Late lines have queries and indexes of their own, used
-// only when asked for, so a job that goes late on every run cannot use up what a page
-// may read and hide an older outage. Only an administrator's whole list skips them here.
-func (q *Queries) LogEntriesAll(ctx context.Context, arg LogEntriesAllParams) ([]LogEntry, error) {
-	rows, err := q.db.QueryContext(ctx, logEntriesAll, arg.Late, arg.Before, arg.Batch)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []LogEntry{}
-	for rows.Next() {
-		var i LogEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.HappenedAt,
-			&i.RecordedAt,
-			&i.ProjectID,
-			&i.ProjectName,
-			&i.Kind,
-			&i.AboutKind,
-			&i.AboutID,
-			&i.AboutName,
-			&i.ByKind,
-			&i.ByID,
-			&i.ByName,
-			&i.ByOutsider,
-			&i.PersonID,
-			&i.PersonName,
-			&i.PersonOutsider,
-			&i.IncidentID,
-			&i.Hidden,
-			&i.GroupID,
-			&i.Details,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const logEntriesBy = `-- name: LogEntriesBy :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE by_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
-`
-
-type LogEntriesByParams struct {
-	Of     string
-	Before int64
-	Batch  int64
-}
-
-func (q *Queries) LogEntriesBy(ctx context.Context, arg LogEntriesByParams) ([]LogEntry, error) {
-	rows, err := q.db.QueryContext(ctx, logEntriesBy, arg.Of, arg.Before, arg.Batch)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []LogEntry{}
-	for rows.Next() {
-		var i LogEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.HappenedAt,
-			&i.RecordedAt,
-			&i.ProjectID,
-			&i.ProjectName,
-			&i.Kind,
-			&i.AboutKind,
-			&i.AboutID,
-			&i.AboutName,
-			&i.ByKind,
-			&i.ByID,
-			&i.ByName,
-			&i.ByOutsider,
-			&i.PersonID,
-			&i.PersonName,
-			&i.PersonOutsider,
-			&i.IncidentID,
-			&i.Hidden,
-			&i.GroupID,
-			&i.Details,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const logEntriesConcerning = `-- name: LogEntriesConcerning :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE person_id = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
-`
-
-type LogEntriesConcerningParams struct {
-	Of     string
-	Before int64
-	Batch  int64
-}
-
-func (q *Queries) LogEntriesConcerning(ctx context.Context, arg LogEntriesConcerningParams) ([]LogEntry, error) {
-	rows, err := q.db.QueryContext(ctx, logEntriesConcerning, arg.Of, arg.Before, arg.Batch)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []LogEntry{}
-	for rows.Next() {
-		var i LogEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.HappenedAt,
-			&i.RecordedAt,
-			&i.ProjectID,
-			&i.ProjectName,
-			&i.Kind,
-			&i.AboutKind,
-			&i.AboutID,
-			&i.AboutName,
-			&i.ByKind,
-			&i.ByID,
-			&i.ByName,
-			&i.ByOutsider,
-			&i.PersonID,
-			&i.PersonName,
-			&i.PersonOutsider,
-			&i.IncidentID,
-			&i.Hidden,
-			&i.GroupID,
-			&i.Details,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -457,7 +316,7 @@ func (q *Queries) LogEntriesConcerning(ctx context.Context, arg LogEntriesConcer
 }
 
 const logEntriesLateAbout = `-- name: LogEntriesLateAbout :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_id = ?1 AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE about_id = ?1 AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesLateAboutParams struct {
@@ -497,61 +356,7 @@ func (q *Queries) LogEntriesLateAbout(ctx context.Context, arg LogEntriesLateAbo
 			&i.Hidden,
 			&i.GroupID,
 			&i.Details,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const logEntriesLateNamed = `-- name: LogEntriesLateNamed :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_name = ?1 COLLATE NOCASE AND about_name <> '' AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
-`
-
-type LogEntriesLateNamedParams struct {
-	Of     string
-	Before int64
-	Batch  int64
-}
-
-func (q *Queries) LogEntriesLateNamed(ctx context.Context, arg LogEntriesLateNamedParams) ([]LogEntry, error) {
-	rows, err := q.db.QueryContext(ctx, logEntriesLateNamed, arg.Of, arg.Before, arg.Batch)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []LogEntry{}
-	for rows.Next() {
-		var i LogEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.HappenedAt,
-			&i.RecordedAt,
-			&i.ProjectID,
-			&i.ProjectName,
-			&i.Kind,
-			&i.AboutKind,
-			&i.AboutID,
-			&i.AboutName,
-			&i.ByKind,
-			&i.ByID,
-			&i.ByName,
-			&i.ByOutsider,
-			&i.PersonID,
-			&i.PersonName,
-			&i.PersonOutsider,
-			&i.IncidentID,
-			&i.Hidden,
-			&i.GroupID,
-			&i.Details,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -567,7 +372,7 @@ func (q *Queries) LogEntriesLateNamed(ctx context.Context, arg LogEntriesLateNam
 }
 
 const logEntriesLateOfProject = `-- name: LogEntriesLateOfProject :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE project_id = ?1 AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE project_id = ?1 AND kind = 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesLateOfProjectParams struct {
@@ -607,61 +412,7 @@ func (q *Queries) LogEntriesLateOfProject(ctx context.Context, arg LogEntriesLat
 			&i.Hidden,
 			&i.GroupID,
 			&i.Details,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const logEntriesNamed = `-- name: LogEntriesNamed :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE about_name = ?1 COLLATE NOCASE AND about_name <> '' AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
-`
-
-type LogEntriesNamedParams struct {
-	Of     string
-	Before int64
-	Batch  int64
-}
-
-func (q *Queries) LogEntriesNamed(ctx context.Context, arg LogEntriesNamedParams) ([]LogEntry, error) {
-	rows, err := q.db.QueryContext(ctx, logEntriesNamed, arg.Of, arg.Before, arg.Batch)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []LogEntry{}
-	for rows.Next() {
-		var i LogEntry
-		if err := rows.Scan(
-			&i.ID,
-			&i.WorkspaceID,
-			&i.HappenedAt,
-			&i.RecordedAt,
-			&i.ProjectID,
-			&i.ProjectName,
-			&i.Kind,
-			&i.AboutKind,
-			&i.AboutID,
-			&i.AboutName,
-			&i.ByKind,
-			&i.ByID,
-			&i.ByName,
-			&i.ByOutsider,
-			&i.PersonID,
-			&i.PersonName,
-			&i.PersonOutsider,
-			&i.IncidentID,
-			&i.Hidden,
-			&i.GroupID,
-			&i.Details,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -677,7 +428,7 @@ func (q *Queries) LogEntriesNamed(ctx context.Context, arg LogEntriesNamedParams
 }
 
 const logEntriesOfGroup = `-- name: LogEntriesOfGroup :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE group_id = ?1 AND group_id <> '' AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE group_id = ?1 AND group_id <> '' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesOfGroupParams struct {
@@ -717,6 +468,7 @@ func (q *Queries) LogEntriesOfGroup(ctx context.Context, arg LogEntriesOfGroupPa
 			&i.Hidden,
 			&i.GroupID,
 			&i.Details,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -732,7 +484,7 @@ func (q *Queries) LogEntriesOfGroup(ctx context.Context, arg LogEntriesOfGroupPa
 }
 
 const logEntriesOfKind = `-- name: LogEntriesOfKind :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE kind = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE kind = ?1 AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesOfKindParams struct {
@@ -772,6 +524,7 @@ func (q *Queries) LogEntriesOfKind(ctx context.Context, arg LogEntriesOfKindPara
 			&i.Hidden,
 			&i.GroupID,
 			&i.Details,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -787,7 +540,8 @@ func (q *Queries) LogEntriesOfKind(ctx context.Context, arg LogEntriesOfKindPara
 }
 
 const logEntriesOfProject = `-- name: LogEntriesOfProject :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE project_id = ?1 AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
+
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE project_id = ?1 AND kind <> 'check.late' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesOfProjectParams struct {
@@ -796,6 +550,11 @@ type LogEntriesOfProjectParams struct {
 	Batch  int64
 }
 
+// Each way of reading the log: the newest entries before a number, from one index.
+// Who may see what is judged in one place, on what these return (logread.go), so a
+// filter cannot reach past it. Late lines have queries and indexes of their own, used
+// only when asked for, so a job that goes late on every run cannot use up what a page
+// may read and hide an older outage.
 func (q *Queries) LogEntriesOfProject(ctx context.Context, arg LogEntriesOfProjectParams) ([]LogEntry, error) {
 	rows, err := q.db.QueryContext(ctx, logEntriesOfProject, arg.Of, arg.Before, arg.Batch)
 	if err != nil {
@@ -827,6 +586,64 @@ func (q *Queries) LogEntriesOfProject(ctx context.Context, arg LogEntriesOfProje
 			&i.Hidden,
 			&i.GroupID,
 			&i.Details,
+			&i.TeamID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const logEntriesOfTeam = `-- name: LogEntriesOfTeam :many
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE team_id = ?1 AND team_id <> '' AND id < ?2 ORDER BY id DESC LIMIT ?3
+`
+
+type LogEntriesOfTeamParams struct {
+	Of     string
+	Before int64
+	Batch  int64
+}
+
+// A team's own lines, which are about no project.
+func (q *Queries) LogEntriesOfTeam(ctx context.Context, arg LogEntriesOfTeamParams) ([]LogEntry, error) {
+	rows, err := q.db.QueryContext(ctx, logEntriesOfTeam, arg.Of, arg.Before, arg.Batch)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LogEntry{}
+	for rows.Next() {
+		var i LogEntry
+		if err := rows.Scan(
+			&i.ID,
+			&i.WorkspaceID,
+			&i.HappenedAt,
+			&i.RecordedAt,
+			&i.ProjectID,
+			&i.ProjectName,
+			&i.Kind,
+			&i.AboutKind,
+			&i.AboutID,
+			&i.AboutName,
+			&i.ByKind,
+			&i.ByID,
+			&i.ByName,
+			&i.ByOutsider,
+			&i.PersonID,
+			&i.PersonName,
+			&i.PersonOutsider,
+			&i.IncidentID,
+			&i.Hidden,
+			&i.GroupID,
+			&i.Details,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}
@@ -842,7 +659,7 @@ func (q *Queries) LogEntriesOfProject(ctx context.Context, arg LogEntriesOfProje
 }
 
 const logEntriesOwn = `-- name: LogEntriesOwn :many
-SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details FROM log_entries WHERE person_id = ?1 AND project_id = '' AND id < ?2 ORDER BY id DESC LIMIT ?3
+SELECT id, workspace_id, happened_at, recorded_at, project_id, project_name, kind, about_kind, about_id, about_name, by_kind, by_id, by_name, by_outsider, person_id, person_name, person_outsider, incident_id, hidden, group_id, details, team_id FROM log_entries WHERE person_id = ?1 AND project_id = '' AND id < ?2 ORDER BY id DESC LIMIT ?3
 `
 
 type LogEntriesOwnParams struct {
@@ -882,6 +699,7 @@ func (q *Queries) LogEntriesOwn(ctx context.Context, arg LogEntriesOwnParams) ([
 			&i.Hidden,
 			&i.GroupID,
 			&i.Details,
+			&i.TeamID,
 		); err != nil {
 			return nil, err
 		}

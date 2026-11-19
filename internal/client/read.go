@@ -207,6 +207,9 @@ func (c *Client) FindProject(ctx context.Context, nameOrID string) (apiclient.Pr
 	fmt.Fprintf(&b, "%d projects are named %q. Use one of these ids:", len(found), Clean(nameOrID))
 	for _, p := range found {
 		fmt.Fprintf(&b, "\n  %s", Clean(p.Id))
+		if p.Team != nil {
+			fmt.Fprintf(&b, "  in %s", Clean(p.Team.Name))
+		}
 	}
 	return apiclient.Project{}, errors.New(b.String())
 }

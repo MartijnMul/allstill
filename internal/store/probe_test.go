@@ -57,17 +57,17 @@ func TestAProbeHasAKeyAndACheckOfItsOwn(t *testing.T) {
 	}
 	// A new key replaces the old one.
 	old, _, _ := f.s.CreateProbe(ctx, admin, "second", f.project, nil)
-	key, err := f.s.RekeyProbe(ctx, admin, "second")
+	key, err := f.s.RekeyProbe(ctx, admin, "", "second")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, err := f.s.ProbeByKey(ctx, key); err != nil || got.ID != old {
 		t.Errorf("the new key: %+v, %v", got, err)
 	}
-	if _, err := f.s.RekeyProbe(ctx, f.editor, "second"); !errors.Is(err, ErrForbidden) {
+	if _, err := f.s.RekeyProbe(ctx, f.editor, "", "second"); !errors.Is(err, ErrForbidden) {
 		t.Errorf("an editor rekeyed: %v", err)
 	}
-	if _, err := f.s.RekeyProbe(ctx, admin, "none"); !errors.Is(err, ErrNotFound) {
+	if _, err := f.s.RekeyProbe(ctx, admin, "", "none"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("no such probe: %v", err)
 	}
 }

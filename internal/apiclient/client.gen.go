@@ -351,7 +351,7 @@ type ApiKey struct {
 	// `former_member`. A person's `id` is what to narrow to them with.
 	MadeBy LogParty `json:"made_by"`
 
-	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	// MadeVia The sign-in it was made through, for an owner of the project's team or the one who made it.
 	MadeVia *string `json:"made_via,omitempty"`
 	Name    string  `json:"name"`
 
@@ -382,7 +382,7 @@ type ApiKeyMade struct {
 	// `former_member`. A person's `id` is what to narrow to them with.
 	MadeBy LogParty `json:"made_by"`
 
-	// MadeVia The sign-in it was made through, for an administrator or the one who made it.
+	// MadeVia The sign-in it was made through, for an owner of the project's team or the one who made it.
 	MadeVia *string `json:"made_via,omitempty"`
 	Name    string  `json:"name"`
 
@@ -880,7 +880,7 @@ type HttpCheck struct {
 
 	// Url What it fetches, http or https, without a user name or password. A token
 	// in its path or query is a secret, as a ping URL is: it is whole only for
-	// an editor or owner of the check's project, a workspace administrator, or
+	// an editor or owner of the check's project, or
 	// a project API key with the `manage` scope; everyone else, and anything
 	// with the `read` scope, gets its scheme and host alone, such as
 	// `https://shop.example.com`.
@@ -991,6 +991,10 @@ type Me struct {
 
 	// SignIn Present when a person is signed in, naming the sign-in this request came through.
 	SignIn *MeSignIn `json:"sign_in,omitempty"`
+
+	// Teams The teams the person is in, with their role in each, which is their role
+	// in every project the team owns. Left out for a key.
+	Teams *[]MeTeam `json:"teams,omitempty"`
 }
 
 // MeKind defines model for Me.Kind.
@@ -1008,9 +1012,12 @@ type MePerson struct {
 	Email *string `json:"email,omitempty"`
 
 	// Id An opaque identifier. Never a secret.
-	Id             Id     `json:"id"`
-	Name           string `json:"name"`
-	WorkspaceAdmin *bool  `json:"workspace_admin,omitempty"`
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// WorkspaceAdmin The person keeps the installation: its people, its mail and its teams.
+	// It gives no project. What they may see is in `projects`, as for anyone.
+	WorkspaceAdmin *bool `json:"workspace_admin,omitempty"`
 }
 
 // MeProject defines model for MeProject.
@@ -1019,6 +1026,10 @@ type MeProject struct {
 	Id   Id     `json:"id"`
 	Name string `json:"name"`
 	Role Role   `json:"role"`
+
+	// Team The team a project belongs to. Given only to a member of that team: someone
+	// with a role of their own in one project does not learn the team from it.
+	Team *Team `json:"team,omitempty"`
 }
 
 // MeSignIn Present when a person is signed in, naming the sign-in this request came through.
@@ -1026,6 +1037,14 @@ type MeSignIn struct {
 	// Id An opaque identifier. Never a secret.
 	Id   Id     `json:"id"`
 	Name string `json:"name"`
+}
+
+// MeTeam defines model for MeTeam.
+type MeTeam struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+	Role Role   `json:"role"`
 }
 
 // Probe defines model for Probe.
@@ -1072,6 +1091,10 @@ type Project struct {
 	Id   Id     `json:"id"`
 	Name string `json:"name"`
 	Role Role   `json:"role"`
+
+	// Team The team a project belongs to. Given only to a member of that team: someone
+	// with a role of their own in one project does not learn the team from it.
+	Team *Team `json:"team,omitempty"`
 
 	// WorstState Left out for a project with no checks.
 	WorstState *CheckState `json:"worst_state,omitempty"`
@@ -1190,6 +1213,14 @@ type TcpCheck struct {
 	WarnDays *int `json:"warn_days,omitempty"`
 }
 
+// Team The team a project belongs to. Given only to a member of that team: someone
+// with a role of their own in one project does not learn the team from it.
+type Team struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+}
+
 // ChannelId An opaque identifier. Never a secret.
 type ChannelId = Id
 
@@ -1264,7 +1295,7 @@ type ListRunsParams struct {
 
 // ListKeysParams defines parameters for ListKeys.
 type ListKeysParams struct {
-	// ProjectId Only this project. Without it, every project the caller owns, which for an administrator is every project.
+	// ProjectId Only this project. Without it, every project the caller owns.
 	ProjectId *Id `form:"project_id,omitempty" json:"project_id,omitempty"`
 }
 
@@ -1593,16 +1624,16 @@ type ClientInterface interface {
 
 	// ListKeys The keys of a project, or of all the caller owns
 	//
-	// Needs a person's sign-in, as an owner of the project or an administrator. Who
-	// made a key reads as in the log, and which sign-in only for an administrator or
-	// the one who made it. A key's value is never here.
+	// Needs a person's sign-in, as an owner of the project. Who made a key reads as
+	// in the log, and which sign-in only for an owner of the project's team or the
+	// one who made it. A key's value is never here.
 	//
 	// Corresponds with GET /keys (the `ListKeys` operationId).
 	ListKeys(ctx context.Context, params *ListKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RevokeKey Revoke a key
 	//
-	// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+	// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project.
 	//
 	// Corresponds with DELETE /keys/{key_id} (the `RevokeKey` operationId).
 	RevokeKey(ctx context.Context, keyId Id, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1635,7 +1666,7 @@ type ClientInterface interface {
 
 	// ListProbes The probes that serve projects the caller may edit
 	//
-	// Someone who may only look is not told of a project's probes. An administrator sees all.
+	// Someone who may only look is not told of a project's probes.
 	//
 	// Corresponds with GET /probes (the `ListProbes` operationId).
 	ListProbes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1681,8 +1712,8 @@ type ClientInterface interface {
 
 	// CreateKeyWithBody Make a key for a project
 	//
-	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// With `read` the key acts as a viewer of this project, and with
 	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
 	//
 	// Takes any type of body and a specified content type.
@@ -1692,8 +1723,8 @@ type ClientInterface interface {
 
 	// CreateKey Make a key for a project
 	//
-	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// With `read` the key acts as a viewer of this project, and with
 	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
 	//
 	// Takes a body of the `application/json` content type.
@@ -1909,9 +1940,9 @@ func (c *Client) ListRuns(ctx context.Context, checkId CheckId, params *ListRuns
 
 // ListKeys The keys of a project, or of all the caller owns
 //
-// Needs a person's sign-in, as an owner of the project or an administrator. Who
-// made a key reads as in the log, and which sign-in only for an administrator or
-// the one who made it. A key's value is never here.
+// Needs a person's sign-in, as an owner of the project. Who made a key reads as
+// in the log, and which sign-in only for an owner of the project's team or the
+// one who made it. A key's value is never here.
 //
 // Corresponds with GET /keys (the `ListKeys` operationId).
 func (c *Client) ListKeys(ctx context.Context, params *ListKeysParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -1928,7 +1959,7 @@ func (c *Client) ListKeys(ctx context.Context, params *ListKeysParams, reqEditor
 
 // RevokeKey Revoke a key
 //
-// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project.
 //
 // Corresponds with DELETE /keys/{key_id} (the `RevokeKey` operationId).
 func (c *Client) RevokeKey(ctx context.Context, keyId Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2001,7 +2032,7 @@ func (c *Client) EndThisToken(ctx context.Context, reqEditors ...RequestEditorFn
 
 // ListProbes The probes that serve projects the caller may edit
 //
-// Someone who may only look is not told of a project's probes. An administrator sees all.
+// Someone who may only look is not told of a project's probes.
 //
 // Corresponds with GET /probes (the `ListProbes` operationId).
 func (c *Client) ListProbes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2107,8 +2138,8 @@ func (c *Client) CreateCheck(ctx context.Context, projectId ProjectId, body Crea
 
 // CreateKeyWithBody Make a key for a project
 //
-// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-// an administrator. With `read` the key acts as a viewer of this project, and with
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// With `read` the key acts as a viewer of this project, and with
 // `manage` as an editor, and it reaches nothing else. It is shown here, once.
 //
 // Takes any type of body and a specified content type.
@@ -2128,8 +2159,8 @@ func (c *Client) CreateKeyWithBody(ctx context.Context, projectId ProjectId, con
 
 // CreateKey Make a key for a project
 //
-// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-// an administrator. With `read` the key acts as a viewer of this project, and with
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// With `read` the key acts as a viewer of this project, and with
 // `manage` as an editor, and it reaches nothing else. It is shown here, once.
 //
 // Takes a body of the `application/json` content type.
@@ -3311,9 +3342,9 @@ type ClientWithResponsesInterface interface {
 
 	// ListKeysWithResponse The keys of a project, or of all the caller owns
 	//
-	// Needs a person's sign-in, as an owner of the project or an administrator. Who
-	// made a key reads as in the log, and which sign-in only for an administrator or
-	// the one who made it. A key's value is never here.
+	// Needs a person's sign-in, as an owner of the project. Who made a key reads as
+	// in the log, and which sign-in only for an owner of the project's team or the
+	// one who made it. A key's value is never here.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -3322,7 +3353,7 @@ type ClientWithResponsesInterface interface {
 
 	// RevokeKeyWithResponse Revoke a key
 	//
-	// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+	// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -3363,7 +3394,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListProbesWithResponse The probes that serve projects the caller may edit
 	//
-	// Someone who may only look is not told of a project's probes. An administrator sees all.
+	// Someone who may only look is not told of a project's probes.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -3417,8 +3448,8 @@ type ClientWithResponsesInterface interface {
 
 	// CreateKeyWithBodyWithResponse Make a key for a project
 	//
-	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// With `read` the key acts as a viewer of this project, and with
 	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -3428,8 +3459,8 @@ type ClientWithResponsesInterface interface {
 
 	// CreateKeyWithResponse Make a key for a project
 	//
-	// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-	// an administrator. With `read` the key acts as a viewer of this project, and with
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// With `read` the key acts as a viewer of this project, and with
 	// `manage` as an editor, and it reaches nothing else. It is shown here, once.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
@@ -5231,9 +5262,9 @@ func (c *ClientWithResponses) ListRunsWithResponse(ctx context.Context, checkId 
 
 // ListKeysWithResponse The keys of a project, or of all the caller owns
 //
-// Needs a person's sign-in, as an owner of the project or an administrator. Who
-// made a key reads as in the log, and which sign-in only for an administrator or
-// the one who made it. A key's value is never here.
+// Needs a person's sign-in, as an owner of the project. Who made a key reads as
+// in the log, and which sign-in only for an owner of the project's team or the
+// one who made it. A key's value is never here.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -5248,7 +5279,7 @@ func (c *ClientWithResponses) ListKeysWithResponse(ctx context.Context, params *
 
 // RevokeKeyWithResponse Revoke a key
 //
-// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project or an administrator.
+// It stops working on its next request. Needs a person's sign-in with the `manage` scope, as an owner of its project.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -5313,7 +5344,7 @@ func (c *ClientWithResponses) EndThisTokenWithResponse(ctx context.Context, reqE
 
 // ListProbesWithResponse The probes that serve projects the caller may edit
 //
-// Someone who may only look is not told of a project's probes. An administrator sees all.
+// Someone who may only look is not told of a project's probes.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -5403,8 +5434,8 @@ func (c *ClientWithResponses) CreateCheckWithResponse(ctx context.Context, proje
 
 // CreateKeyWithBodyWithResponse Make a key for a project
 //
-// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-// an administrator. With `read` the key acts as a viewer of this project, and with
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// With `read` the key acts as a viewer of this project, and with
 // `manage` as an editor, and it reaches nothing else. It is shown here, once.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -5420,8 +5451,8 @@ func (c *ClientWithResponses) CreateKeyWithBodyWithResponse(ctx context.Context,
 
 // CreateKeyWithResponse Make a key for a project
 //
-// Needs a person's sign-in with the `manage` scope, as an owner of the project or
-// an administrator. With `read` the key acts as a viewer of this project, and with
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// With `read` the key acts as a viewer of this project, and with
 // `manage` as an editor, and it reaches nothing else. It is shown here, once.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).

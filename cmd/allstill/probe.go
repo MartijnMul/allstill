@@ -194,7 +194,7 @@ func rekeyProbe(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if err != nil {
 		return err
 	}
-	key, err := st.RekeyProbe(ctx, admin, name)
+	key, err := st.RekeyProbe(ctx, admin, "", name)
 	if errors.Is(err, store.ErrNotFound) {
 		return fmt.Errorf("no probe is named %q", name)
 	}

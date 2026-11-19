@@ -90,9 +90,17 @@ var stateRank = map[check.State]int{
 	check.Down: 6, check.Late: 5, check.Warning: 4, check.Unknown: 3, check.New: 2, check.Up: 1, check.Paused: 0,
 }
 
+// teamOf is the team a project belongs to, for a caller who is in it.
+func teamOf(a store.Access, projectID string) *api.Team {
+	if t, in := a.TeamOf(projectID); in {
+		return &api.Team{Id: t.ID, Name: t.Name}
+	}
+	return nil
+}
+
 // projectOf says how a project stands, from the states of its checks.
-func projectOf(p store.ProjectAccess, checks []store.CheckView) api.Project {
-	out := api.Project{Id: p.ID, Name: p.Name, Role: api.Role(p.Role), Counts: api.StateCounts{}}
+func projectOf(a store.Access, p store.ProjectAccess, checks []store.CheckView) api.Project {
+	out := api.Project{Id: p.ID, Name: p.Name, Role: api.Role(p.Role), Counts: api.StateCounts{}, Team: teamOf(a, p.ID)}
 	worst := check.State("")
 	for _, c := range checks {
 		if c.ProjectID != p.ID {
@@ -122,7 +130,7 @@ func (a apiServer) GetStatus(ctx context.Context, _ api.GetStatusRequestObject) 
 		Projects: []api.Project{}, Attention: []api.AttentionCheck{},
 	}
 	for _, p := range access.Projects {
-		out.Projects = append(out.Projects, projectOf(p, checks))
+		out.Projects = append(out.Projects, projectOf(access, p, checks))
 	}
 	worst := check.State("")
 	for _, c := range checks {
@@ -168,7 +176,7 @@ func (a apiServer) ListProjects(ctx context.Context, req api.ListProjectsRequest
 		out.NextCursor = encodeCursor(strconv.Itoa(offset + size))
 	}
 	for _, p := range projects {
-		out.Items = append(out.Items, projectOf(p, checks))
+		out.Items = append(out.Items, projectOf(access, p, checks))
 	}
 	return out, nil
 }
@@ -184,7 +192,7 @@ func (a apiServer) GetProject(ctx context.Context, req api.GetProjectRequestObje
 		if err != nil {
 			return nil, err
 		}
-		return api.GetProject200JSONResponse(projectOf(p, checks)), nil
+		return api.GetProject200JSONResponse(projectOf(access, p, checks)), nil
 	}
 	return api.GetProject404ApplicationProblemPlusJSONResponse{NotFoundApplicationProblemPlusJSONResponse: notFound()}, nil
 }

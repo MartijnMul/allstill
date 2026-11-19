@@ -453,8 +453,8 @@ func (s *Store) MoveCheckAs(ctx context.Context, a Access, checkID, toProjectID 
 	}
 	if _, own, err := ownProbe(ctx, q, a.WorkspaceID, checkID); err != nil {
 		return err
-	} else if own && !a.Admin {
-		return &InvalidError{"project", ownCheckProblem + ", so only an administrator can move it"}
+	} else if own && !a.OwnsTeamOf(c.ProjectID) {
+		return &InvalidError{"project", ownCheckProblem + ", so only an owner of its team can move it"}
 	}
 	if viaPerson(a) && toProjectID != c.ProjectID {
 		if err := checkRoom(ctx, q, toProjectID, c.Kind); err != nil {
@@ -490,7 +490,7 @@ func checkRoom(ctx context.Context, q *db.Queries, projectID, kind string) error
 }
 
 // SetAlertingAs is SetAlerting for a caller who may edit the check. Only an owner
-// or administrator turns critical on, as it breaks through everyone's quiet hours
+// turns critical on, as it breaks through everyone's quiet hours
 // (C4), and a probe's own check keeps alerting at once for anyone else (R19).
 func (s *Store) SetAlertingAs(ctx context.Context, a Access, checkID, urgency string, critical bool, at time.Time) error {
 	tx, err := s.w.BeginTx(ctx, nil)
@@ -515,13 +515,13 @@ func (s *Store) SetAlertingAs(ctx context.Context, a Access, checkID, urgency st
 // changeAlerting holds SetAlertingAs's rules, within a caller's transaction.
 func changeAlerting(ctx context.Context, q *db.Queries, a Access, c db.Check, urgency string, critical bool, at time.Time) error {
 	role, _ := a.Role(c.ProjectID)
-	if critical && c.Critical == 0 && role != Owner && !a.Admin {
-		return &InvalidError{"critical", "only an owner or administrator can turn critical on: it wakes people during their quiet hours"}
+	if critical && c.Critical == 0 && role != Owner {
+		return &InvalidError{"critical", "only an owner can turn critical on: it wakes people during their quiet hours"}
 	}
 	if _, own, err := ownProbe(ctx, q, a.WorkspaceID, c.ID); err != nil {
 		return err
-	} else if own && urgency != "now" && !a.Admin {
-		return &InvalidError{"urgency", ownCheckProblem + ", so only an administrator can change this"}
+	} else if own && urgency != "now" && !a.OwnsTeamOf(c.ProjectID) {
+		return &InvalidError{"urgency", ownCheckProblem + ", so only an owner of its team can change this"}
 	}
 	return setAlerting(ctx, q, a.WorkspaceID, c.ID, urgency, critical, at)
 }

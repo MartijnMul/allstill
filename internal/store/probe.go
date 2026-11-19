@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -20,8 +21,8 @@ import (
 
 // A probe runs checks inside a network the server cannot reach
 // (intent/http-checks/spec.md, R6, R7, R13): it fetches them and reports what it
-// finds. It serves the projects an administrator gives it, and only checks of
-// those can run on it. Every post pings a check of its own, so a probe that goes
+// finds. It belongs to one team and serves the projects of that team an
+// administrator gives it, and only checks of those can run on it. Every post pings a check of its own, so a probe that goes
 // quiet alerts once, as that check going down, while the checks it runs become
 // unknown at their deadlines.
 
@@ -66,18 +67,30 @@ func (s *Store) CreateProbe(ctx context.Context, a Access, name, project string,
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	if _, err := q.ProbeByName(ctx, db.ProbeByNameParams{WorkspaceID: a.WorkspaceID, Name: name}); err == nil {
-		return "", "", &InvalidError{"name", "a probe has this name already"}
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return "", "", err
-	}
 	projects := append([]string{project}, serves...)
-	for _, p := range projects {
+	var teamID string
+	for i, p := range projects {
 		if _, err := q.ProjectInWorkspace(ctx, db.ProjectInWorkspaceParams{WorkspaceID: a.WorkspaceID, ID: p}); errors.Is(err, sql.ErrNoRows) {
 			return "", "", ErrNotFound
 		} else if err != nil {
 			return "", "", err
 		}
+		in, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: a.WorkspaceID, ID: p})
+		if err != nil {
+			return "", "", err
+		}
+		if i == 0 {
+			teamID = in
+		} else if in != teamID {
+			// It fetches from inside a network, for whoever can edit a project it serves.
+			return "", "", &InvalidError{"serves", "a probe serves projects of one team"}
+		}
+	}
+	// Its name is told apart within its team (teams spec, R5).
+	if _, err := q.ProbeInTeam(ctx, db.ProbeInTeamParams{TeamID: teamID, Name: name}); err == nil {
+		return "", "", &InvalidError{"name", "a probe has this name already"}
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return "", "", err
 	}
 	own := NewCheck{
 		Name: "Probe " + name, Description: "Pinged by the probe " + name + " at least every 30 seconds.",
@@ -112,7 +125,7 @@ func (s *Store) CreateProbe(ctx context.Context, a Access, name, project string,
 		return "", "", err
 	}
 	if err := writeLog(ctx, q, logEntry{
-		WorkspaceID: a.WorkspaceID, At: at, Kind: "probe.created", AboutKind: "probe", AboutID: probeID, AboutName: name, By: a.Actor,
+		WorkspaceID: a.WorkspaceID, At: at, TeamID: teamID, Kind: "probe.created", AboutKind: "probe", AboutID: probeID, AboutName: name, By: a.Actor,
 		Details: map[string]any{"serves": projects},
 	}); err != nil {
 		return "", "", err
@@ -121,8 +134,9 @@ func (s *Store) CreateProbe(ctx context.Context, a Access, name, project string,
 }
 
 // RekeyProbe gives a probe a new key, which is shown once; the old one stops
-// working. The caller must be a workspace administrator.
-func (s *Store) RekeyProbe(ctx context.Context, a Access, name string) (string, error) {
+// working. The caller must be a workspace administrator. teamID says in which
+// team the probe is, or "" when one probe has the name.
+func (s *Store) RekeyProbe(ctx context.Context, a Access, teamID, name string) (string, error) {
 	if !a.Admin {
 		return "", ErrForbidden
 	}
@@ -132,20 +146,16 @@ func (s *Store) RekeyProbe(ctx context.Context, a Access, name string) (string, 
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	key, keyHash := newProbeKey()
-	n, err := q.UpdateProbeKey(ctx, db.UpdateProbeKeyParams{KeyHash: keyHash, WorkspaceID: a.WorkspaceID, Name: name})
+	probe, err := probeNamed(ctx, q, a.WorkspaceID, teamID, name)
 	if err != nil {
 		return "", err
 	}
-	if n == 0 {
-		return "", ErrNotFound
-	}
-	probe, err := q.ProbeByName(ctx, db.ProbeByNameParams{WorkspaceID: a.WorkspaceID, Name: name})
-	if err != nil {
+	key, keyHash := newProbeKey()
+	if _, err := q.UpdateProbeKey(ctx, db.UpdateProbeKeyParams{KeyHash: keyHash, WorkspaceID: a.WorkspaceID, ID: probe.ID}); err != nil {
 		return "", err
 	}
 	if err := writeLog(ctx, q, logEntry{
-		WorkspaceID: a.WorkspaceID, At: time.Now(), Kind: "probe.rekeyed", AboutKind: "probe", AboutID: probe.ID, AboutName: name, By: a.Actor,
+		WorkspaceID: a.WorkspaceID, At: time.Now(), TeamID: probe.TeamID, Kind: "probe.rekeyed", AboutKind: "probe", AboutID: probe.ID, AboutName: name, By: a.Actor,
 	}); err != nil {
 		return "", err
 	}
@@ -171,9 +181,40 @@ func (s *Store) ProbeByKey(ctx context.Context, key string) (Probe, error) {
 	return Probe{ID: r.ID, WorkspaceID: r.WorkspaceID, Name: r.Name, CheckID: r.CheckID, PingUUID: r.PingUuid}, nil
 }
 
-// ProbeIDByName finds a probe by its name, or returns ErrNotFound.
-func (s *Store) ProbeIDByName(ctx context.Context, workspaceID, name string) (string, error) {
-	r, err := db.New(s.r).ProbeByName(ctx, db.ProbeByNameParams{WorkspaceID: workspaceID, Name: name})
+// probeNamed finds the probe with a name in a team, or with "" in any team:
+// ErrNotFound when there is none, and an error when several teams have one.
+func probeNamed(ctx context.Context, q *db.Queries, workspaceID, teamID, name string) (db.ProbesByNameRow, error) {
+	rows, err := q.ProbesByName(ctx, db.ProbesByNameParams{WorkspaceID: workspaceID, Name: name})
+	if err != nil {
+		return db.ProbesByNameRow{}, err
+	}
+	var found []db.ProbesByNameRow
+	for _, r := range rows {
+		if teamID == "" || r.TeamID == teamID {
+			found = append(found, r)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return db.ProbesByNameRow{}, ErrNotFound
+	case 1:
+		return found[0], nil
+	}
+	return db.ProbesByNameRow{}, fmt.Errorf("%d teams have a probe named %q, so say which with -team: %w", len(found), name, ErrSeveralTeams)
+}
+
+// ProbeIDByName finds the probe with a name in the team a project belongs to,
+// or returns ErrNotFound.
+func (s *Store) ProbeIDByName(ctx context.Context, workspaceID, projectID, name string) (string, error) {
+	q := db.New(s.r)
+	teamID, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: workspaceID, ID: projectID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	r, err := q.ProbeInTeam(ctx, db.ProbeInTeamParams{TeamID: teamID, Name: name})
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", ErrNotFound
 	}

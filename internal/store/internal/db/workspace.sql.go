@@ -40,12 +40,13 @@ func (q *Queries) AddMember(ctx context.Context, arg AddMemberParams) error {
 }
 
 const allProjects = `-- name: AllProjects :many
-SELECT id, name FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY name, id
+SELECT id, name, team_id FROM projects WHERE workspace_id = ? AND deleted_at IS NULL ORDER BY name, id
 `
 
 type AllProjectsRow struct {
-	ID   string
-	Name string
+	ID     string
+	Name   string
+	TeamID string
 }
 
 func (q *Queries) AllProjects(ctx context.Context, workspaceID string) ([]AllProjectsRow, error) {
@@ -57,7 +58,7 @@ func (q *Queries) AllProjects(ctx context.Context, workspaceID string) ([]AllPro
 	items := []AllProjectsRow{}
 	for rows.Next() {
 		var i AllProjectsRow
-		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+		if err := rows.Scan(&i.ID, &i.Name, &i.TeamID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -186,7 +187,7 @@ func (q *Queries) ProjectInWorkspace(ctx context.Context, arg ProjectInWorkspace
 }
 
 const projectsByName = `-- name: ProjectsByName :many
-SELECT id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY id
+SELECT id, team_id FROM projects WHERE workspace_id = ? AND name = ? AND deleted_at IS NULL ORDER BY id
 `
 
 type ProjectsByNameParams struct {
@@ -194,19 +195,25 @@ type ProjectsByNameParams struct {
 	Name        string
 }
 
-func (q *Queries) ProjectsByName(ctx context.Context, arg ProjectsByNameParams) ([]string, error) {
+type ProjectsByNameRow struct {
+	ID     string
+	TeamID string
+}
+
+// A name is told apart within a team, so several teams can hold it.
+func (q *Queries) ProjectsByName(ctx context.Context, arg ProjectsByNameParams) ([]ProjectsByNameRow, error) {
 	rows, err := q.db.QueryContext(ctx, projectsByName, arg.WorkspaceID, arg.Name)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []string{}
+	items := []ProjectsByNameRow{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var i ProjectsByNameRow
+		if err := rows.Scan(&i.ID, &i.TeamID); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -218,7 +225,7 @@ func (q *Queries) ProjectsByName(ctx context.Context, arg ProjectsByNameParams) 
 }
 
 const projectsOfPerson = `-- name: ProjectsOfPerson :many
-SELECT p.id, p.name, r.role
+SELECT p.id, p.name, r.role, p.team_id
 FROM projects p
 JOIN people per ON per.workspace_id = p.workspace_id AND per.id = ?1
 JOIN project_roles r ON r.project_id = p.id AND r.person_id = per.id
@@ -234,9 +241,10 @@ type ProjectsOfPersonParams struct {
 }
 
 type ProjectsOfPersonRow struct {
-	ID   string
-	Name string
-	Role string
+	ID     string
+	Name   string
+	Role   string
+	TeamID string
 }
 
 // The projects a person may see, with their role: what the view project_roles
@@ -250,7 +258,12 @@ func (q *Queries) ProjectsOfPerson(ctx context.Context, arg ProjectsOfPersonPara
 	items := []ProjectsOfPersonRow{}
 	for rows.Next() {
 		var i ProjectsOfPersonRow
-		if err := rows.Scan(&i.ID, &i.Name, &i.Role); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Role,
+			&i.TeamID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -298,6 +311,22 @@ func (q *Queries) RenameProject(ctx context.Context, arg RenameProjectParams) (i
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const teamOfProject = `-- name: TeamOfProject :one
+SELECT team_id FROM projects WHERE workspace_id = ? AND id = ?
+`
+
+type TeamOfProjectParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+func (q *Queries) TeamOfProject(ctx context.Context, arg TeamOfProjectParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, teamOfProject, arg.WorkspaceID, arg.ID)
+	var team_id string
+	err := row.Scan(&team_id)
+	return team_id, err
 }
 
 const workspace = `-- name: Workspace :one

@@ -86,6 +86,7 @@ func TestEveryActionIsWritten(t *testing.T) {
 	must(t, err)
 	checkID, _ := f.pingCheck(t)
 	ada := newPerson(t, s, f.ws, "Ada")
+	guest := newPersonLimited(t, s, f.ws, "Guest")
 
 	const editorKind, commandKind = "person", "command"
 	cases := []struct {
@@ -131,9 +132,13 @@ func TestEveryActionIsWritten(t *testing.T) {
 			_, err := s.CreatePerson(ctx, byCommand, f.ws, NewPerson{Name: "Bob"})
 			return err
 		}},
-		{"give a role", "member.set", commandKind, func() error { return s.SetMember(ctx, byCommand, f.ws, f.project, ada, Viewer) }},
-		{"change a role", "member.set", commandKind, func() error { return s.SetMember(ctx, byCommand, f.ws, f.project, ada, Editor) }},
-		{"take a role away", "member.removed", commandKind, func() error { return s.RemoveMember(ctx, byCommand, f.ws, f.project, ada) }},
+		{"give a role", "member.set", commandKind, func() error { return s.SetMember(ctx, byCommand, f.ws, f.project, guest, Viewer) }},
+		{"change a role", "member.set", commandKind, func() error { return s.SetMember(ctx, byCommand, f.ws, f.project, guest, Editor) }},
+		{"take a role away", "member.removed", commandKind, func() error { return s.RemoveMember(ctx, byCommand, f.ws, f.project, guest) }},
+		// Someone in the project's team keeps no row of their own: viewer only says
+		// not to tell them.
+		{"stop telling someone in the team", "alerts.chosen", commandKind, func() error { return s.SetMember(ctx, byCommand, f.ws, f.project, ada, Viewer) }},
+		{"tell them again", "alerts.chosen", commandKind, func() error { return s.RemoveMember(ctx, byCommand, f.ws, f.project, ada) }},
 		{"make a passkey link", "passkey.link_made", commandKind, func() error {
 			_, err := s.CreatePasskeyLink(ctx, byCommand, f.ws, ada, at)
 			return err
@@ -155,7 +160,7 @@ func TestEveryActionIsWritten(t *testing.T) {
 		do := c.do
 		if do == nil {
 			do = func() error {
-				_, err := s.RekeyProbe(ctx, admin, "p")
+				_, err := s.RekeyProbe(ctx, admin, "", "p")
 				return err
 			}
 		}
@@ -859,15 +864,35 @@ func TestAnAdministratorWithNoMembershipIsMarked(t *testing.T) {
 	if got[0].ByName != "Dan" || got[0].ByOutsider != 1 {
 		t.Errorf("no member: %+v", got[0])
 	}
+	// A role in the project gives an owner of its team no row, so nothing changes.
 	must(t, f.s.SetMember(ctx, Command("test"), f.ws, f.project, dan, Editor))
 	got = since(t, f.s, func() { must(t, f.s.ResumeCheck(ctx, access, checkID, at)) })
+	if got[0].ByOutsider != 1 {
+		t.Errorf("an owner of the team, given a role: %+v", got[0])
+	}
+	// Someone with a row of their own is a member, and named.
+	eve, err := f.s.CreatePerson(ctx, Command("test"), f.ws, NewPerson{Name: "Eve"})
+	must(t, err)
+	must(t, f.s.SetMember(ctx, Command("test"), f.ws, f.project, eve, Editor))
+	asEve, err := f.s.AccessOfPerson(ctx, f.ws, eve)
+	must(t, err)
+	got = since(t, f.s, func() { must(t, f.s.PauseCheck(ctx, asEve, checkID, at)) })
 	if got[0].ByOutsider != 0 {
 		t.Errorf("a member: %+v", got[0])
 	}
 	// Taken out, they read as a member still: they were one until then.
-	got = since(t, f.s, func() { must(t, f.s.RemoveMember(ctx, Command("test"), f.ws, f.project, dan)) })
-	if got[0].PersonOutsider != 0 || got[0].PersonName != "Dan" {
+	got = since(t, f.s, func() { must(t, f.s.RemoveMember(ctx, Command("test"), f.ws, f.project, eve)) })
+	if got[0].PersonOutsider != 0 || got[0].PersonName != "Eve" {
 		t.Errorf("removed: %+v", got[0])
+	}
+	// Someone in through the team who is no administrator is marked as that.
+	team := teamOf(t, f.s, f.project)
+	must(t, f.s.SetTeamMember(ctx, Command("test"), f.ws, team, eve, Editor))
+	asEve, err = f.s.AccessOfPerson(ctx, f.ws, eve)
+	must(t, err)
+	got = since(t, f.s, func() { must(t, f.s.ResumeCheck(ctx, asEve, checkID, at)) })
+	if got[0].ByOutsider != 2 {
+		t.Errorf("in through the team: %+v", got[0])
 	}
 	// What was written stays, whatever membership becomes.
 	if e := entries(t, f.s); e[slices.IndexFunc(e, func(e db.LogEntry) bool { return e.Kind == "check.paused" })].ByOutsider != 1 {

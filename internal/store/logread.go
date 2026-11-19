@@ -55,6 +55,10 @@ type LogEntry struct {
 	Group       string
 	Hidden      bool
 	Details     map[string]any
+	// stripped says an administrator reads the line without what it was about.
+	// One such line is shown per person and incident, which incidentID is for.
+	stripped   bool
+	incidentID string
 }
 
 // LogPage is one page of the log.
@@ -84,20 +88,21 @@ func logClass(kind string) string {
 	return "done"
 }
 
-// logKindsOf lists the kinds of a filter, for an administrator's query by kind.
+// logKindsOf lists the kinds of a filter.
 var logKindsOf = map[string][]string{
 	"happened": {"check.state", "check.late", "check.flapping", "check.steady", "checks.unjudged"},
 	"reached":  {"message.reached", "message.reached_several", "message.shadow", "message.shadow_several", "message.unreached"},
 	"signins":  {"signin", "passkey.added", "passkey.looks_copied", "passkey.removed", "token.made", "token.ended", "session.ended"},
 }
 
-// Who may read a kind of entry in a project they are in; an administrator reads
-// everything. A kind not listed is for administrators, so a new kind starts out hidden.
+// Who may read a kind of entry in a project they are in. A kind not listed is read
+// by nobody, so a new kind starts out hidden, and a test names every kind that is
+// written in a project.
 var logMinRole = map[string]Role{
 	"check.state": Viewer, "check.late": Viewer, "check.flapping": Viewer, "check.steady": Viewer, "checks.unjudged": Viewer,
 	"check.created": Viewer, "check.changed": Viewer, "check.paused": Viewer, "check.resumed": Viewer,
 	"check.moved_out": Viewer, "check.moved_in": Viewer, "check.deleted": Viewer, "check.ping_url_replaced": Viewer,
-	"project.renamed": Viewer,
+	"project.renamed": Viewer, "project.created": Owner, "command.read": Owner, "alerts.chosen": Owner,
 	"message.reached": Editor, "message.reached_several": Editor, "message.shadow": Editor, "message.shadow_several": Editor, "message.unreached": Editor,
 	"member.set": Owner, "member.removed": Owner, "key.made": Owner, "key.revoked": Owner,
 }
@@ -110,30 +115,70 @@ var logOwnKinds = map[string]bool{
 	"message.reached": true, "message.shadow": true,
 }
 
+// RoleAtLeast says a role gives at least what another does.
+func RoleAtLeast(have, want Role) bool { return roleAtLeast(have, want) }
+
 func roleAtLeast(have, want Role) bool {
 	rank := map[Role]int{Viewer: 1, Editor: 2, Owner: 3}
 	return rank[have] >= rank[want]
 }
 
+// What an administrator reads of a team they are not in: what concerns the
+// installation, which made the team and keeps its probes (teams spec, R40).
+var logInstallationKinds = map[string]bool{
+	"team.created": true, "team.changed": true, "team.removed": true, "probe.created": true, "probe.rekeyed": true,
+}
+
+// unreached is the one kind an administrator reads of a project they are not in,
+// stripped of what it was about: mail and push are theirs to keep working (R11).
+const unreached = "message.unreached"
+
 // readLogEntry returns an entry as a reader may read it, or false when they may not.
 // Access is judged as it is today: someone added now can read back, and someone
 // removed no longer can (R20).
+//
+// A line in a project is read by the reader's role in it, a team's own line by
+// the team's owners, and one of neither by an administrator; the person a line
+// concerns reads what is their own. Being an administrator gives no project.
 func readLogEntry(r db.LogEntry, a Access) (LogEntry, bool) {
 	own := a.PersonID != "" && r.PersonID == a.PersonID
+	// As the reader's role in the line's project, or the owner's that whoever may
+	// read a line outside any project has of it.
 	role := Owner
-	if !a.Admin {
-		if r.ProjectID == "" {
-			if !own || !logOwnKinds[r.Kind] {
-				return LogEntry{}, false
-			}
-		} else {
-			have, ok := a.Role(r.ProjectID)
-			want, listed := logMinRole[r.Kind]
-			if !ok || !listed || !roleAtLeast(have, want) {
-				return LogEntry{}, false
-			}
-			role = have
+	// The reader is one of the people who run what the line is in, to whom its
+	// people are named.
+	among := false
+	// The reader is only the person the line concerns.
+	ownOnly := false
+	switch {
+	case r.ProjectID != "":
+		have, ok := a.Role(r.ProjectID)
+		want, listed := logMinRole[r.Kind]
+		switch {
+		case ok && listed && roleAtLeast(have, want):
+			role, among = have, a.knowsTeamOf(r.ProjectID)
+		case a.Admin && r.Kind == unreached:
+			return strippedUnreached(r), true
+		default:
+			return LogEntry{}, false
 		}
+	case r.TeamID != "":
+		switch teamRole, in := a.TeamRole(r.TeamID); {
+		case in && teamRole == Owner:
+			among = true
+		case a.Admin && logInstallationKinds[r.Kind]:
+			among = true
+		case own && logOwnKinds[r.Kind]:
+			ownOnly = true
+		default:
+			return LogEntry{}, false
+		}
+	case a.Admin:
+		among = true
+	case own && logOwnKinds[r.Kind]:
+		ownOnly = true
+	default:
+		return LogEntry{}, false
 	}
 	e := LogEntry{
 		ID: r.ID, At: time.UnixMilli(r.HappenedAt).UTC(), Recorded: time.UnixMilli(r.RecordedAt).UTC(),
@@ -154,42 +199,61 @@ func readLogEntry(r db.LogEntry, a Access) (LogEntry, bool) {
 	delete(details, "person_elsewhere")
 	if !a.Admin {
 		delete(details, "why") // why a message failed is for administrators
-		// Another project is named only to someone who can see it (R25).
-		for _, key := range []string{"to_project", "from_project"} {
-			idKey := key + "_id"
-			if p, ok := details[idKey].(string); ok {
-				if _, can := a.Role(p); !can {
-					delete(details, key)
-				}
-			}
+	}
+	// Another project is named only to someone who can see it (R25).
+	for _, key := range []string{"to_project", "from_project"} {
+		idKey := key + "_id"
+		p, _ := details[idKey].(string)
+		_, can := a.Role(p)
+		if !can {
+			delete(details, key)
+		}
+		if !can || !a.Admin {
 			delete(details, idKey)
 		}
-		delete(details, "serves")
-		switch {
-		case r.ProjectID == "":
-			// A line about them, outside any project, such as a passkey link made for
-			// them: how the team works is no more theirs to read here (R21).
-			if k := e.By.Kind; r.ByID != a.PersonID && (k == "person" || k == "key" || k == "command") {
-				e.By = LogParty{Kind: "team"}
-			}
-		case role == Viewer:
-			// Outsiders do not learn the team, by name or by how it works (R21).
-			if k := e.By.Kind; k == "person" || k == "key" || k == "command" {
-				e.By = LogParty{Kind: "team"}
-			}
-			e.Person = LogParty{}
-		default:
-			if r.ByOutsider == 1 && r.ByID != a.PersonID {
-				e.By = LogParty{Kind: "administrator"}
-			}
-			if r.PersonOutsider == 1 && !own {
-				if elsewhere {
-					e.Person = LogParty{Kind: "outside"}
-				} else {
-					e.Person = LogParty{Kind: "administrator"}
-				}
+	}
+	// The projects a probe serves are for an administrator, as far as they can
+	// see them.
+	if serves, ok := details["serves"].([]any); ok && a.Admin {
+		seen := []any{}
+		for _, p := range serves {
+			id, _ := p.(string)
+			if _, can := a.Role(id); can {
+				seen = append(seen, p)
 			}
 		}
+		details["serves"] = seen
+	} else {
+		delete(details, "serves")
+	}
+	switch {
+	case ownOnly:
+		// A line about them, outside any project, such as a passkey link made for
+		// them: how the team works is no more theirs to read here (R21).
+		if k := e.By.Kind; r.ByID != a.PersonID && (k == "person" || k == "key" || k == "command") {
+			e.By = LogParty{Kind: "team"}
+		}
+	case r.ProjectID == "":
+	case role == Viewer:
+		// Outsiders do not learn the team, by name or by how it works (R21).
+		if k := e.By.Kind; k == "person" || k == "key" || k == "command" {
+			e.By = LogParty{Kind: "team"}
+		}
+		e.Person = LogParty{}
+	case !among:
+		// An editor or owner who is not in the project's team: who is in the team
+		// is the team's to say (R22; teams spec, R40).
+		if r.ByID != a.PersonID {
+			e.By = apart(e.By, r.ByOutsider, false)
+		}
+		if !own {
+			e.Person = apart(e.Person, r.PersonOutsider, elsewhere)
+		}
+	}
+	// A line about a person is about the person it concerns: where they are not
+	// named, neither is what it is about, which a filter by name would find.
+	if r.AboutKind == "person" && r.AboutID == r.PersonID && e.Person.ID != r.PersonID {
+		e.AboutID, e.AboutName = "", ""
 	}
 	// Which sign-in it came through is for those who may read who it was (R39).
 	if e.By.Kind != "person" {
@@ -197,6 +261,33 @@ func readLogEntry(r db.LogEntry, a Access) (LogEntry, bool) {
 	}
 	e.Details = details
 	return e, true
+}
+
+// apart is a person as someone outside the project's team reads them.
+func apart(p LogParty, how int64, elsewhere bool) LogParty {
+	switch {
+	case how == asAdministrator && elsewhere:
+		return LogParty{Kind: "outside"}
+	case how == asAdministrator:
+		return LogParty{Kind: "administrator"}
+	case how == throughTeam:
+		return LogParty{Kind: "team"}
+	}
+	return p
+}
+
+// strippedUnreached is a message that reached someone by no way, as an
+// administrator reads it who cannot see what it was about: who, when and why.
+// The rest is left out before anything is narrowed, so no filter confirms it.
+func strippedUnreached(r db.LogEntry) LogEntry {
+	var details map[string]any
+	json.Unmarshal([]byte(r.Details), &details)
+	why, _ := details["why"].(string)
+	return LogEntry{
+		ID: r.ID, At: time.UnixMilli(r.HappenedAt).UTC(), Recorded: time.UnixMilli(r.RecordedAt).UTC(),
+		Kind: r.Kind, By: LogParty{Kind: r.ByKind}, Person: LogParty{"person", r.PersonID, r.PersonName},
+		Details: map[string]any{"why": why}, stripped: true, incidentID: r.IncidentID,
+	}
 }
 
 // isLate says an entry is a check going late or back from it. Those written before
@@ -247,7 +338,12 @@ func logFrom[P any](of string, params func(of string, before, batch int64) P, qu
 }
 
 // logSources picks the indexes that serve a request; whatever else it asks is
-// checked on what they return.
+// checked on what they return. But for a check or a line that stands for
+// several, it reads only where the reader may read: narrowing by a name or a
+// person matches there, so that another team's project is never read through,
+// which a reader could feel as pages cut short (teams spec, R43). An
+// administrator reads through what is outside any project, where a team's own
+// lines are few.
 func logSources(q *db.Queries, f LogFilter, a Access) []logSource {
 	withLate := func(calm, late logSource) []logSource {
 		// Late lines only belong to what happened, so nothing else reads through them.
@@ -255,24 +351,6 @@ func logSources(q *db.Queries, f LogFilter, a Access) []logSource {
 			return []logSource{calm, late}
 		}
 		return []logSource{calm}
-	}
-	about := func(of string) []logSource {
-		return withLate(
-			logFrom(of, func(of string, before, batch int64) db.LogEntriesAboutParams {
-				return db.LogEntriesAboutParams{Of: of, Before: before, Batch: batch}
-			}, q.LogEntriesAbout),
-			logFrom(of, func(of string, before, batch int64) db.LogEntriesLateAboutParams {
-				return db.LogEntriesLateAboutParams{Of: of, Before: before, Batch: batch}
-			}, q.LogEntriesLateAbout))
-	}
-	named := func(of string) []logSource {
-		return withLate(
-			logFrom(of, func(of string, before, batch int64) db.LogEntriesNamedParams {
-				return db.LogEntriesNamedParams{Of: of, Before: before, Batch: batch}
-			}, q.LogEntriesNamed),
-			logFrom(of, func(of string, before, batch int64) db.LogEntriesLateNamedParams {
-				return db.LogEntriesLateNamedParams{Of: of, Before: before, Batch: batch}
-			}, q.LogEntriesLateNamed))
 	}
 	project := func(of string) []logSource {
 		return withLate(
@@ -289,40 +367,17 @@ func logSources(q *db.Queries, f LogFilter, a Access) []logSource {
 			return db.LogEntriesOfGroupParams{Of: of, Before: before, Batch: batch}
 		}, q.LogEntriesOfGroup)}
 	case f.CheckID != "":
-		return about(f.CheckID)
-	case f.Name != "":
-		return named(f.Name)
-	case f.PersonID != "":
-		return []logSource{
-			logFrom(f.PersonID, func(of string, before, batch int64) db.LogEntriesByParams {
-				return db.LogEntriesByParams{Of: of, Before: before, Batch: batch}
-			}, q.LogEntriesBy),
-			logFrom(f.PersonID, func(of string, before, batch int64) db.LogEntriesConcerningParams {
-				return db.LogEntriesConcerningParams{Of: of, Before: before, Batch: batch}
-			}, q.LogEntriesConcerning),
-		}
+		return withLate(
+			logFrom(f.CheckID, func(of string, before, batch int64) db.LogEntriesAboutParams {
+				return db.LogEntriesAboutParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesAbout),
+			logFrom(f.CheckID, func(of string, before, batch int64) db.LogEntriesLateAboutParams {
+				return db.LogEntriesLateAboutParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesLateAbout))
 	case f.ProjectID != "":
 		return project(f.ProjectID)
 	}
 	var sources []logSource
-	if a.Admin {
-		kinds, narrow := logKindsOf[f.What]
-		if !narrow {
-			// "done" is most of what is not the others, so it reads everything.
-			return []logSource{func(ctx context.Context, q *db.Queries, before, batch int64) ([]db.LogEntry, error) {
-				return q.LogEntriesAll(ctx, db.LogEntriesAllParams{Late: boolInt(f.Late), Before: before, Batch: batch})
-			}}
-		}
-		for _, k := range kinds {
-			if k == "check.late" && !f.Late {
-				continue
-			}
-			sources = append(sources, logFrom(k, func(of string, before, batch int64) db.LogEntriesOfKindParams {
-				return db.LogEntriesOfKindParams{Of: of, Before: before, Batch: batch}
-			}, q.LogEntriesOfKind))
-		}
-		return sources
-	}
 	for _, p := range a.Projects {
 		// What a role cannot read in a project is not worth reading through it for.
 		if f.What == "signins" || (f.What == "reached" && p.Role == Viewer) {
@@ -330,7 +385,26 @@ func logSources(q *db.Queries, f LogFilter, a Access) []logSource {
 		}
 		sources = append(sources, project(p.ID)...)
 	}
-	if a.PersonID != "" {
+	for _, t := range a.Teams {
+		if t.Role == Owner {
+			sources = append(sources, logFrom(t.ID, func(of string, before, batch int64) db.LogEntriesOfTeamParams {
+				return db.LogEntriesOfTeamParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesOfTeam))
+		}
+	}
+	switch {
+	case a.Admin:
+		// What concerns the installation is every line outside a project, their own
+		// among them, and a message that reached nobody, wherever it was about.
+		sources = append(sources, logFrom("", func(of string, before, batch int64) db.LogEntriesOfProjectParams {
+			return db.LogEntriesOfProjectParams{Of: of, Before: before, Batch: batch}
+		}, q.LogEntriesOfProject))
+		if f.What == "" || f.What == "reached" {
+			sources = append(sources, logFrom(unreached, func(of string, before, batch int64) db.LogEntriesOfKindParams {
+				return db.LogEntriesOfKindParams{Of: of, Before: before, Batch: batch}
+			}, q.LogEntriesOfKind))
+		}
+	case a.PersonID != "":
 		sources = append(sources, logFrom(a.PersonID, func(of string, before, batch int64) db.LogEntriesOwnParams {
 			return db.LogEntriesOwnParams{Of: of, Before: before, Batch: batch}
 		}, q.LogEntriesOwn))
@@ -352,7 +426,7 @@ func (s *Store) ReadLog(ctx context.Context, a Access, f LogFilter) (LogPage, er
 	}
 	// A project they cannot see gives the same page as one that does not exist (R24),
 	// and someone who only views reads no names, so finds no one but themselves (R23).
-	if _, ok := a.Role(f.ProjectID); f.ProjectID != "" && !ok && !a.Admin {
+	if _, ok := a.Role(f.ProjectID); f.ProjectID != "" && !ok {
 		return page, nil
 	}
 	if f.PersonID != "" && f.PersonID != a.PersonID && !a.Admin && !slices.ContainsFunc(a.Projects, func(p ProjectAccess) bool { return p.Role != Viewer }) {
@@ -415,6 +489,23 @@ func (s *Store) ReadLog(ctx context.Context, a Access, f LogFilter) (LogPage, er
 			continue
 		}
 		if e, ok := readLogEntry(r, a); ok && f.matches(e) {
+			// One line was written per check of the incident, which says how many
+			// went down: an administrator who cannot see them reads the last, and
+			// which that is does not depend on where a page begins. The numbers of
+			// the lines would still say it, where an incident holds several checks.
+			// None does yet: when incidents come to join checks, one line is to be
+			// written per person and incident (intent/teams/plan-2.md).
+			if e.stripped {
+				later, err := q.LaterUnreached(ctx, db.LaterUnreachedParams{
+					IncidentID: e.incidentID, PersonID: e.Person.ID, HappenedAt: e.At.UnixMilli(), ID: e.ID,
+				})
+				if err != nil {
+					return page, err
+				}
+				if later > 0 {
+					continue
+				}
+			}
 			page.Entries = append(page.Entries, e)
 		}
 	}

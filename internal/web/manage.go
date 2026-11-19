@@ -693,7 +693,7 @@ func editableProjects(v viewer) []choice {
 	var projects []choice
 	for _, p := range v.Access.Projects {
 		if p.Role != store.Viewer {
-			projects = append(projects, choice{p.ID, p.Name})
+			projects = append(projects, choice{p.ID, v.Access.Label(p.ID)})
 		}
 	}
 	return projects
@@ -811,7 +811,7 @@ func (s *Server) addCheck(w http.ResponseWriter, r *http.Request, v viewer) {
 		errs["urgency"] = "Choose how fast its problems reach people."
 	}
 	if f.Critical && role != store.Owner {
-		errs["critical"] = "Only an owner or administrator can turn this on: it wakes people during their quiet hours."
+		errs["critical"] = "Only an owner can turn this on: it wakes people during their quiet hours."
 	}
 	if len(errs) == 0 && store.Active(kind) && f.Probe == "" {
 		s.reachable(r.Context(), v, f, errs)
@@ -1048,8 +1048,8 @@ func (s *Server) editForm(ctx context.Context, v viewer, c store.CheckView, f ch
 	}
 	role, _ := v.Access.Role(c.ProjectID)
 	d := formData{F: f, Errors: errs, Problem: problem, Action: "/checks/" + c.ID + "/edit", Cancel: "/checks/" + c.ID, Was: string(was),
-		ProjectName: c.ProjectName, Probes: probes, Own: own, ShowAlerts: !own || v.Access.Admin, CanCritical: role == store.Owner, C: c,
-		CanDelete: !own, CanMove: len(editableProjects(v)) > 1 && (!own || v.Access.Admin)}
+		ProjectName: c.ProjectName, Probes: probes, Own: own, ShowAlerts: !own || v.Access.OwnsTeamOf(c.ProjectID), CanCritical: role == store.Owner, C: c,
+		CanDelete: !own, CanMove: len(otherProjects(v, c)) > 0 && (!own || v.Access.OwnsTeamOf(c.ProjectID))}
 	d.openMore(blankForm(c.Kind, v))
 	return d, nil
 }
@@ -1203,9 +1203,14 @@ type confirmData struct {
 	Cancel   string
 }
 
-// otherProjects are the projects a check can move to.
+// otherProjects are the projects a check can move to: those of its own team that
+// the person may change (teams spec, R24).
 func otherProjects(v viewer, c store.CheckView) []choice {
-	return slices.DeleteFunc(editableProjects(v), func(p choice) bool { return p.Value == c.ProjectID })
+	here, _ := v.Access.TeamOf(c.ProjectID)
+	return slices.DeleteFunc(editableProjects(v), func(p choice) bool {
+		there, _ := v.Access.TeamOf(p.Value)
+		return p.Value == c.ProjectID || there.ID != here.ID
+	})
 }
 
 // confirmOf is what a page says before the action named.

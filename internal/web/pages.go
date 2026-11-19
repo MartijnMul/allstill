@@ -165,7 +165,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 		if project != "" {
 			d.List = p.Name
 		}
-		g := group{Name: p.Name}
+		g := group{Name: v.Access.Label(p.ID)}
 		for _, c := range checks {
 			if c.ProjectID != p.ID || !matches(c, show, query) {
 				continue
@@ -180,13 +180,13 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	if len(d.Groups) == 0 {
 		switch {
 		// A new installation needs a shell once: projects are made there (C11).
-		case len(v.Access.Projects) == 0 && v.Access.Admin:
+		case len(v.Access.Projects) == 0 && v.Access.OwnsATeam():
 			d.Empty = "There is no project yet. Make the first on the server, and add checks to it here: allstill admin create-project Backups"
 		case len(checks) == 0 && !mayAct:
 			d.Empty = "There are no checks here for you yet. Your administrator adds them, or gives you access to a project."
 		case len(checks) == 0:
 			d.Empty, d.AddFirst = "Nothing is watched yet. Add your first check: a job that reports in, a website or a port.", true
-			d.Import = v.Access.Admin
+			d.Import = v.Access.OwnsATeam()
 		case query != "":
 			d.Empty = fmt.Sprintf("No check matches “%s”.", query)
 		// Unknown checks and what keeps alerts from reaching the person

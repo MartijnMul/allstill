@@ -108,7 +108,7 @@ func (s *Server) logPage(w http.ResponseWriter, r *http.Request, v viewer) {
 	d := logData{Rows: logRows(entries.Entries, v, now, visible, f.ProjectID == ""), Name: f.Name, Late: f.Late}
 	d.Projects = []logOption{{"", "All projects", f.ProjectID == ""}}
 	for _, p := range v.Access.Projects {
-		d.Projects = append(d.Projects, logOption{p.ID, p.Name, p.ID == f.ProjectID})
+		d.Projects = append(d.Projects, logOption{p.ID, v.Access.Label(p.ID), p.ID == f.ProjectID})
 	}
 	for _, o := range []logOption{
 		{Value: "", Label: "Everything"}, {Value: "happened", Label: "What happened"}, {Value: "done", Label: "What was done"},

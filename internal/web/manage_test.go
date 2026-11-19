@@ -510,7 +510,7 @@ func TestChangingASchedule(t *testing.T) {
 	}
 }
 
-// Only an owner or administrator turns critical on; an editor can turn it off (C4).
+// Only an owner turns critical on; an editor can turn it off (C4).
 func TestWhoMayWakePeople(t *testing.T) {
 	f := setup(t)
 	editor := f.member(t, store.Editor)
@@ -523,7 +523,7 @@ func TestWhoMayWakePeople(t *testing.T) {
 	fields.Add("box", "critical")
 	fields.Set("critical", "on")
 	w := editor.post(path, fields)
-	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "Only an owner or administrator") {
+	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "Only an owner can") {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
 	if w := editor.post("/checks/new", f.typed("ping", "box", "critical", "critical", "on")); w.Code != http.StatusUnprocessableEntity {
@@ -695,7 +695,7 @@ func TestProbesInTheForms(t *testing.T) {
 	}
 	fields = fieldsOf(t, string(b.ok("GET", "/checks/"+own+"/edit", nil)))
 	fields.Set("urgency", "none")
-	if w := b.post("/checks/"+own+"/edit", fields); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "only an administrator can change this") {
+	if w := b.post("/checks/"+own+"/edit", fields); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "only an owner of its team can change this") {
 		t.Errorf("%d %s", w.Code, w.Body)
 	}
 	fields.Del("urgency")
@@ -717,7 +717,7 @@ func TestProbesInTheForms(t *testing.T) {
 	if page := string(b.ok("GET", "/checks/"+c.ID, nil)); !strings.Contains(page, "Only the probe web-1 can try") {
 		t.Errorf("%s", page)
 	}
-	far, _ := f.st.ProbeIDByName(ctx, f.ws, "far-1")
+	far, _ := f.st.ProbeIDByName(ctx, f.ws, f.project, "far-1")
 	w := b.post("/checks/new", f.typed("http", "url", "http://10.0.0.5/", "probe", far))
 	if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "Does not serve") {
 		t.Errorf("%d %s", w.Code, w.Body)

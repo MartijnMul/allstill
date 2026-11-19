@@ -284,6 +284,19 @@ func moveCheck(ctx context.Context, q *db.Queries, by Actor, workspaceID, checkI
 	} else if err != nil {
 		return err
 	}
+	// A check stays in its team: it carries its history and its ping URL, which a
+	// project of another team must not come to hold (teams spec, R24).
+	fromTeam, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: workspaceID, ID: from})
+	if err != nil {
+		return err
+	}
+	toTeam, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: workspaceID, ID: toProjectID})
+	if err != nil {
+		return err
+	}
+	if fromTeam != toTeam {
+		return &InvalidError{"project", "belongs to another team, and a check moves only between projects of one team"}
+	}
 	// A probe keeps to the projects it serves, also when a check moves (C6).
 	moved, err := q.CheckByID(ctx, db.CheckByIDParams{WorkspaceID: workspaceID, ID: checkID})
 	if err != nil {
