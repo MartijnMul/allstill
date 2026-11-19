@@ -49,6 +49,10 @@ func (s *Store) Workspace(ctx context.Context) (string, error) {
 	if err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{ID: wsID, Name: "Allstill", CreatedAt: now()}); err != nil {
 		return "", err
 	}
+	// An installation is never without a team: every project belongs to one.
+	if err := q.CreateTeam(ctx, db.CreateTeamParams{ID: id.New(id.Team), WorkspaceID: wsID, Name: "Allstill", CreatedAt: now()}); err != nil {
+		return "", err
+	}
 	return wsID, tx.Commit()
 }
 
@@ -103,14 +107,27 @@ func createPerson(ctx context.Context, q *db.Queries, by Actor, workspaceID stri
 	if err != nil {
 		return "", err
 	}
+	if p.WorkspaceAdmin {
+		// An administrator sees every project by owning the team that owns them.
+		teamID, err := onlyTeam(ctx, q, workspaceID)
+		if err != nil {
+			return "", err
+		}
+		err = q.AddTeamMember(ctx, db.AddTeamMemberParams{
+			WorkspaceID: workspaceID, TeamID: teamID, PersonID: personID, Role: string(Owner), CreatedAt: now(),
+		})
+		if err != nil {
+			return "", err
+		}
+	}
 	return personID, writeLog(ctx, q, logEntry{
 		WorkspaceID: workspaceID, At: time.Now(), Kind: "person.added", AboutKind: "person", AboutID: personID, AboutName: p.Name,
 		By: by, Person: Actor{ID: personID, Name: p.Name}, Details: map[string]any{"administrator": p.WorkspaceAdmin},
 	})
 }
 
-// CreateProject adds a project and returns its id and its ping key. The key is
-// shown once; only its hash is kept.
+// CreateProject adds a project to the installation's team and returns its id and
+// its ping key. The key is shown once; only its hash is kept.
 func (s *Store) CreateProject(ctx context.Context, by Actor, workspaceID, name string) (projectID, pingKey string, err error) {
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -118,10 +135,14 @@ func (s *Store) CreateProject(ctx context.Context, by Actor, workspaceID, name s
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
+	teamID, err := onlyTeam(ctx, q, workspaceID)
+	if err != nil {
+		return "", "", err
+	}
 	projectID, pingKey = id.New(id.Project), id.Key()
 	h := sha256.Sum256([]byte(pingKey))
 	err = q.CreateProject(ctx, db.CreateProjectParams{
-		ID: projectID, WorkspaceID: workspaceID, Name: name, PingKeyHash: h[:], CreatedAt: now(),
+		ID: projectID, WorkspaceID: workspaceID, TeamID: teamID, Name: name, PingKeyHash: h[:], CreatedAt: now(),
 	})
 	if err != nil {
 		return "", "", err
@@ -152,16 +173,42 @@ func (s *Store) SetMember(ctx context.Context, by Actor, workspaceID, projectID,
 // setMember also has the sender look at what is open in the project for someone
 // who gets alerts for it: they should have known since it opened, as when a check
 // moves to a project.
+//
+// Whether they are told follows the role as it always did: on when they become
+// more than a viewer, off when they become one, and otherwise as it was. That
+// is kept as a choice only where it differs from what their highest role gives,
+// which it does for an owner of the team who is set to viewer here.
 func setMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, projectID, personID string, role Role) error {
 	at := now()
 	was, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: personID})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	told := role != Viewer
+	if was != "" && (was == string(Viewer)) == (role == Viewer) {
+		n, err := q.IsAlerted(ctx, db.IsAlertedParams{ProjectID: projectID, PersonID: personID})
+		if err != nil {
+			return err
+		}
+		told = n > 0
+	}
 	err = q.AddMember(ctx, db.AddMemberParams{
 		WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID, Role: string(role), CreatedAt: at,
-		Alerts: boolInt(role != Viewer),
 	})
+	if err != nil {
+		return err
+	}
+	highest, err := q.HighestRoleInProject(ctx, db.HighestRoleInProjectParams{ProjectID: projectID, PersonID: personID})
+	if err != nil {
+		return err
+	}
+	if told == (Role(highest) != Viewer) {
+		err = q.ClearAlertChoice(ctx, db.ClearAlertChoiceParams{ProjectID: projectID, PersonID: personID})
+	} else {
+		err = q.SetAlertChoice(ctx, db.SetAlertChoiceParams{
+			WorkspaceID: workspaceID, ProjectID: projectID, PersonID: personID, Alerts: boolInt(told),
+		})
+	}
 	if err != nil {
 		return err
 	}
@@ -212,6 +259,10 @@ func (s *Store) RemoveMember(ctx context.Context, by Actor, workspaceID, project
 	}
 	if n == 0 {
 		return ErrNotFound
+	}
+	// What they chose goes with the row, as the flag on it did.
+	if err := q.ClearAlertChoice(ctx, db.ClearAlertChoiceParams{ProjectID: projectID, PersonID: personID}); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -296,8 +347,10 @@ func (a Access) SeesSecrets(projectID string) bool {
 	return role == Editor || role == Owner
 }
 
-// AccessOfPerson returns what a person may see. A disabled or unknown person
-// gets ErrNotFound. A workspace administrator sees every project, as owner.
+// AccessOfPerson returns what a person may see: the projects of the teams they
+// are in and those they have a role of their own in, with the highest role they
+// have in each. A disabled or unknown person gets ErrNotFound. An administrator
+// sees every project as an owner of the team that owns them.
 func (s *Store) AccessOfPerson(ctx context.Context, workspaceID, personID string) (Access, error) {
 	q := db.New(s.r)
 	p, err := q.Person(ctx, db.PersonParams{WorkspaceID: workspaceID, ID: personID})

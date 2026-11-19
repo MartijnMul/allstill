@@ -70,27 +70,31 @@ func (q *Queries) ChecksOfProbe(ctx context.Context, probeID sql.NullString) ([]
 
 const createProbe = `-- name: CreateProbe :exec
 
-INSERT INTO probes (id, workspace_id, name, key_hash, check_id, created_at) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO probes (id, workspace_id, team_id, name, key_hash, check_id, created_at)
+SELECT ?1, pr.workspace_id, pr.team_id, ?2, ?3, ?4, ?5
+FROM projects pr WHERE pr.workspace_id = ?6 AND pr.id = ?7
 `
 
 type CreateProbeParams struct {
 	ID          string
-	WorkspaceID string
 	Name        string
 	KeyHash     []byte
 	CheckID     string
 	CreatedAt   int64
+	WorkspaceID string
+	ProjectID   string
 }
 
 // SPDX-License-Identifier: AGPL-3.0-only
 func (q *Queries) CreateProbe(ctx context.Context, arg CreateProbeParams) error {
 	_, err := q.db.ExecContext(ctx, createProbe,
 		arg.ID,
-		arg.WorkspaceID,
 		arg.Name,
 		arg.KeyHash,
 		arg.CheckID,
 		arg.CreatedAt,
+		arg.WorkspaceID,
+		arg.ProjectID,
 	)
 	return err
 }

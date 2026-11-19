@@ -150,7 +150,8 @@ func TestAChildKeepsItsParentsWorkspace(t *testing.T) {
 	s := open(t)
 	_, err := s.w.Exec(`
 		INSERT INTO workspaces (id, name, created_at) VALUES ('ws_a', 'A', 0), ('ws_b', 'B', 0);
-		INSERT INTO projects (id, workspace_id, name, created_at) VALUES ('prj_a', 'ws_a', 'A', 0);`)
+		INSERT INTO teams (id, workspace_id, name, created_at) VALUES ('team_a', 'ws_a', 'A', 0);
+		INSERT INTO projects (id, workspace_id, team_id, name, created_at) VALUES ('prj_a', 'ws_a', 'team_a', 'A', 0);`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,8 @@ func TestOpensThePathAsGiven(t *testing.T) {
 func TestRejectsAnIntervalCheckWithoutAnInterval(t *testing.T) {
 	s := open(t)
 	s.w.Exec(`INSERT INTO workspaces (id, name, created_at) VALUES ('ws_a', 'A', 0);
-		INSERT INTO projects (id, workspace_id, name, created_at) VALUES ('prj_a', 'ws_a', 'A', 0)`)
+		INSERT INTO teams (id, workspace_id, name, created_at) VALUES ('team_a', 'ws_a', 'A', 0);
+		INSERT INTO projects (id, workspace_id, team_id, name, created_at) VALUES ('prj_a', 'ws_a', 'team_a', 'A', 0)`)
 	insert := func(uuid, kind string, interval any, cron string) error {
 		_, err := s.w.Exec(`INSERT INTO checks (id, workspace_id, project_id, ping_uuid, name, kind, schedule_kind,
 			interval_seconds, cron_expression, time_zone, grace_seconds, state_since, created_at, updated_at)
@@ -239,7 +241,8 @@ func aCheckWithHistory(t *testing.T) string {
 	defer s.Close()
 	_, err = s.w.Exec(`
 		INSERT INTO workspaces (id, name, created_at) VALUES ('ws_a', 'A', 0);
-		INSERT INTO projects (id, workspace_id, name, created_at) VALUES ('prj_a', 'ws_a', 'A', 0);
+		INSERT INTO teams (id, workspace_id, name, created_at) VALUES ('team_a', 'ws_a', 'A', 0);
+		INSERT INTO projects (id, workspace_id, team_id, name, created_at) VALUES ('prj_a', 'ws_a', 'team_a', 'A', 0);
 		INSERT INTO checks (id, workspace_id, project_id, ping_uuid, name, kind, schedule_kind,
 			interval_seconds, grace_seconds, state_since, created_at, updated_at)
 			VALUES ('chk_a', 'ws_a', 'prj_a', '5c2b1d2e-8f3a-4b7c-9d1e-2f3a4b5c6d7e', 'x', 'ping', 'interval', 60, 60, 0, 0, 0);

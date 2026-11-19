@@ -647,9 +647,8 @@ WHERE i.id IN (/*SLICE:ids*/?) AND i.state <> 'resolved' AND p.disabled_at IS NU
   AND EXISTS (
       SELECT 1 FROM incident_checks ic
       LEFT JOIN checks c ON c.id = ic.check_id
-      LEFT JOIN memberships m ON m.project_id = COALESCE(c.project_id, ic.project_id) AND m.person_id = p.id
-      WHERE ic.incident_id = i.id
-        AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1)))
+      JOIN project_alerted a ON a.project_id = COALESCE(c.project_id, ic.project_id) AND a.person_id = p.id
+      WHERE ic.incident_id = i.id)
 `
 
 type StillFollowedParams struct {

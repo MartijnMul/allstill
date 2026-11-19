@@ -26,15 +26,14 @@ UPDATE incident_checks SET open = 0, left_at = ? WHERE incident_id = ? AND open 
 UPDATE incident_checks SET project_id = ? WHERE check_id = ? AND open = 1;
 
 -- Everyone who gets alerts for a project becomes a recipient of an incident,
--- with the sender to look at once: members whose alerts are on, and
--- workspace administrators who are no member, as they see every project.
+-- with the sender to look at once. Who that is, here and in every query below,
+-- is what the view project_alerted says and nothing else.
 -- name: AddFollowers :exec
 INSERT OR IGNORE INTO recipients (workspace_id, incident_id, person_id, due_at)
 SELECT p.workspace_id, sqlc.arg(incident_id), p.id, sqlc.arg(due_at)
 FROM people p
-LEFT JOIN memberships m ON m.project_id = sqlc.arg(project_id) AND m.person_id = p.id
-WHERE p.workspace_id = sqlc.arg(workspace_id) AND p.disabled_at IS NULL
-  AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1));
+JOIN project_alerted a ON a.project_id = sqlc.arg(project_id) AND a.person_id = p.id
+WHERE p.workspace_id = sqlc.arg(workspace_id) AND p.disabled_at IS NULL;
 
 -- name: LookAgainAtTold :exec
 UPDATE recipients SET due_at = ? WHERE incident_id = ? AND told = 'down';
@@ -61,9 +60,8 @@ SELECT r.workspace_id, r.incident_id, r.person_id, r.told, r.told_how,
        CAST(EXISTS (
            SELECT 1 FROM incident_checks ic
            LEFT JOIN checks c ON c.id = ic.check_id
-           LEFT JOIN memberships m ON m.project_id = COALESCE(c.project_id, ic.project_id) AND m.person_id = r.person_id
+           JOIN project_alerted a ON a.project_id = COALESCE(c.project_id, ic.project_id) AND a.person_id = r.person_id
            WHERE ic.incident_id = r.incident_id
-             AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
        ) AS INTEGER) AS follows,
        CAST(COALESCE((
            SELECT pr.recovery_messages FROM incident_checks ic
@@ -108,9 +106,8 @@ SELECT r.incident_id, r.told, r.told_how,
        CAST(EXISTS (
            SELECT 1 FROM incident_checks ic
            LEFT JOIN checks c ON c.id = ic.check_id
-           LEFT JOIN memberships m ON m.project_id = COALESCE(c.project_id, ic.project_id) AND m.person_id = r.person_id
+           JOIN project_alerted a ON a.project_id = COALESCE(c.project_id, ic.project_id) AND a.person_id = r.person_id
            WHERE ic.incident_id = r.incident_id
-             AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
        ) AS INTEGER) AS follows,
        CAST(COALESCE((
            SELECT pr.recovery_messages FROM incident_checks ic
@@ -135,11 +132,10 @@ SELECT c.id, c.project_id, c.name, c.state, c.state_reason, pr.name AS project_n
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = sqlc.arg(person_id)
-LEFT JOIN memberships m ON m.project_id = c.project_id AND m.person_id = p.id
+JOIN project_alerted a ON a.project_id = c.project_id AND a.person_id = p.id
 WHERE c.workspace_id = p.workspace_id AND c.deleted_at IS NULL
   AND (c.state = 'new' OR (c.state = 'paused' AND c.urgency <> 'none')
        OR (c.state = 'unknown' AND c.deadline IS NULL AND c.kind NOT IN ('http', 'tcp')))
-  AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
 ORDER BY pr.name, c.name;
 
 -- Checks in warning that the person follows, such as a certificate running
@@ -150,10 +146,9 @@ SELECT c.id, c.project_id, c.name, c.state_reason, pr.name AS project_name
 FROM checks c
 JOIN projects pr ON pr.id = c.project_id AND pr.deleted_at IS NULL
 JOIN people p ON p.id = sqlc.arg(person_id)
-LEFT JOIN memberships m ON m.project_id = c.project_id AND m.person_id = p.id
+JOIN project_alerted a ON a.project_id = c.project_id AND a.person_id = p.id
 WHERE c.workspace_id = p.workspace_id AND c.deleted_at IS NULL
   AND c.state = 'warning' AND c.urgency <> 'none'
-  AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1))
 ORDER BY pr.name, c.name;
 
 -- name: DeliveriesOfPerson :many
@@ -165,9 +160,8 @@ SELECT pr.id, pr.name FROM projects pr
 WHERE pr.workspace_id = ? AND pr.deleted_at IS NULL
   AND NOT EXISTS (
       SELECT 1 FROM people p
-      LEFT JOIN memberships m ON m.project_id = pr.id AND m.person_id = p.id
-      WHERE p.workspace_id = pr.workspace_id AND p.disabled_at IS NULL
-        AND (m.alerts = 1 OR (m.person_id IS NULL AND p.workspace_admin = 1)))
+      JOIN project_alerted a ON a.project_id = pr.id AND a.person_id = p.id
+      WHERE p.workspace_id = pr.workspace_id AND p.disabled_at IS NULL)
 ORDER BY pr.name;
 
 -- A check's alerting changed: who has not been told about its open incident
@@ -200,15 +194,14 @@ SELECT COUNT(*) FROM incidents WHERE state <> 'resolved' AND shadow = 1;
 -- name: RecentFailures :one
 SELECT COUNT(*) FROM deliveries WHERE person_id = ? AND state = 'failed' AND last_error = ? AND created_at >= ?;
 
--- People who get alerts for at least one project: members whose alerts are
--- on, and workspace administrators.
+-- People who get alerts for at least one project.
 -- name: PeopleWhoGetAlerts :many
 SELECT p.id, p.name FROM people p
 WHERE p.disabled_at IS NULL
-  AND (EXISTS (SELECT 1 FROM memberships m WHERE m.person_id = p.id AND m.alerts = 1)
-       OR (p.workspace_admin = 1 AND EXISTS (
-           SELECT 1 FROM projects pr WHERE pr.workspace_id = p.workspace_id AND pr.deleted_at IS NULL
-             AND NOT EXISTS (SELECT 1 FROM memberships m WHERE m.project_id = pr.id AND m.person_id = p.id))))
+  AND EXISTS (
+      SELECT 1 FROM project_alerted a
+      JOIN projects pr ON pr.id = a.project_id AND pr.deleted_at IS NULL
+      WHERE a.person_id = p.id)
 ORDER BY p.name;
 
 -- When a check went down: when it joined each of its incidents, newest

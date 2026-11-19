@@ -1,7 +1,9 @@
 -- SPDX-License-Identifier: AGPL-3.0-only
 
 -- name: CreateProbe :exec
-INSERT INTO probes (id, workspace_id, name, key_hash, check_id, created_at) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO probes (id, workspace_id, team_id, name, key_hash, check_id, created_at)
+SELECT sqlc.arg(id), pr.workspace_id, pr.team_id, sqlc.arg(name), sqlc.arg(key_hash), sqlc.arg(check_id), sqlc.arg(created_at)
+FROM projects pr WHERE pr.workspace_id = sqlc.arg(workspace_id) AND pr.id = sqlc.arg(project_id);
 
 -- name: AddProbeProject :exec
 INSERT OR IGNORE INTO probe_projects (workspace_id, probe_id, project_id) VALUES (?, ?, ?);

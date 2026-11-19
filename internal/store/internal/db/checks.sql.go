@@ -979,7 +979,7 @@ func (q *Queries) PingsOfRun(ctx context.Context, runID sql.NullString) ([]Pings
 }
 
 const projectByPingKeyHash = `-- name: ProjectByPingKeyHash :one
-SELECT id, workspace_id, name, ping_key_hash, recovery_messages, default_interval, default_grace, created_at, deleted_at FROM projects WHERE ping_key_hash = ? AND deleted_at IS NULL
+SELECT id, workspace_id, team_id, name, ping_key_hash, recovery_messages, default_interval, default_grace, created_at, deleted_at FROM projects WHERE ping_key_hash = ? AND deleted_at IS NULL
 `
 
 func (q *Queries) ProjectByPingKeyHash(ctx context.Context, pingKeyHash []byte) (Project, error) {
@@ -988,6 +988,7 @@ func (q *Queries) ProjectByPingKeyHash(ctx context.Context, pingKeyHash []byte) 
 	err := row.Scan(
 		&i.ID,
 		&i.WorkspaceID,
+		&i.TeamID,
 		&i.Name,
 		&i.PingKeyHash,
 		&i.RecoveryMessages,

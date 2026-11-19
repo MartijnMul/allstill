@@ -14,36 +14,28 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 SELECT * FROM people WHERE workspace_id = ? AND id = ? AND disabled_at IS NULL;
 
 -- name: CreateProject :exec
-INSERT INTO projects (id, workspace_id, name, ping_key_hash, created_at) VALUES (?, ?, ?, ?, ?);
+INSERT INTO projects (id, workspace_id, team_id, name, ping_key_hash, created_at) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: RemoveMember :execrows
 DELETE FROM memberships WHERE workspace_id = ? AND project_id = ? AND person_id = ?;
 
--- A new member gets alerts unless they are a viewer; so does a viewer who
--- becomes an editor or owner, and someone who becomes a viewer stops getting
--- them. Other changes of role keep the setting.
+-- Whether they are told about the project is not the membership's: see
+-- alert_choices, which setMember keeps as the role changes.
 -- name: AddMember :exec
-INSERT INTO memberships (workspace_id, project_id, person_id, role, created_at, alerts)
-VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT (project_id, person_id) DO UPDATE SET
-    role = excluded.role,
-    alerts = CASE
-        WHEN memberships.role = 'viewer' AND excluded.role <> 'viewer' THEN 1
-        WHEN memberships.role <> 'viewer' AND excluded.role = 'viewer' THEN 0
-        ELSE memberships.alerts
-    END;
+INSERT INTO memberships (workspace_id, project_id, person_id, role, created_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (project_id, person_id) DO UPDATE SET role = excluded.role;
 
--- The projects a person may see, with their role. A workspace administrator
--- sees every project, as owner.
+-- The projects a person may see, with their role: what the view project_roles
+-- says and nothing else.
 -- name: ProjectsOfPerson :many
-SELECT p.id, p.name, CAST(CASE WHEN per.workspace_admin = 1 THEN 'owner' ELSE m.role END AS TEXT) AS role
+SELECT p.id, p.name, r.role
 FROM projects p
 JOIN people per ON per.workspace_id = p.workspace_id AND per.id = sqlc.arg(person_id)
-LEFT JOIN memberships m ON m.project_id = p.id AND m.person_id = per.id
+JOIN project_roles r ON r.project_id = p.id AND r.person_id = per.id
 WHERE p.workspace_id = sqlc.arg(workspace_id)
   AND p.deleted_at IS NULL
   AND per.disabled_at IS NULL
-  AND (m.role IS NOT NULL OR per.workspace_admin = 1)
 ORDER BY p.name, p.id;
 
 -- name: ProjectsByName :many

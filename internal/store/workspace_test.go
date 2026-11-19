@@ -180,7 +180,7 @@ func TestAlertsFollowTheRole(t *testing.T) {
 	alerts := func() int64 {
 		t.Helper()
 		var n int64
-		if err := f.s.r.QueryRow("SELECT alerts FROM memberships WHERE project_id = ? AND person_id = ?", f.project, person).Scan(&n); err != nil {
+		if err := f.s.r.QueryRow("SELECT count(*) FROM project_alerted WHERE project_id = ? AND person_id = ?", f.project, person).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		return n

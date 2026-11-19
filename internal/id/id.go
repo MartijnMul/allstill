@@ -30,6 +30,7 @@ const (
 	LogGroup  = "grp"
 	SignIn    = "sgn"
 	APIKey    = "key"
+	Team      = "team"
 )
 
 // Crockford's base32, lower case: no i, l, o or u, so ids read aloud well.

@@ -10,6 +10,13 @@ import (
 	"database/sql"
 )
 
+type AlertChoice struct {
+	WorkspaceID string
+	ProjectID   string
+	PersonID    string
+	Alerts      int64
+}
+
 type ApiKey struct {
 	ID             string
 	KeyHash        []byte
@@ -161,7 +168,6 @@ type Membership struct {
 	PersonID    string
 	Role        string
 	CreatedAt   int64
-	Alerts      int64
 }
 
 type Passkey struct {
@@ -230,6 +236,7 @@ type Ping struct {
 type Probe struct {
 	ID          string
 	WorkspaceID string
+	TeamID      string
 	Name        string
 	KeyHash     []byte
 	CheckID     string
@@ -252,6 +259,7 @@ type ProbeRunsSeen struct {
 type Project struct {
 	ID               string
 	WorkspaceID      string
+	TeamID           string
 	Name             string
 	PingKeyHash      []byte
 	RecoveryMessages int64
@@ -259,6 +267,19 @@ type Project struct {
 	DefaultGrace     int64
 	CreatedAt        int64
 	DeletedAt        sql.NullInt64
+}
+
+type ProjectAlerted struct {
+	WorkspaceID string
+	ProjectID   string
+	PersonID    string
+}
+
+type ProjectRole struct {
+	WorkspaceID string
+	ProjectID   string
+	PersonID    string
+	Role        string
 }
 
 type Recipient struct {
@@ -296,6 +317,21 @@ type Session struct {
 	CreatedAt   int64
 	SeenAt      int64
 	ExpiresAt   int64
+}
+
+type Team struct {
+	ID          string
+	WorkspaceID string
+	Name        string
+	CreatedAt   int64
+}
+
+type TeamMember struct {
+	WorkspaceID string
+	TeamID      string
+	PersonID    string
+	Role        string
+	CreatedAt   int64
 }
 
 type VapidKey struct {

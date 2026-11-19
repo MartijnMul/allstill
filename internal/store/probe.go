@@ -51,8 +51,8 @@ type Probe struct {
 }
 
 // CreateProbe makes a probe that serves project and the projects in serves,
-// with its own check in project. It returns its id and its key, which is shown
-// once. The caller must be a workspace administrator.
+// with its own check in project, in the team that project belongs to. It
+// returns its id and its key, which is shown once. The caller must be a workspace administrator.
 func (s *Store) CreateProbe(ctx context.Context, a Access, name, project string, serves []string) (string, string, error) {
 	if !a.Admin {
 		return "", "", ErrForbidden
@@ -93,7 +93,7 @@ func (s *Store) CreateProbe(ctx context.Context, a Access, name, project string,
 	key, keyHash := newProbeKey()
 	probeID := id.New(id.Probe)
 	err = q.CreateProbe(ctx, db.CreateProbeParams{
-		ID: probeID, WorkspaceID: a.WorkspaceID, Name: name, KeyHash: keyHash, CheckID: c.ID, CreatedAt: now(),
+		ID: probeID, WorkspaceID: a.WorkspaceID, ProjectID: project, Name: name, KeyHash: keyHash, CheckID: c.ID, CreatedAt: now(),
 	})
 	if err != nil {
 		return "", "", err
