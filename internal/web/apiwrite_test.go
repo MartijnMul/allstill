@@ -609,7 +609,7 @@ func TestAKeyOverTheAPI(t *testing.T) {
 		t.Fatalf("%+v", made)
 	}
 	me := read[api.Me](t, f, "/me", made.Key)
-	if me.Kind != api.MeKindApiKey || me.Key == nil || me.Key.Name != "deploy" || me.Person != nil || me.SignIn != nil || len(me.Projects) != 1 || me.Projects[0].Role != api.Editor {
+	if me.Kind != api.MeKindApiKey || me.Key == nil || me.Key.Name != "deploy" || me.Person != nil || me.SignIn != nil || len(me.Projects) != 1 || me.Projects[0].Role != api.RoleEditor {
 		t.Errorf("%+v", me)
 	}
 	// It reads and changes its project, and nothing else.

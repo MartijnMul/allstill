@@ -48,7 +48,8 @@ WHERE id = sqlc.arg(id) AND made_person IS NULL AND accepted_at IS NULL AND with
 
 -- name: WithdrawInvite :execrows
 UPDATE invites SET withdrawn_at = sqlc.arg(at)
-WHERE workspace_id = sqlc.arg(workspace_id) AND id = sqlc.arg(id) AND accepted_at IS NULL AND withdrawn_at IS NULL;
+WHERE workspace_id = sqlc.arg(workspace_id) AND id = sqlc.arg(id) AND accepted_at IS NULL AND withdrawn_at IS NULL
+  AND expires_at > sqlc.arg(at);
 
 -- The open invitations someone made in a team, to check whether they may still
 -- make each.

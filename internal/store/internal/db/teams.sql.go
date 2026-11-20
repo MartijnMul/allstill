@@ -609,6 +609,34 @@ func (q *Queries) PeopleWithTeams(ctx context.Context, workspaceID string) ([]Pe
 	return items, nil
 }
 
+const projectsAlertedOf = `-- name: ProjectsAlertedOf :many
+SELECT project_id FROM project_alerted WHERE person_id = ?
+`
+
+// The projects a person is told about, from the view project_alerted.
+func (q *Queries) ProjectsAlertedOf(ctx context.Context, personID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, projectsAlertedOf, personID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var project_id string
+		if err := rows.Scan(&project_id); err != nil {
+			return nil, err
+		}
+		items = append(items, project_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const projectsOfTeam = `-- name: ProjectsOfTeam :many
 SELECT id, name FROM projects WHERE team_id = ? AND deleted_at IS NULL ORDER BY name, id
 `

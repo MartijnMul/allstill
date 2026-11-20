@@ -389,6 +389,7 @@ func (q *Queries) OpenInvitesMadeIn(ctx context.Context, arg OpenInvitesMadeInPa
 const withdrawInvite = `-- name: WithdrawInvite :execrows
 UPDATE invites SET withdrawn_at = ?1
 WHERE workspace_id = ?2 AND id = ?3 AND accepted_at IS NULL AND withdrawn_at IS NULL
+  AND expires_at > ?1
 `
 
 type WithdrawInviteParams struct {

@@ -400,12 +400,29 @@ Flags:
 }
 
 func projectsCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) > 0 {
+		if sub, ok := projectsSubcommands[args[0]]; ok {
+			return sub(ctx, args[1:], stdout, stderr)
+		}
+	}
 	fs := flag.NewFlagSet("projects", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
 		fmt.Fprint(stderr, `Usage: allstill projects [-json] [-server URL]
+       allstill projects add NAME [-team TEAM]
+       allstill projects rename PROJECT NAME
+       allstill projects delete PROJECT
+       allstill projects people PROJECT
+       allstill projects role PROJECT PERSON viewer|editor|none
+       allstill projects alerts PROJECT on|off
+       allstill projects invite PROJECT -for LABEL [-role viewer|editor]
+       allstill projects invites PROJECT
+       allstill projects withdraw PROJECT INVITATION
 
-Lists the projects you can see, with what you are in each and how their checks stand.
+Lists the projects you can see, with what you are in each, whether you are told about
+it, and how its checks stand. A team's owners make, rename and delete its projects; a
+project's owners see who can see it and invite people into it; everyone chooses whether
+they are told.
 
 Flags:
 `)
@@ -417,7 +434,7 @@ Flags:
 	}
 	if fs.NArg() != 0 {
 		fs.Usage()
-		return errors.New("projects takes no arguments")
+		return fmt.Errorf("unknown projects command %q", client.Clean(fs.Arg(0)))
 	}
 	api, err := r.client()
 	if err != nil {

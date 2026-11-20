@@ -48,6 +48,11 @@ Usage:
   allstill whoami                        who you are signed in as, and what you may do
   allstill status [flags]                what is up, and what needs attention
   allstill projects [flags]              the projects you can see
+  allstill projects add NAME [flags]     make a project in a team you own; rename and delete too
+  allstill projects people PROJECT       who can see a project you own; role, invite, withdraw too
+  allstill projects alerts PROJECT on|off  whether you are told about a project
+  allstill teams [TEAM]                  a team you own: its people and open invitations
+  allstill teams invite [flags]          invite someone into it; role, remove and withdraw too
   allstill checks [flags]                the checks you can see
   allstill checks show [flags]           one check
   allstill checks runs [flags]           a check's latest runs
@@ -142,6 +147,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return probesCommand(ctx, args[1:], stdout, stderr)
 	case "keys":
 		return keysCommand(ctx, args[1:], stdout, stderr)
+	case "teams":
+		return teamsCommand(ctx, args[1:], stdout, stderr)
 	case "backup":
 		return backup(ctx, args[1:], stdout, stderr)
 	case "guide":

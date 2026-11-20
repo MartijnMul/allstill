@@ -57,7 +57,8 @@ var fieldNames = map[string]string{
 	"name": "The name", "slug": "The slug", "description": "The description", "tags": "Tags", "grace": "The grace period",
 	"schedule": "The schedule", "schedule.every": "The interval", "urgency": "The urgency", "kind": "The kind", "scope": "The scope",
 	"url": "The address", "host": "The host", "port": "The port", "method": "The method", "location": "The location", "timeout": "The timeout",
-	"probe": "The probe", "project": "The project", "project_id": "The project",
+	"probe": "The probe", "project": "The project", "project_id": "The project", "team_id": "The team",
+	"role": "The role", "label": "The label",
 }
 
 // refusalDetail says what is wrong, naming the field when the store's words need one:
@@ -91,7 +92,7 @@ func forbidden(ctx context.Context) api.Problem {
 // depend on the kind of check.
 func pointerOf(field string) string {
 	switch field {
-	case "name", "slug", "description", "tags", "kind", "grace", "scope", "project_id":
+	case "name", "slug", "description", "tags", "kind", "grace", "scope", "project_id", "team_id", "role", "label":
 		return "/" + field
 	case "schedule", "schedule.every":
 		return "/" + strings.ReplaceAll(field, ".", "/")

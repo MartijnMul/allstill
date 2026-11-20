@@ -3,6 +3,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -280,9 +281,9 @@ func TestAnInvitationDiesWithItsMakersRight(t *testing.T) {
 	_, secret, err := w.s.CreateInvite(ctx, w.hal, w.second, "", Editor, "x", w.at)
 	must(t, err)
 	// Hedy becomes owner, from the dashboard, and makes Hal less.
-	must(t, w.s.SetTeamMemberAs(ctx, w.hal, w.second, w.hedy.PersonID, Owner))
+	must(t, setTeamMemberAs(w.s, ctx, w.hal, w.second, w.hedy.PersonID, Owner))
 	hedy := w.access(t, w.hedy.PersonID)
-	must(t, w.s.SetTeamMemberAs(ctx, hedy, w.second, w.hal.PersonID, Editor))
+	must(t, setTeamMemberAs(w.s, ctx, hedy, w.second, w.hal.PersonID, Editor))
 	if _, err := w.s.InviteOffer(ctx, secret, time.Now()); !errors.Is(err, ErrInviteWithdrawn) {
 		t.Errorf("an invitation of someone made less: %v", err)
 	}
@@ -303,16 +304,16 @@ func TestAnOwnerRunsTheTeamsPeople(t *testing.T) {
 	confirmedChannel(t, w, w.hal.PersonID)
 	readAll(t, w, w.hal.PersonID, w.hedy.PersonID)
 	// Only members, by an owner of the team.
-	if err := w.s.SetTeamMemberAs(ctx, w.hal, w.second, w.carol.PersonID, Editor); !errors.Is(err, ErrNotFound) {
+	if err := setTeamMemberAs(w.s, ctx, w.hal, w.second, w.carol.PersonID, Editor); !errors.Is(err, ErrNotFound) {
 		t.Errorf("someone outside made a member: %v", err)
 	}
-	if err := w.s.SetTeamMemberAs(ctx, w.hedy, w.second, w.hector.PersonID, Editor); !errors.Is(err, ErrForbidden) {
+	if err := setTeamMemberAs(w.s, ctx, w.hedy, w.second, w.hector.PersonID, Editor); !errors.Is(err, ErrForbidden) {
 		t.Errorf("by an editor: %v", err)
 	}
-	if err := w.s.SetTeamMemberAs(ctx, w.ada, w.second, w.hector.PersonID, Editor); !errors.Is(err, ErrNotFound) {
+	if err := setTeamMemberAs(w.s, ctx, w.ada, w.second, w.hector.PersonID, Editor); !errors.Is(err, ErrNotFound) {
 		t.Errorf("by another team's owner: %v", err)
 	}
-	if err := w.s.SetTeamMemberAs(ctx, w.hal, w.second, w.hal.PersonID, Editor); !errors.Is(err, ErrLastOwner) {
+	if err := setTeamMemberAs(w.s, ctx, w.hal, w.second, w.hal.PersonID, Editor); !errors.Is(err, ErrLastOwner) {
 		t.Errorf("the last owner: %v", err)
 	}
 	if _, err := w.s.RemoveTeamMemberAs(ctx, w.hal, w.second, w.hal.PersonID); !errors.Is(err, ErrLastOwner) {
@@ -322,16 +323,16 @@ func TestAnOwnerRunsTheTeamsPeople(t *testing.T) {
 	cli := w.hal
 	cli.Actor.Via = "laptop"
 	before := pendingFor(t, w, w.hal.PersonID)
-	must(t, w.s.SetTeamMemberAs(ctx, cli, w.second, w.hector.PersonID, Editor))
+	must(t, setTeamMemberAs(w.s, ctx, cli, w.second, w.hector.PersonID, Editor))
 	if got := unreadTitles(t, w, w.hal.PersonID); len(got) != 0 {
 		t.Errorf("an editor's change told: %q", got)
 	}
 	// Owners change only in the dashboard, and every owner is told.
 	var invalid *InvalidError
-	if err := w.s.SetTeamMemberAs(ctx, cli, w.second, w.hedy.PersonID, Owner); !errors.As(err, &invalid) {
+	if err := setTeamMemberAs(w.s, ctx, cli, w.second, w.hedy.PersonID, Owner); !errors.As(err, &invalid) {
 		t.Errorf("an owner named from a command line: %v", err)
 	}
-	must(t, w.s.SetTeamMemberAs(ctx, w.hal, w.second, w.hedy.PersonID, Owner))
+	must(t, setTeamMemberAs(w.s, ctx, w.hal, w.second, w.hedy.PersonID, Owner))
 	if got := unreadTitles(t, w, w.hal.PersonID); len(got) != 1 || got[0] != "Hal made Hedy owner of the team Harbour." {
 		t.Errorf("%q", got)
 	}
@@ -395,7 +396,7 @@ func TestARightLostMeanwhileCounts(t *testing.T) {
 	if _, _, err := w.s.CreateInvite(ctx, stale, w.second, "", Owner, "x", w.at); !errors.Is(err, ErrForbidden) {
 		t.Errorf("an invitation by someone made less meanwhile: %v", err)
 	}
-	if err := w.s.SetTeamMemberAs(ctx, stale, w.second, w.hector.PersonID, Editor); !errors.Is(err, ErrForbidden) {
+	if err := setTeamMemberAs(w.s, ctx, stale, w.second, w.hector.PersonID, Editor); !errors.Is(err, ErrForbidden) {
 		t.Errorf("a role changed by someone made less meanwhile: %v", err)
 	}
 	hedy := w.access(t, w.hedy.PersonID)
@@ -448,4 +449,10 @@ func TestWhoIsToldOfAnArrival(t *testing.T) {
 	if got := unreadTitles(t, w, w.hedy.PersonID); len(got) != 0 {
 		t.Errorf("told of their own arrival: %q", got)
 	}
+}
+
+// setTeamMemberAs is SetTeamMemberAs for a test that needs only whether it worked.
+func setTeamMemberAs(s *Store, ctx context.Context, a Access, teamID, personID string, role Role) error {
+	_, err := s.SetTeamMemberAs(ctx, a, teamID, personID, role)
+	return err
 }

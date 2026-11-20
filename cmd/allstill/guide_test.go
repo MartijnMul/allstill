@@ -4,8 +4,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
+	"io"
 	"regexp"
 	"slices"
 	"strings"
@@ -32,6 +34,16 @@ var twoWords = []string{"admin", "import", "compare", "checks", "keys"}
 
 // commandName is how a command is called, from the words after `allstill`.
 func commandName(words []string) string {
+	// `allstill projects` and `allstill teams` take a name after them, so only
+	// their own subcommands make a second word.
+	if subs, ok := map[string]map[string]func(context.Context, []string, io.Writer, io.Writer) error{
+		"projects": projectsSubcommands, "teams": teamsSubcommands,
+	}[words[0]]; ok {
+		if len(words) > 1 && subs[words[1]] != nil {
+			return words[0] + " " + words[1]
+		}
+		return words[0]
+	}
 	// `allstill checks` is a command too, with its flags after it.
 	if len(words) > 1 && slices.Contains(twoWords, words[0]) && !strings.HasPrefix(words[1], "-") && !strings.HasPrefix(words[1], "[") {
 		return words[0] + " " + words[1]

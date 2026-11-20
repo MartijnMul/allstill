@@ -660,7 +660,7 @@ func TestAReadOnlySignIn(t *testing.T) {
 	if err := json.Unmarshal(bearer(f, "GET", "/me", token).Body.Bytes(), &me); err != nil {
 		t.Fatal(err)
 	}
-	if slices.Contains(me.Scopes, api.Manage) || !slices.Contains(me.Scopes, api.Read) || *me.Person.WorkspaceAdmin || me.Projects[0].Role != api.Viewer {
+	if slices.Contains(me.Scopes, api.Manage) || !slices.Contains(me.Scopes, api.Read) || *me.Person.WorkspaceAdmin || me.Projects[0].Role != api.RoleViewer {
 		t.Fatalf("read-only reads as %+v", me)
 	}
 	// It can end itself, and that is all it can end.

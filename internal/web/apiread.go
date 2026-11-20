@@ -98,9 +98,14 @@ func teamOf(a store.Access, projectID string) *api.Team {
 	return nil
 }
 
-// projectOf says how a project stands, from the states of its checks.
-func projectOf(a store.Access, p store.ProjectAccess, checks []store.CheckView) api.Project {
+// projectOf says how a project stands, from the states of its checks, and whether the
+// caller is told about it: told is nil for a key, which is told about nothing.
+func projectOf(a store.Access, p store.ProjectAccess, checks []store.CheckView, told map[string]bool) api.Project {
 	out := api.Project{Id: p.ID, Name: p.Name, Role: api.Role(p.Role), Counts: api.StateCounts{}, Team: teamOf(a, p.ID)}
+	if told != nil {
+		t := told[p.ID]
+		out.Alerts = &t
+	}
 	worst := check.State("")
 	for _, c := range checks {
 		if c.ProjectID != p.ID {
@@ -129,8 +134,12 @@ func (a apiServer) GetStatus(ctx context.Context, _ api.GetStatusRequestObject) 
 		GeneratedAt: a.s.Now().UTC(), Overall: api.StatusOverallAllStill, Counts: api.StateCounts{},
 		Projects: []api.Project{}, Attention: []api.AttentionCheck{},
 	}
+	told, err := a.s.Store.ToldAbout(ctx, access, callerOf(ctx).Token.PersonID)
+	if err != nil {
+		return nil, err
+	}
 	for _, p := range access.Projects {
-		out.Projects = append(out.Projects, projectOf(access, p, checks))
+		out.Projects = append(out.Projects, projectOf(access, p, checks, told))
 	}
 	worst := check.State("")
 	for _, c := range checks {
@@ -168,6 +177,10 @@ func (a apiServer) ListProjects(ctx context.Context, req api.ListProjectsRequest
 	if err != nil {
 		return nil, err
 	}
+	told, err := a.s.Store.ToldAbout(ctx, access, callerOf(ctx).Token.PersonID)
+	if err != nil {
+		return nil, err
+	}
 	size := pageSize(req.Params.Limit)
 	out := api.ListProjects200JSONResponse{Items: []api.Project{}}
 	projects := access.Projects[min(offset, len(access.Projects)):]
@@ -176,7 +189,7 @@ func (a apiServer) ListProjects(ctx context.Context, req api.ListProjectsRequest
 		out.NextCursor = encodeCursor(strconv.Itoa(offset + size))
 	}
 	for _, p := range projects {
-		out.Items = append(out.Items, projectOf(access, p, checks))
+		out.Items = append(out.Items, projectOf(access, p, checks, told))
 	}
 	return out, nil
 }
@@ -192,7 +205,11 @@ func (a apiServer) GetProject(ctx context.Context, req api.GetProjectRequestObje
 		if err != nil {
 			return nil, err
 		}
-		return api.GetProject200JSONResponse(projectOf(access, p, checks)), nil
+		told, err := a.s.Store.ToldAbout(ctx, access, callerOf(ctx).Token.PersonID)
+		if err != nil {
+			return nil, err
+		}
+		return api.GetProject200JSONResponse(projectOf(access, p, checks, told)), nil
 	}
 	return api.GetProject404ApplicationProblemPlusJSONResponse{NotFoundApplicationProblemPlusJSONResponse: notFound()}, nil
 }

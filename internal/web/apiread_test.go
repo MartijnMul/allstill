@@ -106,12 +106,12 @@ func TestWhoReadsWhat(t *testing.T) {
 		other    int // what asking for the other project answers
 		probes   bool
 	}{
-		{"a viewer", viewerT, 1, api.Viewer, http.StatusNotFound, false},
-		{"an editor", editor, 1, api.Editor, http.StatusNotFound, true},
-		{"an owner", owner, 1, api.Owner, http.StatusNotFound, true},
-		{"an administrator", admin, 2, api.Owner, http.StatusOK, true},
-		{"an administrator's read-only sign-in", readOnly, 2, api.Viewer, http.StatusOK, false},
-		{"an owner's read-only sign-in", limitedRead, 1, api.Viewer, http.StatusNotFound, false},
+		{"a viewer", viewerT, 1, api.RoleViewer, http.StatusNotFound, false},
+		{"an editor", editor, 1, api.RoleEditor, http.StatusNotFound, true},
+		{"an owner", owner, 1, api.RoleOwner, http.StatusNotFound, true},
+		{"an administrator", admin, 2, api.RoleOwner, http.StatusOK, true},
+		{"an administrator's read-only sign-in", readOnly, 2, api.RoleViewer, http.StatusOK, false},
+		{"an owner's read-only sign-in", limitedRead, 1, api.RoleViewer, http.StatusNotFound, false},
 	} {
 		t.Run(tt.who, func(t *testing.T) {
 			projects := read[api.ProjectPage](t, f, "/projects", tt.token)
@@ -162,11 +162,11 @@ func TestWhoReadsWhat(t *testing.T) {
 
 	// A role changed counts on the next request.
 	bobs := read[api.Project](t, f, "/projects/"+f.project, viewerT)
-	if bobs.Role != api.Viewer {
+	if bobs.Role != api.RoleViewer {
 		t.Fatalf("before: %+v", bobs)
 	}
 	f.st.SetMember(t.Context(), store.Command("test"), f.ws, f.project, f.bob, store.Editor)
-	if got := read[api.Project](t, f, "/projects/"+f.project, viewerT); got.Role != api.Editor {
+	if got := read[api.Project](t, f, "/projects/"+f.project, viewerT); got.Role != api.RoleEditor {
 		t.Errorf("after: %+v", got)
 	}
 	f.st.RemoveMember(t.Context(), store.Command("test"), f.ws, f.project, f.bob)
@@ -198,10 +198,28 @@ func TestNoSecretInAReadersAnswers(t *testing.T) {
 	if job.PingUUID == "" {
 		t.Fatal("no ping UUID")
 	}
+	team, err := f.st.TeamOfProject(ctx, f.ws, f.project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An invitation's secret is the link, shown once to whoever made it.
+	adas, err := f.st.AccessOfPerson(ctx, f.ws, f.ada)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, teamSecret, err := f.st.CreateInvite(ctx, adas, team, "", store.Editor, "Carol", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, projectSecret, err := f.st.CreateInvite(ctx, adas, "", f.project, store.Viewer, "Dan", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
 	paths := []string{
 		"/me", "/status", "/projects", "/projects/" + f.project, "/projects/" + f.project + "/checks",
 		"/checks/" + site.ID, "/checks/" + site.ID + "/runs", "/checks/" + f.checkID, "/checks/" + f.checkID + "/runs",
 		"/log", "/log?check_id=" + site.ID, "/log?name=shop", "/probes", "/keys",
+		"/projects/" + f.project + "/people", "/projects/" + f.project + "/invites", "/teams/" + team, "/teams/" + team + "/invites",
 	}
 	for _, op := range apiOperations {
 		method, path, _ := strings.Cut(op.route, " ")
@@ -212,6 +230,7 @@ func TestNoSecretInAReadersAnswers(t *testing.T) {
 		path = strings.TrimPrefix(path, "/api/v1")
 		path = strings.ReplaceAll(path, "{project_id}", f.project)
 		path = strings.ReplaceAll(path, "{check_id}", site.ID)
+		path = strings.ReplaceAll(path, "{team_id}", team)
 		if !slices.Contains(paths, path) {
 			t.Errorf("%s is not read here: add it", path)
 		}
@@ -228,6 +247,9 @@ func TestNoSecretInAReadersAnswers(t *testing.T) {
 			}
 			if strings.Contains(body, job.PingUUID) || strings.Contains(body, site.PingUUID) {
 				t.Errorf("%s reads a ping URL at %s: %s", who, path, body)
+			}
+			if strings.Contains(body, teamSecret) || strings.Contains(body, projectSecret) {
+				t.Errorf("%s reads an invitation's link at %s: %s", who, path, body)
 			}
 		}
 		got := read[api.Check](t, f, "/checks/"+site.ID, token)
@@ -263,7 +285,16 @@ func TestNoSecretInAReadersAnswers(t *testing.T) {
 			if strings.Contains(body, job.PingUUID) || strings.Contains(body, site.PingUUID) || strings.Contains(body, "ping_url") {
 				t.Errorf("%s reads a ping URL at %s: %s", who, path, body)
 			}
+			// Not even whoever made an invitation reads its link again.
+			if strings.Contains(body, teamSecret) || strings.Contains(body, projectSecret) {
+				t.Errorf("%s reads an invitation's link at %s", who, path)
+			}
 		}
+	}
+	// The owner does read the invitations, without their links.
+	owner := tokenFor(t, f, f.ada, store.ScopeManage)
+	if got := read[api.InviteList](t, f, "/teams/"+team+"/invites", owner); len(got.Items) != 2 {
+		t.Errorf("the team's invitations: %+v", got)
 	}
 }
 

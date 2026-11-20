@@ -287,7 +287,7 @@ func (s *Store) WithdrawInvite(ctx context.Context, a Access, inviteID string, a
 		return err
 	}
 	if n == 0 {
-		return &InvalidError{"invite", "it was accepted or withdrawn already"}
+		return &InvalidError{"invite", "it was accepted, withdrawn or ended already"}
 	}
 	inv := Invite{ID: r.ID, TeamID: r.TeamID, ProjectID: r.ProjectID.String, Role: Role(r.Role), Label: r.Label}
 	team, err := q.Team(ctx, db.TeamParams{WorkspaceID: a.WorkspaceID, ID: r.TeamID})
@@ -663,8 +663,9 @@ type Member struct {
 	ID, Name string
 	Role     Role
 	// CameIn says how: the label of the invitation they accepted and who made
-	// it, or "" when a command on the server put them there.
-	CameIn, InvitedBy string
+	// it, or "" when a command on the server put them there. InvitedByID is ""
+	// for a maker no longer in the team.
+	CameIn, InvitedBy, InvitedByID string
 }
 
 // Outsider is someone outside a team with a role of their own in one of its projects.
@@ -724,6 +725,8 @@ func (s *Store) PeopleOfTeam(ctx context.Context, a Access, teamID string, at ti
 			mem.CameIn, mem.InvitedBy = c.Label, names[c.MadeBy]
 			if mem.InvitedBy == "" {
 				mem.InvitedBy = "someone no longer in the team"
+			} else {
+				mem.InvitedByID = c.MadeBy
 			}
 		}
 		tp.Members = append(tp.Members, mem)

@@ -2,7 +2,7 @@
 openapi: 3.1.1
 info:
   title: Allstill API
-  version: 0.14.0
+  version: 0.15.0
   summary: Pings from jobs, and the status of checks and their runs.
   description: |
     What jobs, people and programs use, in one document.
@@ -56,6 +56,16 @@ tags:
     description: What is watched, and how it is judged.
   - name: Probes
     description: The programs that run checks inside a network the server cannot reach.
+  - name: Teams
+    description: |
+      A team owns projects, and its members have their role in every one of them.
+      Only a team's owners read and change its people. Naming an owner, making one
+      less or taking one out is done in the dashboard, signed in with a passkey,
+      and never here.
+  - name: Invitations
+    description: |
+      A link that lets someone in once: into a team, or into one project with a role
+      of their own. It is accepted in a browser, never here.
   - name: Keys
     description: A project's keys, for scripts. Only an owner of the project manages them, with a person's sign-in.
   - name: Log
@@ -514,6 +524,39 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
 
+  /me/projects/{project_id}/alerts:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    put:
+      tags: [Alerts]
+      operationId: setProjectAlerts
+      summary: Choose whether you are told about a project
+      description: |
+        Needs a person's sign-in with the `manage` scope, with any role in the project.
+        It is the caller's own choice, and nobody can make it for someone else. It
+        stays when their role changes.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [alerts]
+              properties:
+                alerts:
+                  type: boolean
+                  description: Told when a check of the project goes down, and when it comes back.
+      responses:
+        '204':
+          description: Chosen.
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
   /status:
     get:
       tags: [Status]
@@ -793,6 +836,49 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Make a project in a team
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+        caller is the project's owner through the team, with every other member at
+        their role there. Its ping key, for pings by slug, is shown here, once.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Unique within the team.
+                team_id:
+                  $ref: '#/components/schemas/Id'
+                  description: The team to make it in. Needed only by someone who owns more than one.
+      responses:
+        '201':
+          description: The project, with its ping key.
+          headers:
+            Location:
+              description: The URL of the new project.
+              required: true
+              schema: {type: string, format: uri}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectCreated'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
 
   /projects/{project_id}:
     parameters:
@@ -809,6 +895,208 @@ paths:
               schema: {$ref: '#/components/schemas/Project'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+    patch:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Rename a project
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the project's
+        team; an owner of only this project cannot. Its ping key does not change, so
+        jobs that ping by slug keep working.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              description: The fields to change; what is left out stays as it is.
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Unique within the team.
+      responses:
+        '200':
+          description: The project as it is now.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Project'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+    delete:
+      tags: [Projects]
+      operationId: deleteProject
+      summary: Delete a project without checks
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the project's
+        team. Only a project without checks can be deleted: its checks are deleted or
+        moved first, so that no job pinging it breaks by surprise. Its ping key and
+        keys stop working, its open invitations and the roles of their own in it end,
+        and its name can be used again. It cannot be undone.
+      security:
+        - bearer: [manage]
+      responses:
+        '204':
+          description: Deleted.
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: The project still holds checks; `detail` says how many.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /projects/{project_id}/people:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      operationId: listProjectPeople
+      summary: Who can see a project, through what, and who is told
+      description: |
+        Needs a person's sign-in, as an owner of the project. Everyone is listed once,
+        at the highest role they have. An owner of the project from outside its team
+        is not told who the team's people are: they are counted in `team` and are never
+        in `items`, also when they have a role of their own here. Not paged: all of
+        them.
+      responses:
+        '200':
+          description: The people.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectPeople'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /projects/{project_id}/roles/{person_id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/PersonId'
+    put:
+      tags: [Projects]
+      operationId: setProjectRole
+      summary: Change someone's role of their own in a project
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the project.
+        It changes a role someone already has of their own in this project, and never
+        gives one: for anyone without one, such as a member of the team who has only
+        what the team gives, it answers 404, and someone new comes in by an
+        invitation. To an owner from outside the team, the team's members answer 404
+        too. The role must be more than what the team gives them. An owner's role is
+        not changed here: that is done in the dashboard. Whether the person is told
+        stays as they chose; if they never chose, it follows the new role.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: {$ref: '#/components/schemas/RoleToGive'}
+      responses:
+        '200':
+          description: The person as the project now has them.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProjectPerson'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+    delete:
+      tags: [Projects]
+      operationId: removeProjectRole
+      summary: End someone's role of their own in a project
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the project.
+        What they have through the team stays; someone outside the team no longer
+        sees the project. Someone without a role of their own here answers 404, as in
+        `setProjectRole`. An owner's role is ended in the dashboard, not here. Keys
+        they made in the project keep working, as a key is the project's.
+      security:
+        - bearer: [manage]
+      responses:
+        '204':
+          description: Ended.
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /projects/{project_id}/invites:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Invitations]
+      operationId: listProjectInvites
+      summary: The open invitations to a project
+      description: |
+        Needs a person's sign-in, as an owner of the project. Who made one reads as in
+        the log: for an owner from outside the team, a member of the team is `team`.
+        Not paged: all of them.
+      responses:
+        '200':
+          description: The invitations, newest first.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InviteList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+    post:
+      tags: [Invitations]
+      operationId: createProjectInvite
+      summary: Invite someone into a project, with a role of their own
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the project.
+        Whoever opens the link signs in, or makes an account with a passkey, and gets
+        the role in this project alone. It works once, for seven days, and stops
+        working when its maker is no longer an owner of the project. Nobody is looked
+        up by name or address. An owner is invited in the dashboard, not here. The
+        link is shown here, once.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InviteInput'}
+      responses:
+        '201':
+          description: The invitation, with its link.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InviteMade'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: The project has as many open invitations as it may, 20; withdraw one first.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
 
   /projects/{project_id}/checks:
@@ -1162,6 +1450,178 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '429': {$ref: '#/components/responses/TooManyRequests'}
 
+  /teams/{team_id}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [Teams]
+      operationId: getTeam
+      summary: A team and its people
+      description: |
+        Needs a person's sign-in, as an owner of the team. Its members, and the people
+        outside it with a role of their own in one of its projects, all of them. The
+        open invitations are at `listTeamInvites`.
+      responses:
+        '200':
+          description: The team.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TeamPeople'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /teams/{team_id}/members/{person_id}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+      - $ref: '#/components/parameters/PersonId'
+    put:
+      tags: [Teams]
+      operationId: setTeamMember
+      summary: Change a member's role in a team
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+        changes the role of someone already in the team, in every project the team
+        owns, and never makes anyone a member: for anyone else it answers 404, and
+        someone new comes in by an invitation. An owner's role is not changed here:
+        that is done in the dashboard, where every owner is told. A role of their own
+        in one of the team's projects that no longer gives them more ends, and the
+        answer says which.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: {$ref: '#/components/schemas/RoleToGive'}
+      responses:
+        '200':
+          description: Changed, with the roles of their own that ended.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/TeamMemberSet'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+    delete:
+      tags: [Teams]
+      operationId: removeTeamMember
+      summary: Take someone out of a team
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the team.
+        Someone not in the team answers 404. From their next request they see none of
+        the team's projects through it. An owner
+        is taken out in the dashboard, not here. Their account, other teams, sign-ins
+        and devices stay. So do roles of their own in the team's projects, and keys
+        they made in them: the answer lists both, to end them too if that was meant.
+      security:
+        - bearer: [manage]
+      responses:
+        '200':
+          description: Taken out, with what stays.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WhatStays'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /teams/{team_id}/invites:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [Invitations]
+      operationId: listTeamInvites
+      summary: The open invitations of a team
+      description: |
+        Needs a person's sign-in, as an owner of the team. Those to the team and those
+        to each of its projects. Not paged: all of them.
+      responses:
+        '200':
+          description: The invitations, newest first.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InviteList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+    post:
+      tags: [Invitations]
+      operationId: createTeamInvite
+      summary: Invite someone into a team
+      description: |
+        Needs a person's sign-in with the `manage` scope, as an owner of the team.
+        Whoever opens the link signs in, or makes an account with a passkey, and gets
+        the role in every project the team owns. It works once, for seven days, and
+        stops working when its maker is no longer an owner of the team. Nobody is
+        looked up by name or address. An owner is invited in the dashboard, not here.
+        The link is shown here, once.
+      security:
+        - bearer: [manage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/InviteInput'}
+      responses:
+        '201':
+          description: The invitation, with its link.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/InviteMade'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: The team has as many open invitations to itself as it may, 50; withdraw one first. Those to its projects count toward each project's 20 instead.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '422': {$ref: '#/components/responses/Unprocessable'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
+  /invites/{invite_id}:
+    parameters:
+      - name: invite_id
+        in: path
+        required: true
+        schema: {$ref: '#/components/schemas/Id'}
+    delete:
+      tags: [Invitations]
+      operationId: withdrawInvite
+      summary: Withdraw an open invitation
+      description: |
+        Needs a person's sign-in with the `manage` scope, from someone who may make one
+        like it: an owner of the team, or for one to a project, an owner of that
+        project. That includes an invitation to be an owner, made in the dashboard.
+        Its link stops working at once.
+      security:
+        - bearer: [manage]
+      responses:
+        '204':
+          description: Withdrawn.
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409':
+          description: It was accepted, withdrawn or ended already.
+          content:
+            application/problem+json:
+              schema: {$ref: '#/components/schemas/Problem'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+
   /probe/checks:
     parameters:
       - $ref: '#/components/parameters/ProbeProtocol'
@@ -1385,6 +1845,17 @@ components:
       in: path
       required: true
       schema: {$ref: '#/components/schemas/Id'}
+    TeamId:
+      name: team_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/Id'}
+    PersonId:
+      name: person_id
+      in: path
+      required: true
+      description: A person the caller can already see there, by the id it was given.
+      schema: {$ref: '#/components/schemas/Id'}
     ChannelId:
       name: channel_id
       in: path
@@ -1573,6 +2044,13 @@ components:
       type: string
       enum: [viewer, editor, owner]
 
+    RoleToGive:
+      type: string
+      description: |
+        A role given over the API. An owner is named, invited, made less or taken out
+        only in the dashboard, signed in with a passkey, where every owner is told.
+      enum: [viewer, editor]
+
     Scope:
       type: string
       enum: [read, manage]
@@ -1671,6 +2149,12 @@ components:
         name: {type: string}
         role: {$ref: '#/components/schemas/Role'}
         team: {$ref: '#/components/schemas/Team'}
+        alerts:
+          type: boolean
+          description: |
+            Whether the person is told when a check of the project goes down and comes
+            back, as they chose or, when they never chose, as their role says: an
+            editor or owner is, a viewer is not. Left out for a key.
 
     QuietHours:
       type: object
@@ -1719,10 +2203,210 @@ components:
         name: {type: string}
         role: {$ref: '#/components/schemas/Role'}
         team: {$ref: '#/components/schemas/Team'}
+        alerts:
+          type: boolean
+          description: Whether the caller is told about this project, as in `MeProject`. Left out for a key.
         counts: {$ref: '#/components/schemas/StateCounts'}
         worst_state:
           $ref: '#/components/schemas/CheckState'
           description: Left out for a project with no checks.
+
+    ProjectCreated:
+      description: A project that was just made. Its ping key is shown here and never again.
+      allOf:
+        - $ref: '#/components/schemas/Project'
+        - type: object
+          required: [ping_key]
+          properties:
+            ping_key:
+              type: string
+              description: |
+                The project's ping key, a secret: with a check's slug it makes a ping
+                URL, `/ping/{ping_key}/{slug}`. Only its hash is kept.
+
+    ProjectPerson:
+      type: object
+      description: Someone who can see a project.
+      required: [id, name, role, alerts]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        role:
+          $ref: '#/components/schemas/Role'
+          description: |
+            The highest role they have here, which is what counts. It comes from
+            `team_role` and `own_role` now; later ways in, such as a project shared with
+            another team, will add their own fields.
+        team_role:
+          $ref: '#/components/schemas/Role'
+          description: Their role through the team. Left out for someone outside it.
+        own_role:
+          $ref: '#/components/schemas/Role'
+          description: Their role of their own in this project. Left out when they have none.
+        alerts:
+          type: boolean
+          description: Whether they are told about the project. Theirs to choose.
+
+    ProjectPeople:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/ProjectPerson'}
+        team:
+          type: object
+          description: |
+            The team's people, as a count, for a reader from outside the team, who is
+            not told who they are. Left out for a reader in the team, who finds them
+            in `items`.
+          required: [people, alerted]
+          properties:
+            people: {type: integer, minimum: 0}
+            alerted:
+              type: integer
+              minimum: 0
+              description: How many of them are told.
+
+    TeamMember:
+      type: object
+      required: [id, name, role]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        invited_as:
+          type: string
+          description: |
+            The label of the invitation they came in by: for whom it was made. Left out
+            for someone a command on the server put in the team.
+        invited_by:
+          $ref: '#/components/schemas/LogParty'
+          description: |
+            Who made that invitation, as in the log: a `person`, or `former_member`,
+            without a name, for someone no longer in the team.
+
+    TeamMemberSet:
+      type: object
+      description: A member whose role was changed, and the roles of their own that ended with it.
+      required: [id, name, role, ended_roles]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        ended_roles:
+          type: array
+          description: Roles of their own in the team's projects that no longer gave them more, and so ended.
+          items:
+            type: object
+            required: [project_id, project_name, role]
+            properties:
+              project_id: {$ref: '#/components/schemas/Id'}
+              project_name: {type: string}
+              role:
+                $ref: '#/components/schemas/Role'
+                description: The role of their own they had there.
+
+    ProjectOutsider:
+      type: object
+      description: Someone outside a team with a role of their own in one of its projects.
+      required: [id, name, role, project_id, project_name]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        project_id: {$ref: '#/components/schemas/Id'}
+        project_name: {type: string}
+
+    TeamPeople:
+      type: object
+      required: [id, name, members, outsiders]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        name: {type: string}
+        members:
+          type: array
+          items: {$ref: '#/components/schemas/TeamMember'}
+        outsiders:
+          type: array
+          description: One entry per project, for someone with a role of their own in several.
+          items: {$ref: '#/components/schemas/ProjectOutsider'}
+
+    WhatStays:
+      type: object
+      description: What someone taken out of a team keeps in its projects.
+      required: [roles, keys]
+      properties:
+        roles:
+          type: array
+          description: Their roles of their own, which `removeProjectRole` ends.
+          items: {$ref: '#/components/schemas/ProjectOutsider'}
+        keys:
+          type: array
+          description: Keys they made, which keep working until `revokeKey` ends them.
+          items:
+            type: object
+            required: [id, name, project_id, project_name]
+            properties:
+              id: {$ref: '#/components/schemas/Id'}
+              name: {type: string}
+              project_id: {$ref: '#/components/schemas/Id'}
+              project_name: {type: string}
+
+    InviteInput:
+      type: object
+      required: [role, label]
+      properties:
+        role: {$ref: '#/components/schemas/RoleToGive'}
+        label:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: |
+            For whom it is, such as "Carol" or "the backup contractor", so the owners
+            can tell that the right person came in. Whoever opens the link never sees it.
+
+    Invite:
+      type: object
+      required: [id, kind, role, label, made_by, created_at, expires_at]
+      properties:
+        id: {$ref: '#/components/schemas/Id'}
+        kind:
+          type: string
+          description: |
+            What it offers: `team`, a role in the team, or `project`, a role of one's
+            own in one project. New kinds will come.
+        project_id:
+          $ref: '#/components/schemas/Id'
+          description: For an invitation to one project.
+        project_name: {type: string}
+        role: {$ref: '#/components/schemas/Role'}
+        label:
+          type: string
+          description: For whom it was made.
+        made_by: {$ref: '#/components/schemas/LogParty'}
+        created_at: {type: string, format: date-time}
+        expires_at: {type: string, format: date-time}
+
+    InviteMade:
+      description: An invitation that was just made. Its link is shown here and never again.
+      allOf:
+        - $ref: '#/components/schemas/Invite'
+        - type: object
+          required: [url]
+          properties:
+            url:
+              type: string
+              format: uri
+              description: The link to hand over, a secret that works once. Only its hash is kept.
+
+    InviteList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: '#/components/schemas/Invite'}
 
     ProjectPage:
       type: object
@@ -2307,7 +2991,7 @@ components:
       description: |
         Who acted or whom an entry concerns, as far as the reader may know. `kind` is
         `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
-        reader may not know by name, `team`, `administrator`, `outside` or, later,
+        reader may not know by name, `team`, `administrator`, `outside` or
         `former_member`. A person's `id` is what to narrow to them with.
       required: [kind]
       properties:

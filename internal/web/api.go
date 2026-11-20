@@ -68,16 +68,38 @@ var apiOperations = []struct {
 	{"ListKeys", "GET /api/v1/keys", signInCredential},
 	{"CreateKey", "POST /api/v1/projects/{project_id}/keys", signInCredential},
 	{"RevokeKey", "DELETE /api/v1/keys/{key_id}", signInCredential},
+	{"CreateProject", "POST /api/v1/projects", signInCredential},
+	{"UpdateProject", "PATCH /api/v1/projects/{project_id}", signInCredential},
+	{"DeleteProject", "DELETE /api/v1/projects/{project_id}", signInCredential},
+	{"ListProjectPeople", "GET /api/v1/projects/{project_id}/people", signInCredential},
+	{"SetProjectRole", "PUT /api/v1/projects/{project_id}/roles/{person_id}", signInCredential},
+	{"RemoveProjectRole", "DELETE /api/v1/projects/{project_id}/roles/{person_id}", signInCredential},
+	{"SetProjectAlerts", "PUT /api/v1/me/projects/{project_id}/alerts", signInCredential},
+	{"GetTeam", "GET /api/v1/teams/{team_id}", signInCredential},
+	{"SetTeamMember", "PUT /api/v1/teams/{team_id}/members/{person_id}", signInCredential},
+	{"RemoveTeamMember", "DELETE /api/v1/teams/{team_id}/members/{person_id}", signInCredential},
+	{"ListTeamInvites", "GET /api/v1/teams/{team_id}/invites", signInCredential},
+	{"CreateTeamInvite", "POST /api/v1/teams/{team_id}/invites", signInCredential},
+	{"ListProjectInvites", "GET /api/v1/projects/{project_id}/invites", signInCredential},
+	{"CreateProjectInvite", "POST /api/v1/projects/{project_id}/invites", signInCredential},
+	{"WithdrawInvite", "DELETE /api/v1/invites/{invite_id}", signInCredential},
 }
 
 // apiBodies are the requests that hold a body, by what they read it as, so that a field
 // the server does not know is refused rather than ignored (manage-checks R23): sent
 // misspelled along with a whole `http`, it would otherwise lose what it meant to set.
 var apiBodies = map[string]func() any{
-	"POST /api/v1/projects/{project_id}/checks": func() any { return &api.CheckInput{} },
-	"PATCH /api/v1/checks/{check_id}":           func() any { return &api.CheckPatch{} },
-	"POST /api/v1/checks/{check_id}/move":       func() any { return &api.MoveCheckJSONRequestBody{} },
-	"POST /api/v1/projects/{project_id}/keys":   func() any { return &api.CreateKeyJSONRequestBody{} },
+	"POST /api/v1/projects/{project_id}/checks":           func() any { return &api.CheckInput{} },
+	"PATCH /api/v1/checks/{check_id}":                     func() any { return &api.CheckPatch{} },
+	"POST /api/v1/checks/{check_id}/move":                 func() any { return &api.MoveCheckJSONRequestBody{} },
+	"POST /api/v1/projects/{project_id}/keys":             func() any { return &api.CreateKeyJSONRequestBody{} },
+	"POST /api/v1/projects":                               func() any { return &api.CreateProjectJSONRequestBody{} },
+	"PATCH /api/v1/projects/{project_id}":                 func() any { return &api.UpdateProjectJSONRequestBody{} },
+	"PUT /api/v1/projects/{project_id}/roles/{person_id}": func() any { return &api.SetProjectRoleJSONRequestBody{} },
+	"PUT /api/v1/me/projects/{project_id}/alerts":         func() any { return &api.SetProjectAlertsJSONRequestBody{} },
+	"PUT /api/v1/teams/{team_id}/members/{person_id}":     func() any { return &api.SetTeamMemberJSONRequestBody{} },
+	"POST /api/v1/teams/{team_id}/invites":                func() any { return &api.InviteInput{} },
+	"POST /api/v1/projects/{project_id}/invites":          func() any { return &api.InviteInput{} },
 }
 
 // maxAPIBody caps what a request can hold, before anything reads it.
@@ -327,10 +349,17 @@ func (a apiServer) GetMe(ctx context.Context, _ api.GetMeRequestObject) (api.Get
 			me.Person.Email = &p.Email
 		}
 	}
+	told, err := a.s.Store.ToldAbout(ctx, c.Access, c.Token.PersonID)
+	if err != nil {
+		return nil, err
+	}
 	for _, project := range c.Access.Projects {
-		me.Projects = append(me.Projects, api.MeProject{
-			Id: project.ID, Name: project.Name, Role: api.Role(project.Role), Team: teamOf(c.Access, project.ID),
-		})
+		mp := api.MeProject{Id: project.ID, Name: project.Name, Role: api.Role(project.Role), Team: teamOf(c.Access, project.ID)}
+		if told != nil {
+			t := told[project.ID]
+			mp.Alerts = &t
+		}
+		me.Projects = append(me.Projects, mp)
 	}
 	if c.Key.ID == "" {
 		teams := []api.MeTeam{}

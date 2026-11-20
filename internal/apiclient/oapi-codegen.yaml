@@ -9,4 +9,4 @@ generate:
   models: true
 output: client.gen.go
 output-options:
-  include-operation-ids: [getMe, endThisToken, getStatus, listLog, listProbes, listProjects, getProject, listChecks, getCheck, listRuns, createCheck, updateCheck, deleteCheck, pauseCheck, resumeCheck, moveCheck, getPingUrl, rotatePingUrl, listKeys, createKey, revokeKey]
+  include-operation-ids: [getMe, endThisToken, getStatus, listLog, listProbes, listProjects, getProject, listChecks, getCheck, listRuns, createCheck, updateCheck, deleteCheck, pauseCheck, resumeCheck, moveCheck, getPingUrl, rotatePingUrl, listKeys, createKey, revokeKey, createProject, updateProject, deleteProject, listProjectPeople, setProjectRole, removeProjectRole, setProjectAlerts, getTeam, setTeamMember, removeTeamMember, listTeamInvites, createTeamInvite, listProjectInvites, createProjectInvite, withdrawInvite]

@@ -55,6 +55,10 @@ SELECT role FROM project_roles WHERE project_id = ? AND person_id = ?;
 -- name: IsAlerted :one
 SELECT COUNT(*) FROM project_alerted WHERE project_id = ? AND person_id = ?;
 
+-- The projects a person is told about, from the view project_alerted.
+-- name: ProjectsAlertedOf :many
+SELECT project_id FROM project_alerted WHERE person_id = ?;
+
 -- name: SetAlertChoice :exec
 INSERT INTO alert_choices (workspace_id, project_id, person_id, alerts)
 VALUES (?, ?, ?, ?)

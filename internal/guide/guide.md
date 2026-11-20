@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 # Allstill guide
 
-Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices, and where those who may edit a project add and change its checks, a team's owners let people in and make, rename and delete its projects, and everyone chooses on a project's page whether they are told about it. People and alerting as a whole are managed with the commands below.
+Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices, and where those who may edit a project add and change its checks, a team's owners let people in and make, rename and delete its projects, and everyone chooses on a project's page whether they are told about it. Those who own a team or a project do the same from their own machine, with the commands below, and the administrator keeps the rest on the server.
 
 There are two ways to watch something:
 
@@ -25,7 +25,7 @@ https://allstill.example.com/ping/CHECK-UUID
 https://allstill.example.com/ping/PROJECT-PING-KEY/nightly-backup
 ```
 
-The second form names the check with a slug: lowercase letters, digits, `-` and `_`, starting with a letter or digit. `start`, `fail` and `log` are taken. A project's ping key is shown once, when `allstill admin create-project` makes the project, or when a team's owner makes it in the dashboard.
+The second form names the check with a slug: lowercase letters, digits, `-` and `_`, starting with a letter or digit. `start`, `fail` and `log` are taken. A project's ping key is shown once, when `allstill admin create-project` makes the project, or when a team's owner makes it in the dashboard or with `allstill projects add`.
 
 Give the URL to the job in `ALLSTILL_URL`, and wrap the job's command:
 
@@ -141,6 +141,27 @@ allstill keys revoke monitor -project Shop
 
 The key is printed once. Keep it in the script's secrets, and give it as `ALLSTILL_TOKEN`, with `ALLSTILL_SERVER` for the address: a command then needs no sign-in. A key with `read` acts as a viewer of its one project, and with `manage` as an editor. It reaches nothing else, it cannot make a key, and it keeps working when whoever made it has left.
 
+**A team's owners run it from here too**, as in the dashboard. Everyone chooses for themselves whether they are told about a project. A person is named by name where it is one of a kind there, or by id:
+
+```sh
+allstill projects alerts Backups off                      # anyone, for themselves
+allstill projects add Tides                               # -team Harbour, for someone who owns several
+allstill projects rename Tides "Tide tables"
+allstill projects delete "Tide tables"                    # only once it holds no check
+allstill projects people Backups                          # who can see it, through what, and who is told
+allstill projects role Backups Carol editor               # a role of their own; none ends it
+allstill projects invite Backups -for Carol -role viewer  # prints a link that works once
+allstill projects invites Backups                         # its open invitations
+allstill projects withdraw Backups Carol                  # by whom it is for, or its id
+allstill teams                                            # its people and open invitations
+allstill teams invite -for "the backup contractor" -role editor
+allstill teams role Dan viewer
+allstill teams remove Dan
+allstill teams withdraw Carol
+```
+
+An invitation's link is a secret, shown once: send it to the person and nowhere else. Whoever opens it signs in, or makes an account with a passkey, in a browser. Nobody is added by name or address. An owner is named, invited, made less or taken out only in the dashboard, signed in with a passkey, where every owner is told: a sign-in from the command line cannot. Someone with an owner's role in one project, from outside its team, manages that project's people and invitations, and reads the team's people as a count.
+
 **You, as an AI assistant,** use a key or a read-only sign-in you were given. Never run `allstill login` or approve a code yourself. A read-only one cannot read a ping URL, so for that, ask.
 
 ## Watch a site or a port
@@ -192,7 +213,6 @@ A new installation starts in shadow mode: it records what it would have sent und
 
 ## Not here yet
 
-- Managing projects and people from the command line. A team's owners do both in the dashboard; checks and keys already work from anywhere.
 - Reading incidents, or acknowledging and snoozing them.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Changing a project's default schedule and grace period.

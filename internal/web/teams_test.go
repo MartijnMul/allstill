@@ -13,6 +13,8 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -359,6 +361,35 @@ func apiAbout(o side, own side) map[string][]wallRequest {
 		"ListKeys":      {{method: "GET", path: "/keys"}, {method: "GET", path: "/keys?project_id=" + o.project, names: o.project}},
 		"CreateKey":     {{method: "POST", path: "/projects/" + o.project + "/keys", body: map[string]any{"name": "planted", "scope": "read"}, names: o.project}},
 		"RevokeKey":     {{method: "DELETE", path: "/keys/" + o.key, names: o.key}},
+		// A team's owners running it (plan-3.md, part C). Someone of the other
+		// team, named in one's own team or project, is someone who is not there.
+		"CreateProject":     {{method: "POST", path: "/projects", body: map[string]any{"name": "planted", "team_id": o.team}, names: o.team}},
+		"UpdateProject":     {{method: "PATCH", path: "/projects/" + o.project, body: map[string]any{"name": "planted"}, names: o.project}},
+		"DeleteProject":     {{method: "DELETE", path: "/projects/" + o.project, names: o.project}},
+		"ListProjectPeople": {{method: "GET", path: "/projects/" + o.project + "/people", names: o.project}},
+		"SetProjectRole": {
+			{method: "PUT", path: "/projects/" + o.project + "/roles/" + o.editor, body: map[string]any{"role": "editor"}, names: o.project},
+			{method: "PUT", path: "/projects/" + own.project + "/roles/" + o.editor, body: map[string]any{"role": "editor"}, names: o.editor},
+		},
+		"RemoveProjectRole": {
+			{method: "DELETE", path: "/projects/" + o.project + "/roles/" + o.editor, names: o.project},
+			{method: "DELETE", path: "/projects/" + own.project + "/roles/" + o.editor, names: o.editor},
+		},
+		"SetProjectAlerts": {{method: "PUT", path: "/me/projects/" + o.project + "/alerts", body: map[string]any{"alerts": false}, names: o.project}},
+		"GetTeam":          {{method: "GET", path: "/teams/" + o.team, names: o.team}},
+		"SetTeamMember": {
+			{method: "PUT", path: "/teams/" + o.team + "/members/" + o.editor, body: map[string]any{"role": "viewer"}, names: o.team},
+			{method: "PUT", path: "/teams/" + own.team + "/members/" + o.editor, body: map[string]any{"role": "viewer"}, names: o.editor},
+		},
+		"RemoveTeamMember": {
+			{method: "DELETE", path: "/teams/" + o.team + "/members/" + o.editor, names: o.team},
+			{method: "DELETE", path: "/teams/" + own.team + "/members/" + o.editor, names: o.editor},
+		},
+		"ListTeamInvites":     {{method: "GET", path: "/teams/" + o.team + "/invites", names: o.team}},
+		"CreateTeamInvite":    {{method: "POST", path: "/teams/" + o.team + "/invites", body: map[string]any{"role": "editor", "label": "planted"}, names: o.team}},
+		"ListProjectInvites":  {{method: "GET", path: "/projects/" + o.project + "/invites", names: o.project}},
+		"CreateProjectInvite": {{method: "POST", path: "/projects/" + o.project + "/invites", body: map[string]any{"role": "editor", "label": "planted"}, names: o.project}},
+		"WithdrawInvite":      {{method: "DELETE", path: "/invites/" + o.invite, names: o.invite}},
 	}
 }
 
@@ -546,6 +577,11 @@ func TestNothingOfAnotherTeamComesBack(t *testing.T) {
 		}
 		for scope, token := range tokens {
 			call := func(r wallRequest) (int, string) {
+				// The walk asks far more than a minute's worth, and is about the
+				// wall, not the limit, which TestACredentialHasALimit holds.
+				w.srv.apiLimit.mu.Lock()
+				w.srv.apiLimit.buckets = nil
+				w.srv.apiLimit.mu.Unlock()
 				rec := bearerWith(w.fixture, r.method, r.path, token, r.body)
 				return rec.Code, rec.Body.String()
 			}
@@ -716,16 +752,87 @@ func TestANoticeStaysOnTheOverviewUntilRead(t *testing.T) {
 	}
 }
 
-// Making a team, naming its owner and making a sign-in link stay commands on
-// the server: a stolen sign-in must not be able to do them (R30).
+// What stays on the server, or in the dashboard, is judged by what operations
+// can do (R30, plan-3.md): none makes or removes a team, makes a sign-in link,
+// removes a passkey or accepts an invitation, and none names an owner, invites
+// one, makes one less or takes one out, also with an owner's own sign-in.
 func TestWhatStaysOnTheServer(t *testing.T) {
 	for _, op := range apiOperations {
-		for _, word := range []string{"Team", "Owner", "Member", "Link", "Passkey", "Person", "People"} {
-			if strings.Contains(op.name, word) {
-				t.Errorf("%s is served over the API: decide in a spec whether that may leave the server (intent/teams/spec.md, R30)", op.name)
-			}
+		stays := slices.Contains([]string{"CreateTeam", "RemoveTeam", "DeleteTeam", "UpdateTeam", "SetTeam"}, op.name)
+		for _, word := range []string{"Link", "Passkey", "Accept", "Person"} {
+			stays = stays || strings.Contains(op.name, word)
+		}
+		if stays {
+			t.Errorf("%s is served over the API: decide in a spec whether that may leave the server (intent/teams/spec.md, R30)", op.name)
 		}
 	}
+	f := setup(t)
+	f.srv.Now = time.Now
+	ctx := t.Context()
+	team, err := f.st.TeamOfProject(ctx, f.ws, f.project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inTeam := func(name string, role store.Role) string {
+		person, err := f.st.CreatePerson(ctx, store.Command("test"), f.ws, store.NewPerson{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := f.st.SetTeamMember(ctx, store.Command("test"), f.ws, team, person, role); err != nil {
+			t.Fatal(err)
+		}
+		return person
+	}
+	olive, ed := inTeam("Olive", store.Owner), inTeam("Ed", store.Editor)
+	pam := someoneIn(t, f, "Pam", f.project, store.Owner)
+	before, err := f.st.PeopleOfTeam(ctx, mustAccess(t, f, f.ada), team, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeProject, err := f.st.PeopleOfProject(ctx, mustAccess(t, f, f.ada), f.project, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := tokenFor(t, f, f.ada, store.ScopeManage)
+	for _, r := range []struct {
+		method, path string
+		body         any
+	}{
+		{"PUT", "/teams/" + team + "/members/" + ed, map[string]any{"role": "owner"}},
+		{"PUT", "/teams/" + team + "/members/" + olive, map[string]any{"role": "editor"}},
+		{"DELETE", "/teams/" + team + "/members/" + olive, nil},
+		{"POST", "/teams/" + team + "/invites", map[string]any{"role": "owner", "label": "Someone"}},
+		{"POST", "/projects/" + f.project + "/invites", map[string]any{"role": "owner", "label": "Someone"}},
+		{"PUT", "/projects/" + f.project + "/roles/" + f.bob, map[string]any{"role": "owner"}},
+		{"PUT", "/projects/" + f.project + "/roles/" + pam, map[string]any{"role": "editor"}},
+		{"DELETE", "/projects/" + f.project + "/roles/" + pam, nil},
+	} {
+		w := bearerWith(f, r.method, r.path, owner, r.body)
+		if w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "dashboard") {
+			t.Errorf("%s %s with an owner's sign-in: %d %s", r.method, r.path, w.Code, w.Body)
+		}
+	}
+	// Who is in the team and the project, with what, and no invitation to either.
+	after, err := f.st.PeopleOfTeam(ctx, mustAccess(t, f, f.ada), team, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterProject, err := f.st.PeopleOfProject(ctx, mustAccess(t, f, f.ada), f.project, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) || !reflect.DeepEqual(beforeProject, afterProject) || len(after.Invites) != 0 {
+		t.Errorf("something changed:\n%+v\n%+v\n%+v\n%+v", before, after, beforeProject, afterProject)
+	}
+}
+
+func mustAccess(t *testing.T, f fixture, person string) store.Access {
+	t.Helper()
+	a, err := f.st.AccessOfPerson(t.Context(), f.ws, person)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
 }
 
 // The private ranges the server was given are open to the teams they were

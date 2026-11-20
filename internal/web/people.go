@@ -166,7 +166,7 @@ func (s *Server) setTeamRole(w http.ResponseWriter, r *http.Request, v viewer) {
 		s.renderPeople(w, r, v, http.StatusUnprocessableEntity, nil, "Choose a role.")
 		return
 	}
-	err = s.Store.SetTeamMemberAs(r.Context(), v.Access, t.ID, r.PathValue("person"), role)
+	_, err = s.Store.SetTeamMemberAs(r.Context(), v.Access, t.ID, r.PathValue("person"), role)
 	if errors.Is(err, store.ErrLastOwner) {
 		s.renderPeople(w, r, v, http.StatusConflict, nil, "This is the team's only owner. Make someone else owner first.")
 		return

@@ -211,19 +211,37 @@ func (e MeKind) Valid() bool {
 
 // Defines values for Role.
 const (
-	Editor Role = "editor"
-	Owner  Role = "owner"
-	Viewer Role = "viewer"
+	RoleEditor Role = "editor"
+	RoleOwner  Role = "owner"
+	RoleViewer Role = "viewer"
 )
 
 // Valid indicates whether the value is a known member of the Role enum.
 func (e Role) Valid() bool {
 	switch e {
-	case Editor:
+	case RoleEditor:
 		return true
-	case Owner:
+	case RoleOwner:
 		return true
-	case Viewer:
+	case RoleViewer:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RoleToGive.
+const (
+	RoleToGiveEditor RoleToGive = "editor"
+	RoleToGiveViewer RoleToGive = "viewer"
+)
+
+// Valid indicates whether the value is a known member of the RoleToGive enum.
+func (e RoleToGive) Valid() bool {
+	switch e {
+	case RoleToGiveEditor:
+		return true
+	case RoleToGiveViewer:
 		return true
 	default:
 		return false
@@ -347,7 +365,7 @@ type ApiKey struct {
 
 	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
 	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
-	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// reader may not know by name, `team`, `administrator`, `outside` or
 	// `former_member`. A person's `id` is what to narrow to them with.
 	MadeBy LogParty `json:"made_by"`
 
@@ -378,7 +396,7 @@ type ApiKeyMade struct {
 
 	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
 	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
-	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// reader may not know by name, `team`, `administrator`, `outside` or
 	// `former_member`. A person's `id` is what to narrow to them with.
 	MadeBy LogParty `json:"made_by"`
 
@@ -908,6 +926,79 @@ type IntervalSchedule struct {
 // IntervalScheduleKind defines model for IntervalSchedule.Kind.
 type IntervalScheduleKind string
 
+// Invite defines model for Invite.
+type Invite struct {
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind What it offers: `team`, a role in the team, or `project`, a role of one's
+	// own in one project. New kinds will come.
+	Kind string `json:"kind"`
+
+	// Label For whom it was made.
+	Label string `json:"label"`
+
+	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or
+	// `former_member`. A person's `id` is what to narrow to them with.
+	MadeBy LogParty `json:"made_by"`
+
+	// ProjectId For an invitation to one project.
+	ProjectId   *Id     `json:"project_id,omitempty"`
+	ProjectName *string `json:"project_name,omitempty"`
+	Role        Role    `json:"role"`
+}
+
+// InviteInput defines model for InviteInput.
+type InviteInput struct {
+	// Label For whom it is, such as "Carol" or "the backup contractor", so the owners
+	// can tell that the right person came in. Whoever opens the link never sees it.
+	Label string `json:"label"`
+
+	// Role A role given over the API. An owner is named, invited, made less or taken out
+	// only in the dashboard, signed in with a passkey, where every owner is told.
+	Role RoleToGive `json:"role"`
+}
+
+// InviteList defines model for InviteList.
+type InviteList struct {
+	Items []Invite `json:"items"`
+}
+
+// InviteMade An invitation that was just made. Its link is shown here and never again.
+type InviteMade struct {
+	CreatedAt time.Time `json:"created_at"`
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// Kind What it offers: `team`, a role in the team, or `project`, a role of one's
+	// own in one project. New kinds will come.
+	Kind string `json:"kind"`
+
+	// Label For whom it was made.
+	Label string `json:"label"`
+
+	// MadeBy Who acted or whom an entry concerns, as far as the reader may know. `kind` is
+	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
+	// reader may not know by name, `team`, `administrator`, `outside` or
+	// `former_member`. A person's `id` is what to narrow to them with.
+	MadeBy LogParty `json:"made_by"`
+
+	// ProjectId For an invitation to one project.
+	ProjectId   *Id     `json:"project_id,omitempty"`
+	ProjectName *string `json:"project_name,omitempty"`
+	Role        Role    `json:"role"`
+
+	// Url The link to hand over, a secret that works once. Only its hash is kept.
+	Url string `json:"url"`
+}
+
 // LogEntry defines model for LogEntry.
 type LogEntry struct {
 	// AboutId An opaque identifier. Never a secret.
@@ -922,7 +1013,7 @@ type LogEntry struct {
 
 	// By Who acted or whom an entry concerns, as far as the reader may know. `kind` is
 	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
-	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// reader may not know by name, `team`, `administrator`, `outside` or
 	// `former_member`. A person's `id` is what to narrow to them with.
 	By LogParty `json:"by"`
 
@@ -938,7 +1029,7 @@ type LogEntry struct {
 
 	// Person Who acted or whom an entry concerns, as far as the reader may know. `kind` is
 	// `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
-	// reader may not know by name, `team`, `administrator`, `outside` or, later,
+	// reader may not know by name, `team`, `administrator`, `outside` or
 	// `former_member`. A person's `id` is what to narrow to them with.
 	Person *LogParty `json:"person,omitempty"`
 
@@ -966,7 +1057,7 @@ type LogPage struct {
 
 // LogParty Who acted or whom an entry concerns, as far as the reader may know. `kind` is
 // `person`, `key`, `probe`, `job`, `command` or `allstill`; or, for someone the
-// reader may not know by name, `team`, `administrator`, `outside` or, later,
+// reader may not know by name, `team`, `administrator`, `outside` or
 // `former_member`. A person's `id` is what to narrow to them with.
 type LogParty struct {
 	// Id An opaque identifier. Never a secret.
@@ -1022,6 +1113,11 @@ type MePerson struct {
 
 // MeProject defines model for MeProject.
 type MeProject struct {
+	// Alerts Whether the person is told when a check of the project goes down and comes
+	// back, as they chose or, when they never chose, as their role says: an
+	// editor or owner is, a viewer is not. Left out for a key.
+	Alerts *bool `json:"alerts,omitempty"`
+
 	// Id An opaque identifier. Never a secret.
 	Id   Id     `json:"id"`
 	Name string `json:"name"`
@@ -1084,6 +1180,9 @@ type Problem struct {
 
 // Project defines model for Project.
 type Project struct {
+	// Alerts Whether the caller is told about this project, as in `MeProject`. Left out for a key.
+	Alerts *bool `json:"alerts,omitempty"`
+
 	// Counts How many checks are in each state; states with none are left out.
 	Counts StateCounts `json:"counts"`
 
@@ -1100,14 +1199,90 @@ type Project struct {
 	WorstState *CheckState `json:"worst_state,omitempty"`
 }
 
+// ProjectCreated A project that was just made. Its ping key is shown here and never again.
+type ProjectCreated struct {
+	// Alerts Whether the caller is told about this project, as in `MeProject`. Left out for a key.
+	Alerts *bool `json:"alerts,omitempty"`
+
+	// Counts How many checks are in each state; states with none are left out.
+	Counts StateCounts `json:"counts"`
+
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// PingKey The project's ping key, a secret: with a check's slug it makes a ping
+	// URL, `/ping/{ping_key}/{slug}`. Only its hash is kept.
+	PingKey string `json:"ping_key"`
+	Role    Role   `json:"role"`
+
+	// Team The team a project belongs to. Given only to a member of that team: someone
+	// with a role of their own in one project does not learn the team from it.
+	Team *Team `json:"team,omitempty"`
+
+	// WorstState Left out for a project with no checks.
+	WorstState *CheckState `json:"worst_state,omitempty"`
+}
+
+// ProjectOutsider Someone outside a team with a role of their own in one of its projects.
+type ProjectOutsider struct {
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// ProjectId An opaque identifier. Never a secret.
+	ProjectId   Id     `json:"project_id"`
+	ProjectName string `json:"project_name"`
+	Role        Role   `json:"role"`
+}
+
 // ProjectPage defines model for ProjectPage.
 type ProjectPage struct {
 	Items      []Project `json:"items"`
 	NextCursor *string   `json:"next_cursor,omitempty"`
 }
 
+// ProjectPeople defines model for ProjectPeople.
+type ProjectPeople struct {
+	Items []ProjectPerson `json:"items"`
+
+	// Team The team's people, as a count, for a reader from outside the team, who is
+	// not told who they are. Left out for a reader in the team, who finds them
+	// in `items`.
+	Team *struct {
+		// Alerted How many of them are told.
+		Alerted int `json:"alerted"`
+		People  int `json:"people"`
+	} `json:"team,omitempty"`
+}
+
+// ProjectPerson Someone who can see a project.
+type ProjectPerson struct {
+	// Alerts Whether they are told about the project. Theirs to choose.
+	Alerts bool `json:"alerts"`
+
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// OwnRole Their role of their own in this project. Left out when they have none.
+	OwnRole *Role `json:"own_role,omitempty"`
+
+	// Role The highest role they have here, which is what counts. It comes from
+	// `team_role` and `own_role` now; later ways in, such as a project shared with
+	// another team, will add their own fields.
+	Role Role `json:"role"`
+
+	// TeamRole Their role through the team. Left out for someone outside it.
+	TeamRole *Role `json:"team_role,omitempty"`
+}
+
 // Role defines model for Role.
 type Role string
+
+// RoleToGive A role given over the API. An owner is named, invited, made less or taken out
+// only in the dashboard, signed in with a passkey, where every owner is told.
+type RoleToGive string
 
 // Run One run of a job, from its start ping (if any) to its end, or one attempt of a check Allstill runs itself.
 type Run struct {
@@ -1221,6 +1396,68 @@ type Team struct {
 	Name string `json:"name"`
 }
 
+// TeamMember defines model for TeamMember.
+type TeamMember struct {
+	// Id An opaque identifier. Never a secret.
+	Id Id `json:"id"`
+
+	// InvitedAs The label of the invitation they came in by: for whom it was made. Left out
+	// for someone a command on the server put in the team.
+	InvitedAs *string `json:"invited_as,omitempty"`
+
+	// InvitedBy Who made that invitation, as in the log: a `person`, or `former_member`,
+	// without a name, for someone no longer in the team.
+	InvitedBy *LogParty `json:"invited_by,omitempty"`
+	Name      string    `json:"name"`
+	Role      Role      `json:"role"`
+}
+
+// TeamMemberSet A member whose role was changed, and the roles of their own that ended with it.
+type TeamMemberSet struct {
+	// EndedRoles Roles of their own in the team's projects that no longer gave them more, and so ended.
+	EndedRoles []struct {
+		// ProjectId An opaque identifier. Never a secret.
+		ProjectId   Id     `json:"project_id"`
+		ProjectName string `json:"project_name"`
+
+		// Role The role of their own they had there.
+		Role Role `json:"role"`
+	} `json:"ended_roles"`
+
+	// Id An opaque identifier. Never a secret.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+	Role Role   `json:"role"`
+}
+
+// TeamPeople defines model for TeamPeople.
+type TeamPeople struct {
+	// Id An opaque identifier. Never a secret.
+	Id      Id           `json:"id"`
+	Members []TeamMember `json:"members"`
+	Name    string       `json:"name"`
+
+	// Outsiders One entry per project, for someone with a role of their own in several.
+	Outsiders []ProjectOutsider `json:"outsiders"`
+}
+
+// WhatStays What someone taken out of a team keeps in its projects.
+type WhatStays struct {
+	// Keys Keys they made, which keep working until `revokeKey` ends them.
+	Keys []struct {
+		// Id An opaque identifier. Never a secret.
+		Id   Id     `json:"id"`
+		Name string `json:"name"`
+
+		// ProjectId An opaque identifier. Never a secret.
+		ProjectId   Id     `json:"project_id"`
+		ProjectName string `json:"project_name"`
+	} `json:"keys"`
+
+	// Roles Their roles of their own, which `removeProjectRole` ends.
+	Roles []ProjectOutsider `json:"roles"`
+}
+
 // ChannelId An opaque identifier. Never a secret.
 type ChannelId = Id
 
@@ -1242,6 +1479,9 @@ type IfMatch = string
 // Limit defines model for Limit.
 type Limit = int
 
+// PersonId An opaque identifier. Never a secret.
+type PersonId = Id
+
 // PingKey defines model for PingKey.
 type PingKey = string
 
@@ -1250,6 +1490,9 @@ type ProbeProtocol = int
 
 // ProjectId An opaque identifier. Never a secret.
 type ProjectId = Id
+
+// TeamId An opaque identifier. Never a secret.
+type TeamId = Id
 
 // BadRequest Problem Details (RFC 9457).
 type BadRequest = Problem
@@ -1325,6 +1568,12 @@ type ListLogParams struct {
 // ListLogParamsWhat defines parameters for ListLog.
 type ListLogParamsWhat string
 
+// SetProjectAlertsJSONBody defines parameters for SetProjectAlerts.
+type SetProjectAlertsJSONBody struct {
+	// Alerts Told when a check of the project goes down, and when it comes back.
+	Alerts bool `json:"alerts"`
+}
+
 // ListProjectsParams defines parameters for ListProjects.
 type ListProjectsParams struct {
 	// Cursor The `next_cursor` of the previous page.
@@ -1332,6 +1581,21 @@ type ListProjectsParams struct {
 
 	// Limit The most items on one page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateProjectJSONBody defines parameters for CreateProject.
+type CreateProjectJSONBody struct {
+	// Name Unique within the team.
+	Name string `json:"name"`
+
+	// TeamId The team to make it in. Needed only by someone who owns more than one.
+	TeamId *Id `json:"team_id,omitempty"`
+}
+
+// UpdateProjectJSONBody defines parameters for UpdateProject.
+type UpdateProjectJSONBody struct {
+	// Name Unique within the team.
+	Name *string `json:"name,omitempty"`
 }
 
 // ListChecksParams defines parameters for ListChecks.
@@ -1349,17 +1613,52 @@ type CreateKeyJSONBody struct {
 	Scope Scope  `json:"scope"`
 }
 
+// SetProjectRoleJSONBody defines parameters for SetProjectRole.
+type SetProjectRoleJSONBody struct {
+	// Role A role given over the API. An owner is named, invited, made less or taken out
+	// only in the dashboard, signed in with a passkey, where every owner is told.
+	Role RoleToGive `json:"role"`
+}
+
+// SetTeamMemberJSONBody defines parameters for SetTeamMember.
+type SetTeamMemberJSONBody struct {
+	// Role A role given over the API. An owner is named, invited, made less or taken out
+	// only in the dashboard, signed in with a passkey, where every owner is told.
+	Role RoleToGive `json:"role"`
+}
+
 // UpdateCheckJSONRequestBody defines body for UpdateCheck for application/json ContentType.
 type UpdateCheckJSONRequestBody = CheckPatch
 
 // MoveCheckJSONRequestBody defines body for MoveCheck for application/json ContentType.
 type MoveCheckJSONRequestBody MoveCheckJSONBody
 
+// SetProjectAlertsJSONRequestBody defines body for SetProjectAlerts for application/json ContentType.
+type SetProjectAlertsJSONRequestBody SetProjectAlertsJSONBody
+
+// CreateProjectJSONRequestBody defines body for CreateProject for application/json ContentType.
+type CreateProjectJSONRequestBody CreateProjectJSONBody
+
+// UpdateProjectJSONRequestBody defines body for UpdateProject for application/json ContentType.
+type UpdateProjectJSONRequestBody UpdateProjectJSONBody
+
 // CreateCheckJSONRequestBody defines body for CreateCheck for application/json ContentType.
 type CreateCheckJSONRequestBody = CheckInput
 
+// CreateProjectInviteJSONRequestBody defines body for CreateProjectInvite for application/json ContentType.
+type CreateProjectInviteJSONRequestBody = InviteInput
+
 // CreateKeyJSONRequestBody defines body for CreateKey for application/json ContentType.
 type CreateKeyJSONRequestBody CreateKeyJSONBody
+
+// SetProjectRoleJSONRequestBody defines body for SetProjectRole for application/json ContentType.
+type SetProjectRoleJSONRequestBody SetProjectRoleJSONBody
+
+// CreateTeamInviteJSONRequestBody defines body for CreateTeamInvite for application/json ContentType.
+type CreateTeamInviteJSONRequestBody = InviteInput
+
+// SetTeamMemberJSONRequestBody defines body for SetTeamMember for application/json ContentType.
+type SetTeamMemberJSONRequestBody SetTeamMemberJSONBody
 
 // AsIntervalSchedule returns the union data inside the Schedule as a IntervalSchedule
 func (t Schedule) AsIntervalSchedule() (IntervalSchedule, error) {
@@ -1622,6 +1921,16 @@ type ClientInterface interface {
 	// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
 	ListRuns(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// WithdrawInvite Withdraw an open invitation
+	//
+	// Needs a person's sign-in with the `manage` scope, from someone who may make one
+	// like it: an owner of the team, or for one to a project, an owner of that
+	// project. That includes an invitation to be an owner, made in the dashboard.
+	// Its link stops working at once.
+	//
+	// Corresponds with DELETE /invites/{invite_id} (the `WithdrawInvite` operationId).
+	WithdrawInvite(ctx context.Context, inviteId Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListKeys The keys of a project, or of all the caller owns
 	//
 	// Needs a person's sign-in, as an owner of the project. Who made a key reads as
@@ -1655,6 +1964,28 @@ type ClientInterface interface {
 	// Corresponds with GET /me (the `GetMe` operationId).
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SetProjectAlertsWithBody Choose whether you are told about a project
+	//
+	// Needs a person's sign-in with the `manage` scope, with any role in the project.
+	// It is the caller's own choice, and nobody can make it for someone else. It
+	// stays when their role changes.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+	SetProjectAlertsWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetProjectAlerts Choose whether you are told about a project
+	//
+	// Needs a person's sign-in with the `manage` scope, with any role in the project.
+	// It is the caller's own choice, and nobody can make it for someone else. It
+	// stays when their role changes.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+	SetProjectAlerts(ctx context.Context, projectId ProjectId, body SetProjectAlertsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// EndThisToken End the sign-in this request came through
 	//
 	// What `allstill logout` does. It stops working at once. A sign-in with the scope
@@ -1676,10 +2007,65 @@ type ClientInterface interface {
 	// Corresponds with GET /projects (the `ListProjects` operationId).
 	ListProjects(ctx context.Context, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateProjectWithBody Make a project in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+	// caller is the project's owner through the team, with every other member at
+	// their role there. Its ping key, for pings by slug, is shown here, once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /projects (the `CreateProject` operationId).
+	CreateProjectWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateProject Make a project in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+	// caller is the project's owner through the team, with every other member at
+	// their role there. Its ping key, for pings by slug, is shown here, once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /projects (the `CreateProject` operationId).
+	CreateProject(ctx context.Context, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteProject Delete a project without checks
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+	// team. Only a project without checks can be deleted: its checks are deleted or
+	// moved first, so that no job pinging it breaks by surprise. Its ping key and
+	// keys stop working, its open invitations and the roles of their own in it end,
+	// and its name can be used again. It cannot be undone.
+	//
+	// Corresponds with DELETE /projects/{project_id} (the `DeleteProject` operationId).
+	DeleteProject(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetProject One project
 	//
 	// Corresponds with GET /projects/{project_id} (the `GetProject` operationId).
 	GetProject(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateProjectWithBody Rename a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+	// team; an owner of only this project cannot. Its ping key does not change, so
+	// jobs that ping by slug keep working.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+	UpdateProjectWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateProject Rename a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+	// team; an owner of only this project cannot. Its ping key does not change, so
+	// jobs that ping by slug keep working.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+	UpdateProject(ctx context.Context, projectId ProjectId, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListChecks The checks of a project
 	//
@@ -1710,6 +2096,43 @@ type ClientInterface interface {
 	// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
 	CreateCheck(ctx context.Context, projectId ProjectId, body CreateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListProjectInvites The open invitations to a project
+	//
+	// Needs a person's sign-in, as an owner of the project. Who made one reads as in
+	// the log: for an owner from outside the team, a member of the team is `team`.
+	// Not paged: all of them.
+	//
+	// Corresponds with GET /projects/{project_id}/invites (the `ListProjectInvites` operationId).
+	ListProjectInvites(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateProjectInviteWithBody Invite someone into a project, with a role of their own
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in this project alone. It works once, for seven days, and stops
+	// working when its maker is no longer an owner of the project. Nobody is looked
+	// up by name or address. An owner is invited in the dashboard, not here. The
+	// link is shown here, once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+	CreateProjectInviteWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateProjectInvite Invite someone into a project, with a role of their own
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in this project alone. It works once, for seven days, and stops
+	// working when its maker is no longer an owner of the project. Nobody is looked
+	// up by name or address. An owner is invited in the dashboard, not here. The
+	// link is shown here, once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+	CreateProjectInvite(ctx context.Context, projectId ProjectId, body CreateProjectInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateKeyWithBody Make a key for a project
 	//
 	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
@@ -1732,6 +2155,60 @@ type ClientInterface interface {
 	// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
 	CreateKey(ctx context.Context, projectId ProjectId, body CreateKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListProjectPeople Who can see a project, through what, and who is told
+	//
+	// Needs a person's sign-in, as an owner of the project. Everyone is listed once,
+	// at the highest role they have. An owner of the project from outside its team
+	// is not told who the team's people are: they are counted in `team` and are never
+	// in `items`, also when they have a role of their own here. Not paged: all of
+	// them.
+	//
+	// Corresponds with GET /projects/{project_id}/people (the `ListProjectPeople` operationId).
+	ListProjectPeople(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveProjectRole End someone's role of their own in a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// What they have through the team stays; someone outside the team no longer
+	// sees the project. Someone without a role of their own here answers 404, as in
+	// `setProjectRole`. An owner's role is ended in the dashboard, not here. Keys
+	// they made in the project keep working, as a key is the project's.
+	//
+	// Corresponds with DELETE /projects/{project_id}/roles/{person_id} (the `RemoveProjectRole` operationId).
+	RemoveProjectRole(ctx context.Context, projectId ProjectId, personId PersonId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetProjectRoleWithBody Change someone's role of their own in a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// It changes a role someone already has of their own in this project, and never
+	// gives one: for anyone without one, such as a member of the team who has only
+	// what the team gives, it answers 404, and someone new comes in by an
+	// invitation. To an owner from outside the team, the team's members answer 404
+	// too. The role must be more than what the team gives them. An owner's role is
+	// not changed here: that is done in the dashboard. Whether the person is told
+	// stays as they chose; if they never chose, it follows the new role.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+	SetProjectRoleWithBody(ctx context.Context, projectId ProjectId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetProjectRole Change someone's role of their own in a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// It changes a role someone already has of their own in this project, and never
+	// gives one: for anyone without one, such as a member of the team who has only
+	// what the team gives, it answers 404, and someone new comes in by an
+	// invitation. To an owner from outside the team, the team's members answer 404
+	// too. The role must be more than what the team gives them. An owner's role is
+	// not changed here: that is done in the dashboard. Whether the person is told
+	// stays as they chose; if they never chose, it follows the new role.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+	SetProjectRole(ctx context.Context, projectId ProjectId, personId PersonId, body SetProjectRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetStatus Everything the caller can see, in one snapshot
 	//
 	// Read this first: how many checks are in each state, per project and in all, and
@@ -1740,6 +2217,93 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /status (the `GetStatus` operationId).
 	GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTeam A team and its people
+	//
+	// Needs a person's sign-in, as an owner of the team. Its members, and the people
+	// outside it with a role of their own in one of its projects, all of them. The
+	// open invitations are at `listTeamInvites`.
+	//
+	// Corresponds with GET /teams/{team_id} (the `GetTeam` operationId).
+	GetTeam(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListTeamInvites The open invitations of a team
+	//
+	// Needs a person's sign-in, as an owner of the team. Those to the team and those
+	// to each of its projects. Not paged: all of them.
+	//
+	// Corresponds with GET /teams/{team_id}/invites (the `ListTeamInvites` operationId).
+	ListTeamInvites(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateTeamInviteWithBody Invite someone into a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in every project the team owns. It works once, for seven days, and
+	// stops working when its maker is no longer an owner of the team. Nobody is
+	// looked up by name or address. An owner is invited in the dashboard, not here.
+	// The link is shown here, once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+	CreateTeamInviteWithBody(ctx context.Context, teamId TeamId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateTeamInvite Invite someone into a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in every project the team owns. It works once, for seven days, and
+	// stops working when its maker is no longer an owner of the team. Nobody is
+	// looked up by name or address. An owner is invited in the dashboard, not here.
+	// The link is shown here, once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+	CreateTeamInvite(ctx context.Context, teamId TeamId, body CreateTeamInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveTeamMember Take someone out of a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+	// Someone not in the team answers 404. From their next request they see none of
+	// the team's projects through it. An owner
+	// is taken out in the dashboard, not here. Their account, other teams, sign-ins
+	// and devices stay. So do roles of their own in the team's projects, and keys
+	// they made in them: the answer lists both, to end them too if that was meant.
+	//
+	// Corresponds with DELETE /teams/{team_id}/members/{person_id} (the `RemoveTeamMember` operationId).
+	RemoveTeamMember(ctx context.Context, teamId TeamId, personId PersonId, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetTeamMemberWithBody Change a member's role in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+	// changes the role of someone already in the team, in every project the team
+	// owns, and never makes anyone a member: for anyone else it answers 404, and
+	// someone new comes in by an invitation. An owner's role is not changed here:
+	// that is done in the dashboard, where every owner is told. A role of their own
+	// in one of the team's projects that no longer gives them more ends, and the
+	// answer says which.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+	SetTeamMemberWithBody(ctx context.Context, teamId TeamId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetTeamMember Change a member's role in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+	// changes the role of someone already in the team, in every project the team
+	// owns, and never makes anyone a member: for anyone else it answers 404, and
+	// someone new comes in by an invitation. An owner's role is not changed here:
+	// that is done in the dashboard, where every owner is told. A role of their own
+	// in one of the team's projects that no longer gives them more ends, and the
+	// answer says which.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+	SetTeamMember(ctx context.Context, teamId TeamId, personId PersonId, body SetTeamMemberJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // DeleteCheck Delete a check with its runs
@@ -1938,6 +2502,26 @@ func (c *Client) ListRuns(ctx context.Context, checkId CheckId, params *ListRuns
 	return c.Client.Do(req)
 }
 
+// WithdrawInvite Withdraw an open invitation
+//
+// Needs a person's sign-in with the `manage` scope, from someone who may make one
+// like it: an owner of the team, or for one to a project, an owner of that
+// project. That includes an invitation to be an owner, made in the dashboard.
+// Its link stops working at once.
+//
+// Corresponds with DELETE /invites/{invite_id} (the `WithdrawInvite` operationId).
+func (c *Client) WithdrawInvite(ctx context.Context, inviteId Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewWithdrawInviteRequest(c.Server, inviteId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListKeys The keys of a project, or of all the caller owns
 //
 // Needs a person's sign-in, as an owner of the project. Who made a key reads as
@@ -2011,6 +2595,48 @@ func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*htt
 	return c.Client.Do(req)
 }
 
+// SetProjectAlertsWithBody Choose whether you are told about a project
+//
+// Needs a person's sign-in with the `manage` scope, with any role in the project.
+// It is the caller's own choice, and nobody can make it for someone else. It
+// stays when their role changes.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+func (c *Client) SetProjectAlertsWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProjectAlertsRequestWithBody(c.Server, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetProjectAlerts Choose whether you are told about a project
+//
+// Needs a person's sign-in with the `manage` scope, with any role in the project.
+// It is the caller's own choice, and nobody can make it for someone else. It
+// stays when their role changes.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+func (c *Client) SetProjectAlerts(ctx context.Context, projectId ProjectId, body SetProjectAlertsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProjectAlertsRequest(c.Server, projectId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // EndThisToken End the sign-in this request came through
 //
 // What `allstill logout` does. It stops working at once. A sign-in with the scope
@@ -2062,11 +2688,116 @@ func (c *Client) ListProjects(ctx context.Context, params *ListProjectsParams, r
 	return c.Client.Do(req)
 }
 
+// CreateProjectWithBody Make a project in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+// caller is the project's owner through the team, with every other member at
+// their role there. Its ping key, for pings by slug, is shown here, once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /projects (the `CreateProject` operationId).
+func (c *Client) CreateProjectWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateProject Make a project in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+// caller is the project's owner through the team, with every other member at
+// their role there. Its ping key, for pings by slug, is shown here, once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /projects (the `CreateProject` operationId).
+func (c *Client) CreateProject(ctx context.Context, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteProject Delete a project without checks
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+// team. Only a project without checks can be deleted: its checks are deleted or
+// moved first, so that no job pinging it breaks by surprise. Its ping key and
+// keys stop working, its open invitations and the roles of their own in it end,
+// and its name can be used again. It cannot be undone.
+//
+// Corresponds with DELETE /projects/{project_id} (the `DeleteProject` operationId).
+func (c *Client) DeleteProject(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteProjectRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetProject One project
 //
 // Corresponds with GET /projects/{project_id} (the `GetProject` operationId).
 func (c *Client) GetProject(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetProjectRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateProjectWithBody Rename a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+// team; an owner of only this project cannot. Its ping key does not change, so
+// jobs that ping by slug keep working.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+func (c *Client) UpdateProjectWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProjectRequestWithBody(c.Server, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateProject Rename a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+// team; an owner of only this project cannot. Its ping key does not change, so
+// jobs that ping by slug keep working.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+func (c *Client) UpdateProject(ctx context.Context, projectId ProjectId, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProjectRequest(c.Server, projectId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2136,6 +2867,73 @@ func (c *Client) CreateCheck(ctx context.Context, projectId ProjectId, body Crea
 	return c.Client.Do(req)
 }
 
+// ListProjectInvites The open invitations to a project
+//
+// Needs a person's sign-in, as an owner of the project. Who made one reads as in
+// the log: for an owner from outside the team, a member of the team is `team`.
+// Not paged: all of them.
+//
+// Corresponds with GET /projects/{project_id}/invites (the `ListProjectInvites` operationId).
+func (c *Client) ListProjectInvites(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProjectInvitesRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateProjectInviteWithBody Invite someone into a project, with a role of their own
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in this project alone. It works once, for seven days, and stops
+// working when its maker is no longer an owner of the project. Nobody is looked
+// up by name or address. An owner is invited in the dashboard, not here. The
+// link is shown here, once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+func (c *Client) CreateProjectInviteWithBody(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectInviteRequestWithBody(c.Server, projectId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateProjectInvite Invite someone into a project, with a role of their own
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in this project alone. It works once, for seven days, and stops
+// working when its maker is no longer an owner of the project. Nobody is looked
+// up by name or address. An owner is invited in the dashboard, not here. The
+// link is shown here, once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+func (c *Client) CreateProjectInvite(ctx context.Context, projectId ProjectId, body CreateProjectInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateProjectInviteRequest(c.Server, projectId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // CreateKeyWithBody Make a key for a project
 //
 // Needs a person's sign-in with the `manage` scope, as an owner of the project.
@@ -2178,6 +2976,100 @@ func (c *Client) CreateKey(ctx context.Context, projectId ProjectId, body Create
 	return c.Client.Do(req)
 }
 
+// ListProjectPeople Who can see a project, through what, and who is told
+//
+// Needs a person's sign-in, as an owner of the project. Everyone is listed once,
+// at the highest role they have. An owner of the project from outside its team
+// is not told who the team's people are: they are counted in `team` and are never
+// in `items`, also when they have a role of their own here. Not paged: all of
+// them.
+//
+// Corresponds with GET /projects/{project_id}/people (the `ListProjectPeople` operationId).
+func (c *Client) ListProjectPeople(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProjectPeopleRequest(c.Server, projectId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveProjectRole End someone's role of their own in a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// What they have through the team stays; someone outside the team no longer
+// sees the project. Someone without a role of their own here answers 404, as in
+// `setProjectRole`. An owner's role is ended in the dashboard, not here. Keys
+// they made in the project keep working, as a key is the project's.
+//
+// Corresponds with DELETE /projects/{project_id}/roles/{person_id} (the `RemoveProjectRole` operationId).
+func (c *Client) RemoveProjectRole(ctx context.Context, projectId ProjectId, personId PersonId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveProjectRoleRequest(c.Server, projectId, personId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetProjectRoleWithBody Change someone's role of their own in a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// It changes a role someone already has of their own in this project, and never
+// gives one: for anyone without one, such as a member of the team who has only
+// what the team gives, it answers 404, and someone new comes in by an
+// invitation. To an owner from outside the team, the team's members answer 404
+// too. The role must be more than what the team gives them. An owner's role is
+// not changed here: that is done in the dashboard. Whether the person is told
+// stays as they chose; if they never chose, it follows the new role.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+func (c *Client) SetProjectRoleWithBody(ctx context.Context, projectId ProjectId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProjectRoleRequestWithBody(c.Server, projectId, personId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetProjectRole Change someone's role of their own in a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// It changes a role someone already has of their own in this project, and never
+// gives one: for anyone without one, such as a member of the team who has only
+// what the team gives, it answers 404, and someone new comes in by an
+// invitation. To an owner from outside the team, the team's members answer 404
+// too. The role must be more than what the team gives them. An owner's role is
+// not changed here: that is done in the dashboard. Whether the person is told
+// stays as they chose; if they never chose, it follows the new role.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+func (c *Client) SetProjectRole(ctx context.Context, projectId ProjectId, personId PersonId, body SetProjectRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetProjectRoleRequest(c.Server, projectId, personId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetStatus Everything the caller can see, in one snapshot
 //
 // Read this first: how many checks are in each state, per project and in all, and
@@ -2187,6 +3079,163 @@ func (c *Client) CreateKey(ctx context.Context, projectId ProjectId, body Create
 // Corresponds with GET /status (the `GetStatus` operationId).
 func (c *Client) GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetStatusRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTeam A team and its people
+//
+// Needs a person's sign-in, as an owner of the team. Its members, and the people
+// outside it with a role of their own in one of its projects, all of them. The
+// open invitations are at `listTeamInvites`.
+//
+// Corresponds with GET /teams/{team_id} (the `GetTeam` operationId).
+func (c *Client) GetTeam(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTeamRequest(c.Server, teamId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListTeamInvites The open invitations of a team
+//
+// Needs a person's sign-in, as an owner of the team. Those to the team and those
+// to each of its projects. Not paged: all of them.
+//
+// Corresponds with GET /teams/{team_id}/invites (the `ListTeamInvites` operationId).
+func (c *Client) ListTeamInvites(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTeamInvitesRequest(c.Server, teamId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTeamInviteWithBody Invite someone into a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in every project the team owns. It works once, for seven days, and
+// stops working when its maker is no longer an owner of the team. Nobody is
+// looked up by name or address. An owner is invited in the dashboard, not here.
+// The link is shown here, once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+func (c *Client) CreateTeamInviteWithBody(ctx context.Context, teamId TeamId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTeamInviteRequestWithBody(c.Server, teamId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTeamInvite Invite someone into a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in every project the team owns. It works once, for seven days, and
+// stops working when its maker is no longer an owner of the team. Nobody is
+// looked up by name or address. An owner is invited in the dashboard, not here.
+// The link is shown here, once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+func (c *Client) CreateTeamInvite(ctx context.Context, teamId TeamId, body CreateTeamInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTeamInviteRequest(c.Server, teamId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveTeamMember Take someone out of a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+// Someone not in the team answers 404. From their next request they see none of
+// the team's projects through it. An owner
+// is taken out in the dashboard, not here. Their account, other teams, sign-ins
+// and devices stay. So do roles of their own in the team's projects, and keys
+// they made in them: the answer lists both, to end them too if that was meant.
+//
+// Corresponds with DELETE /teams/{team_id}/members/{person_id} (the `RemoveTeamMember` operationId).
+func (c *Client) RemoveTeamMember(ctx context.Context, teamId TeamId, personId PersonId, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveTeamMemberRequest(c.Server, teamId, personId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetTeamMemberWithBody Change a member's role in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+// changes the role of someone already in the team, in every project the team
+// owns, and never makes anyone a member: for anyone else it answers 404, and
+// someone new comes in by an invitation. An owner's role is not changed here:
+// that is done in the dashboard, where every owner is told. A role of their own
+// in one of the team's projects that no longer gives them more ends, and the
+// answer says which.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+func (c *Client) SetTeamMemberWithBody(ctx context.Context, teamId TeamId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTeamMemberRequestWithBody(c.Server, teamId, personId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetTeamMember Change a member's role in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+// changes the role of someone already in the team, in every project the team
+// owns, and never makes anyone a member: for anyone else it answers 404, and
+// someone new comes in by an invitation. An owner's role is not changed here:
+// that is done in the dashboard, where every owner is told. A role of their own
+// in one of the team's projects that no longer gives them more ends, and the
+// answer says which.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+func (c *Client) SetTeamMember(ctx context.Context, teamId TeamId, personId PersonId, body SetTeamMemberJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetTeamMemberRequest(c.Server, teamId, personId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2583,6 +3632,40 @@ func NewListRunsRequest(server string, checkId CheckId, params *ListRunsParams) 
 	return req, nil
 }
 
+// NewWithdrawInviteRequest constructs an http.Request for the WithdrawInvite method
+func NewWithdrawInviteRequest(server string, inviteId Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "invite_id", inviteId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/invites/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListKeysRequest constructs an http.Request for the ListKeys method
 func NewListKeysRequest(server string, params *ListKeysParams) (*http.Request, error) {
 	var err error
@@ -2848,6 +3931,53 @@ func NewGetMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewSetProjectAlertsRequest calls the generic SetProjectAlerts builder with application/json body
+func NewSetProjectAlertsRequest(server string, projectId ProjectId, body SetProjectAlertsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetProjectAlertsRequestWithBody(server, projectId, "application/json", bodyReader)
+}
+
+// NewSetProjectAlertsRequestWithBody constructs an http.Request for the SetProjectAlerts method, with any body, and a specified content type
+func NewSetProjectAlertsRequestWithBody(server string, projectId ProjectId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/me/projects/%s/alerts", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewEndThisTokenRequest constructs an http.Request for the EndThisToken method
 func NewEndThisTokenRequest(server string) (*http.Request, error) {
 	var err error
@@ -2968,6 +4098,80 @@ func NewListProjectsRequest(server string, params *ListProjectsParams) (*http.Re
 	return req, nil
 }
 
+// NewCreateProjectRequest calls the generic CreateProject builder with application/json body
+func NewCreateProjectRequest(server string, body CreateProjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateProjectRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateProjectRequestWithBody constructs an http.Request for the CreateProject method, with any body, and a specified content type
+func NewCreateProjectRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteProjectRequest constructs an http.Request for the DeleteProject method
+func NewDeleteProjectRequest(server string, projectId ProjectId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetProjectRequest constructs an http.Request for the GetProject method
 func NewGetProjectRequest(server string, projectId ProjectId) (*http.Request, error) {
 	var err error
@@ -2998,6 +4202,53 @@ func NewGetProjectRequest(server string, projectId ProjectId) (*http.Request, er
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewUpdateProjectRequest calls the generic UpdateProject builder with application/json body
+func NewUpdateProjectRequest(server string, projectId ProjectId, body UpdateProjectJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateProjectRequestWithBody(server, projectId, "application/json", bodyReader)
+}
+
+// NewUpdateProjectRequestWithBody constructs an http.Request for the UpdateProject method, with any body, and a specified content type
+func NewUpdateProjectRequestWithBody(server string, projectId ProjectId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -3122,6 +4373,87 @@ func NewCreateCheckRequestWithBody(server string, projectId ProjectId, contentTy
 	return req, nil
 }
 
+// NewListProjectInvitesRequest constructs an http.Request for the ListProjectInvites method
+func NewListProjectInvitesRequest(server string, projectId ProjectId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/invites", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateProjectInviteRequest calls the generic CreateProjectInvite builder with application/json body
+func NewCreateProjectInviteRequest(server string, projectId ProjectId, body CreateProjectInviteJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateProjectInviteRequestWithBody(server, projectId, "application/json", bodyReader)
+}
+
+// NewCreateProjectInviteRequestWithBody constructs an http.Request for the CreateProjectInvite method, with any body, and a specified content type
+func NewCreateProjectInviteRequestWithBody(server string, projectId ProjectId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/invites", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewCreateKeyRequest calls the generic CreateKey builder with application/json body
 func NewCreateKeyRequest(server string, projectId ProjectId, body CreateKeyJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -3169,6 +4501,135 @@ func NewCreateKeyRequestWithBody(server string, projectId ProjectId, contentType
 	return req, nil
 }
 
+// NewListProjectPeopleRequest constructs an http.Request for the ListProjectPeople method
+func NewListProjectPeopleRequest(server string, projectId ProjectId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/people", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRemoveProjectRoleRequest constructs an http.Request for the RemoveProjectRole method
+func NewRemoveProjectRoleRequest(server string, projectId ProjectId, personId PersonId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "person_id", personId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/roles/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetProjectRoleRequest calls the generic SetProjectRole builder with application/json body
+func NewSetProjectRoleRequest(server string, projectId ProjectId, personId PersonId, body SetProjectRoleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetProjectRoleRequestWithBody(server, projectId, personId, "application/json", bodyReader)
+}
+
+// NewSetProjectRoleRequestWithBody constructs an http.Request for the SetProjectRole method, with any body, and a specified content type
+func NewSetProjectRoleRequestWithBody(server string, projectId ProjectId, personId PersonId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "project_id", projectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "person_id", personId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/projects/%s/roles/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetStatusRequest constructs an http.Request for the GetStatus method
 func NewGetStatusRequest(server string) (*http.Request, error) {
 	var err error
@@ -3192,6 +4653,216 @@ func NewGetStatusRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewGetTeamRequest constructs an http.Request for the GetTeam method
+func NewGetTeamRequest(server string, teamId TeamId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "team_id", teamId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/teams/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListTeamInvitesRequest constructs an http.Request for the ListTeamInvites method
+func NewListTeamInvitesRequest(server string, teamId TeamId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "team_id", teamId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/teams/%s/invites", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateTeamInviteRequest calls the generic CreateTeamInvite builder with application/json body
+func NewCreateTeamInviteRequest(server string, teamId TeamId, body CreateTeamInviteJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateTeamInviteRequestWithBody(server, teamId, "application/json", bodyReader)
+}
+
+// NewCreateTeamInviteRequestWithBody constructs an http.Request for the CreateTeamInvite method, with any body, and a specified content type
+func NewCreateTeamInviteRequestWithBody(server string, teamId TeamId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "team_id", teamId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/teams/%s/invites", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveTeamMemberRequest constructs an http.Request for the RemoveTeamMember method
+func NewRemoveTeamMemberRequest(server string, teamId TeamId, personId PersonId) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "team_id", teamId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "person_id", personId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/teams/%s/members/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetTeamMemberRequest calls the generic SetTeamMember builder with application/json body
+func NewSetTeamMemberRequest(server string, teamId TeamId, personId PersonId, body SetTeamMemberJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetTeamMemberRequestWithBody(server, teamId, personId, "application/json", bodyReader)
+}
+
+// NewSetTeamMemberRequestWithBody constructs an http.Request for the SetTeamMember method, with any body, and a specified content type
+func NewSetTeamMemberRequestWithBody(server string, teamId TeamId, personId PersonId, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "team_id", teamId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "person_id", personId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/teams/%s/members/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -3340,6 +5011,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /checks/{check_id}/runs (the `ListRuns` operationId).
 	ListRunsWithResponse(ctx context.Context, checkId CheckId, params *ListRunsParams, reqEditors ...RequestEditorFn) (*ListRunsResponse, error)
 
+	// WithdrawInviteWithResponse Withdraw an open invitation
+	//
+	// Needs a person's sign-in with the `manage` scope, from someone who may make one
+	// like it: an owner of the team, or for one to a project, an owner of that
+	// project. That includes an invitation to be an owner, made in the dashboard.
+	// Its link stops working at once.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /invites/{invite_id} (the `WithdrawInvite` operationId).
+	WithdrawInviteWithResponse(ctx context.Context, inviteId Id, reqEditors ...RequestEditorFn) (*WithdrawInviteResponse, error)
+
 	// ListKeysWithResponse The keys of a project, or of all the caller owns
 	//
 	// Needs a person's sign-in, as an owner of the project. Who made a key reads as
@@ -3381,6 +5064,28 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /me (the `GetMe` operationId).
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
 
+	// SetProjectAlertsWithBodyWithResponse Choose whether you are told about a project
+	//
+	// Needs a person's sign-in with the `manage` scope, with any role in the project.
+	// It is the caller's own choice, and nobody can make it for someone else. It
+	// stays when their role changes.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+	SetProjectAlertsWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProjectAlertsResponse, error)
+
+	// SetProjectAlertsWithResponse Choose whether you are told about a project
+	//
+	// Needs a person's sign-in with the `manage` scope, with any role in the project.
+	// It is the caller's own choice, and nobody can make it for someone else. It
+	// stays when their role changes.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+	SetProjectAlertsWithResponse(ctx context.Context, projectId ProjectId, body SetProjectAlertsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProjectAlertsResponse, error)
+
 	// EndThisTokenWithResponse End the sign-in this request came through
 	//
 	// What `allstill logout` does. It stops working at once. A sign-in with the scope
@@ -3408,12 +5113,69 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /projects (the `ListProjects` operationId).
 	ListProjectsWithResponse(ctx context.Context, params *ListProjectsParams, reqEditors ...RequestEditorFn) (*ListProjectsResponse, error)
 
+	// CreateProjectWithBodyWithResponse Make a project in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+	// caller is the project's owner through the team, with every other member at
+	// their role there. Its ping key, for pings by slug, is shown here, once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects (the `CreateProject` operationId).
+	CreateProjectWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
+
+	// CreateProjectWithResponse Make a project in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+	// caller is the project's owner through the team, with every other member at
+	// their role there. Its ping key, for pings by slug, is shown here, once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects (the `CreateProject` operationId).
+	CreateProjectWithResponse(ctx context.Context, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error)
+
+	// DeleteProjectWithResponse Delete a project without checks
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+	// team. Only a project without checks can be deleted: its checks are deleted or
+	// moved first, so that no job pinging it breaks by surprise. Its ping key and
+	// keys stop working, its open invitations and the roles of their own in it end,
+	// and its name can be used again. It cannot be undone.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /projects/{project_id} (the `DeleteProject` operationId).
+	DeleteProjectWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error)
+
 	// GetProjectWithResponse One project
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /projects/{project_id} (the `GetProject` operationId).
 	GetProjectWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*GetProjectResponse, error)
+
+	// UpdateProjectWithBodyWithResponse Rename a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+	// team; an owner of only this project cannot. Its ping key does not change, so
+	// jobs that ping by slug keep working.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+	UpdateProjectWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
+
+	// UpdateProjectWithResponse Rename a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+	// team; an owner of only this project cannot. Its ping key does not change, so
+	// jobs that ping by slug keep working.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+	UpdateProjectWithResponse(ctx context.Context, projectId ProjectId, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error)
 
 	// ListChecksWithResponse The checks of a project
 	//
@@ -3446,6 +5208,45 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /projects/{project_id}/checks (the `CreateCheck` operationId).
 	CreateCheckWithResponse(ctx context.Context, projectId ProjectId, body CreateCheckJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateCheckResponse, error)
 
+	// ListProjectInvitesWithResponse The open invitations to a project
+	//
+	// Needs a person's sign-in, as an owner of the project. Who made one reads as in
+	// the log: for an owner from outside the team, a member of the team is `team`.
+	// Not paged: all of them.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /projects/{project_id}/invites (the `ListProjectInvites` operationId).
+	ListProjectInvitesWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*ListProjectInvitesResponse, error)
+
+	// CreateProjectInviteWithBodyWithResponse Invite someone into a project, with a role of their own
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in this project alone. It works once, for seven days, and stops
+	// working when its maker is no longer an owner of the project. Nobody is looked
+	// up by name or address. An owner is invited in the dashboard, not here. The
+	// link is shown here, once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+	CreateProjectInviteWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectInviteResponse, error)
+
+	// CreateProjectInviteWithResponse Invite someone into a project, with a role of their own
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in this project alone. It works once, for seven days, and stops
+	// working when its maker is no longer an owner of the project. Nobody is looked
+	// up by name or address. An owner is invited in the dashboard, not here. The
+	// link is shown here, once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+	CreateProjectInviteWithResponse(ctx context.Context, projectId ProjectId, body CreateProjectInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectInviteResponse, error)
+
 	// CreateKeyWithBodyWithResponse Make a key for a project
 	//
 	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
@@ -3468,6 +5269,64 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /projects/{project_id}/keys (the `CreateKey` operationId).
 	CreateKeyWithResponse(ctx context.Context, projectId ProjectId, body CreateKeyJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateKeyResponse, error)
 
+	// ListProjectPeopleWithResponse Who can see a project, through what, and who is told
+	//
+	// Needs a person's sign-in, as an owner of the project. Everyone is listed once,
+	// at the highest role they have. An owner of the project from outside its team
+	// is not told who the team's people are: they are counted in `team` and are never
+	// in `items`, also when they have a role of their own here. Not paged: all of
+	// them.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /projects/{project_id}/people (the `ListProjectPeople` operationId).
+	ListProjectPeopleWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*ListProjectPeopleResponse, error)
+
+	// RemoveProjectRoleWithResponse End someone's role of their own in a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// What they have through the team stays; someone outside the team no longer
+	// sees the project. Someone without a role of their own here answers 404, as in
+	// `setProjectRole`. An owner's role is ended in the dashboard, not here. Keys
+	// they made in the project keep working, as a key is the project's.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /projects/{project_id}/roles/{person_id} (the `RemoveProjectRole` operationId).
+	RemoveProjectRoleWithResponse(ctx context.Context, projectId ProjectId, personId PersonId, reqEditors ...RequestEditorFn) (*RemoveProjectRoleResponse, error)
+
+	// SetProjectRoleWithBodyWithResponse Change someone's role of their own in a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// It changes a role someone already has of their own in this project, and never
+	// gives one: for anyone without one, such as a member of the team who has only
+	// what the team gives, it answers 404, and someone new comes in by an
+	// invitation. To an owner from outside the team, the team's members answer 404
+	// too. The role must be more than what the team gives them. An owner's role is
+	// not changed here: that is done in the dashboard. Whether the person is told
+	// stays as they chose; if they never chose, it follows the new role.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+	SetProjectRoleWithBodyWithResponse(ctx context.Context, projectId ProjectId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProjectRoleResponse, error)
+
+	// SetProjectRoleWithResponse Change someone's role of their own in a project
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+	// It changes a role someone already has of their own in this project, and never
+	// gives one: for anyone without one, such as a member of the team who has only
+	// what the team gives, it answers 404, and someone new comes in by an
+	// invitation. To an owner from outside the team, the team's members answer 404
+	// too. The role must be more than what the team gives them. An owner's role is
+	// not changed here: that is done in the dashboard. Whether the person is told
+	// stays as they chose; if they never chose, it follows the new role.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+	SetProjectRoleWithResponse(ctx context.Context, projectId ProjectId, personId PersonId, body SetProjectRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProjectRoleResponse, error)
+
 	// GetStatusWithResponse Everything the caller can see, in one snapshot
 	//
 	// Read this first: how many checks are in each state, per project and in all, and
@@ -3478,6 +5337,99 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /status (the `GetStatus` operationId).
 	GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error)
+
+	// GetTeamWithResponse A team and its people
+	//
+	// Needs a person's sign-in, as an owner of the team. Its members, and the people
+	// outside it with a role of their own in one of its projects, all of them. The
+	// open invitations are at `listTeamInvites`.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /teams/{team_id} (the `GetTeam` operationId).
+	GetTeamWithResponse(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*GetTeamResponse, error)
+
+	// ListTeamInvitesWithResponse The open invitations of a team
+	//
+	// Needs a person's sign-in, as an owner of the team. Those to the team and those
+	// to each of its projects. Not paged: all of them.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /teams/{team_id}/invites (the `ListTeamInvites` operationId).
+	ListTeamInvitesWithResponse(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*ListTeamInvitesResponse, error)
+
+	// CreateTeamInviteWithBodyWithResponse Invite someone into a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in every project the team owns. It works once, for seven days, and
+	// stops working when its maker is no longer an owner of the team. Nobody is
+	// looked up by name or address. An owner is invited in the dashboard, not here.
+	// The link is shown here, once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+	CreateTeamInviteWithBodyWithResponse(ctx context.Context, teamId TeamId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTeamInviteResponse, error)
+
+	// CreateTeamInviteWithResponse Invite someone into a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+	// Whoever opens the link signs in, or makes an account with a passkey, and gets
+	// the role in every project the team owns. It works once, for seven days, and
+	// stops working when its maker is no longer an owner of the team. Nobody is
+	// looked up by name or address. An owner is invited in the dashboard, not here.
+	// The link is shown here, once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+	CreateTeamInviteWithResponse(ctx context.Context, teamId TeamId, body CreateTeamInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTeamInviteResponse, error)
+
+	// RemoveTeamMemberWithResponse Take someone out of a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+	// Someone not in the team answers 404. From their next request they see none of
+	// the team's projects through it. An owner
+	// is taken out in the dashboard, not here. Their account, other teams, sign-ins
+	// and devices stay. So do roles of their own in the team's projects, and keys
+	// they made in them: the answer lists both, to end them too if that was meant.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /teams/{team_id}/members/{person_id} (the `RemoveTeamMember` operationId).
+	RemoveTeamMemberWithResponse(ctx context.Context, teamId TeamId, personId PersonId, reqEditors ...RequestEditorFn) (*RemoveTeamMemberResponse, error)
+
+	// SetTeamMemberWithBodyWithResponse Change a member's role in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+	// changes the role of someone already in the team, in every project the team
+	// owns, and never makes anyone a member: for anyone else it answers 404, and
+	// someone new comes in by an invitation. An owner's role is not changed here:
+	// that is done in the dashboard, where every owner is told. A role of their own
+	// in one of the team's projects that no longer gives them more ends, and the
+	// answer says which.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+	SetTeamMemberWithBodyWithResponse(ctx context.Context, teamId TeamId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTeamMemberResponse, error)
+
+	// SetTeamMemberWithResponse Change a member's role in a team
+	//
+	// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+	// changes the role of someone already in the team, in every project the team
+	// owns, and never makes anyone a member: for anyone else it answers 404, and
+	// someone new comes in by an invitation. An owner's role is not changed here:
+	// that is done in the dashboard, where every owner is told. A role of their own
+	// in one of the team's projects that no longer gives them more ends, and the
+	// answer says which.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+	SetTeamMemberWithResponse(ctx context.Context, teamId TeamId, personId PersonId, body SetTeamMemberJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTeamMemberResponse, error)
 }
 
 // DeleteCheckResponse429Headers the declared response headers of an HTTP 429 response for DeleteCheck
@@ -4238,6 +6190,82 @@ func (r ListRunsResponse) ContentType() string {
 	return ""
 }
 
+// WithdrawInviteResponse429Headers the declared response headers of an HTTP 429 response for WithdrawInvite
+type WithdrawInviteResponse429Headers struct {
+	RetryAfter *int
+}
+
+type WithdrawInviteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON409 the response for an HTTP 409 `application/problem+json` response
+	ApplicationproblemJSON409 *Problem
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *WithdrawInviteResponse429Headers
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r WithdrawInviteResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r WithdrawInviteResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r WithdrawInviteResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON409 returns the response for an HTTP 409 `application/problem+json` response
+func (r WithdrawInviteResponse) GetApplicationproblemJSON409() *Problem {
+	return r.ApplicationproblemJSON409
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r WithdrawInviteResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r WithdrawInviteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r WithdrawInviteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r WithdrawInviteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r WithdrawInviteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListKeysResponse429Headers the declared response headers of an HTTP 429 response for ListKeys
 type ListKeysResponse429Headers struct {
 	RetryAfter *int
@@ -4514,6 +6542,82 @@ func (r GetMeResponse) ContentType() string {
 	return ""
 }
 
+// SetProjectAlertsResponse429Headers the declared response headers of an HTTP 429 response for SetProjectAlerts
+type SetProjectAlertsResponse429Headers struct {
+	RetryAfter *int
+}
+
+type SetProjectAlertsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *SetProjectAlertsResponse429Headers
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r SetProjectAlertsResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r SetProjectAlertsResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r SetProjectAlertsResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r SetProjectAlertsResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r SetProjectAlertsResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r SetProjectAlertsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetProjectAlertsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetProjectAlertsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetProjectAlertsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // EndThisTokenResponse429Headers the declared response headers of an HTTP 429 response for EndThisToken
 type EndThisTokenResponse429Headers struct {
 	RetryAfter *int
@@ -4700,6 +6804,179 @@ func (r ListProjectsResponse) ContentType() string {
 	return ""
 }
 
+// CreateProjectResponse201Headers the declared response headers of an HTTP 201 response for CreateProject
+type CreateProjectResponse201Headers struct {
+	Location string
+}
+
+// CreateProjectResponse429Headers the declared response headers of an HTTP 429 response for CreateProject
+type CreateProjectResponse429Headers struct {
+	RetryAfter *int
+}
+
+type CreateProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ProjectCreated
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *CreateProjectResponse201Headers
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CreateProjectResponse429Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateProjectResponse) GetJSON201() *ProjectCreated {
+	return r.JSON201
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r CreateProjectResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r CreateProjectResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r CreateProjectResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r CreateProjectResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r CreateProjectResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r CreateProjectResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateProjectResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// DeleteProjectResponse429Headers the declared response headers of an HTTP 429 response for DeleteProject
+type DeleteProjectResponse429Headers struct {
+	RetryAfter *int
+}
+
+type DeleteProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON409 the response for an HTTP 409 `application/problem+json` response
+	ApplicationproblemJSON409 *Problem
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *DeleteProjectResponse429Headers
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r DeleteProjectResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r DeleteProjectResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r DeleteProjectResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON409 returns the response for an HTTP 409 `application/problem+json` response
+func (r DeleteProjectResponse) GetApplicationproblemJSON409() *Problem {
+	return r.ApplicationproblemJSON409
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r DeleteProjectResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteProjectResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetProjectResponse429Headers the declared response headers of an HTTP 429 response for GetProject
 type GetProjectResponse429Headers struct {
 	RetryAfter *int
@@ -4763,6 +7040,96 @@ func (r GetProjectResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetProjectResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// UpdateProjectResponse429Headers the declared response headers of an HTTP 429 response for UpdateProject
+type UpdateProjectResponse429Headers struct {
+	RetryAfter *int
+}
+
+type UpdateProjectResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Project
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *UpdateProjectResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateProjectResponse) GetJSON200() *Project {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r UpdateProjectResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r UpdateProjectResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r UpdateProjectResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r UpdateProjectResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r UpdateProjectResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r UpdateProjectResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateProjectResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateProjectResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateProjectResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateProjectResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4942,6 +7309,179 @@ func (r CreateCheckResponse) ContentType() string {
 	return ""
 }
 
+// ListProjectInvitesResponse429Headers the declared response headers of an HTTP 429 response for ListProjectInvites
+type ListProjectInvitesResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListProjectInvitesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InviteList
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListProjectInvitesResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProjectInvitesResponse) GetJSON200() *InviteList {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListProjectInvitesResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r ListProjectInvitesResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r ListProjectInvitesResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListProjectInvitesResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProjectInvitesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProjectInvitesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProjectInvitesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProjectInvitesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// CreateProjectInviteResponse429Headers the declared response headers of an HTTP 429 response for CreateProjectInvite
+type CreateProjectInviteResponse429Headers struct {
+	RetryAfter *int
+}
+
+type CreateProjectInviteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *InviteMade
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON409 the response for an HTTP 409 `application/problem+json` response
+	ApplicationproblemJSON409 *Problem
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CreateProjectInviteResponse429Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateProjectInviteResponse) GetJSON201() *InviteMade {
+	return r.JSON201
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r CreateProjectInviteResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r CreateProjectInviteResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r CreateProjectInviteResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r CreateProjectInviteResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON409 returns the response for an HTTP 409 `application/problem+json` response
+func (r CreateProjectInviteResponse) GetApplicationproblemJSON409() *Problem {
+	return r.ApplicationproblemJSON409
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r CreateProjectInviteResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r CreateProjectInviteResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateProjectInviteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateProjectInviteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateProjectInviteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateProjectInviteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // CreateKeyResponse429Headers the declared response headers of an HTTP 429 response for CreateKey
 type CreateKeyResponse429Headers struct {
 	RetryAfter *int
@@ -5032,6 +7572,248 @@ func (r CreateKeyResponse) ContentType() string {
 	return ""
 }
 
+// ListProjectPeopleResponse429Headers the declared response headers of an HTTP 429 response for ListProjectPeople
+type ListProjectPeopleResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListProjectPeopleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProjectPeople
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListProjectPeopleResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProjectPeopleResponse) GetJSON200() *ProjectPeople {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListProjectPeopleResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r ListProjectPeopleResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r ListProjectPeopleResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListProjectPeopleResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProjectPeopleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProjectPeopleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProjectPeopleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProjectPeopleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RemoveProjectRoleResponse429Headers the declared response headers of an HTTP 429 response for RemoveProjectRole
+type RemoveProjectRoleResponse429Headers struct {
+	RetryAfter *int
+}
+
+type RemoveProjectRoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *RemoveProjectRoleResponse429Headers
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r RemoveProjectRoleResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r RemoveProjectRoleResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r RemoveProjectRoleResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r RemoveProjectRoleResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r RemoveProjectRoleResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveProjectRoleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveProjectRoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveProjectRoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveProjectRoleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// SetProjectRoleResponse429Headers the declared response headers of an HTTP 429 response for SetProjectRole
+type SetProjectRoleResponse429Headers struct {
+	RetryAfter *int
+}
+
+type SetProjectRoleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProjectPerson
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *SetProjectRoleResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetProjectRoleResponse) GetJSON200() *ProjectPerson {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r SetProjectRoleResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r SetProjectRoleResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r SetProjectRoleResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r SetProjectRoleResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r SetProjectRoleResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r SetProjectRoleResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r SetProjectRoleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetProjectRoleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetProjectRoleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetProjectRoleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetStatusResponse429Headers the declared response headers of an HTTP 429 response for GetStatus
 type GetStatusResponse429Headers struct {
 	RetryAfter *int
@@ -5088,6 +7870,428 @@ func (r GetStatusResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetStatusResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetTeamResponse429Headers the declared response headers of an HTTP 429 response for GetTeam
+type GetTeamResponse429Headers struct {
+	RetryAfter *int
+}
+
+type GetTeamResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TeamPeople
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *GetTeamResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTeamResponse) GetJSON200() *TeamPeople {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r GetTeamResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r GetTeamResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r GetTeamResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r GetTeamResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTeamResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTeamResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTeamResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTeamResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListTeamInvitesResponse429Headers the declared response headers of an HTTP 429 response for ListTeamInvites
+type ListTeamInvitesResponse429Headers struct {
+	RetryAfter *int
+}
+
+type ListTeamInvitesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *InviteList
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *ListTeamInvitesResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListTeamInvitesResponse) GetJSON200() *InviteList {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r ListTeamInvitesResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r ListTeamInvitesResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r ListTeamInvitesResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r ListTeamInvitesResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r ListTeamInvitesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTeamInvitesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTeamInvitesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListTeamInvitesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// CreateTeamInviteResponse429Headers the declared response headers of an HTTP 429 response for CreateTeamInvite
+type CreateTeamInviteResponse429Headers struct {
+	RetryAfter *int
+}
+
+type CreateTeamInviteResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *InviteMade
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON409 the response for an HTTP 409 `application/problem+json` response
+	ApplicationproblemJSON409 *Problem
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *CreateTeamInviteResponse429Headers
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateTeamInviteResponse) GetJSON201() *InviteMade {
+	return r.JSON201
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r CreateTeamInviteResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r CreateTeamInviteResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r CreateTeamInviteResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r CreateTeamInviteResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON409 returns the response for an HTTP 409 `application/problem+json` response
+func (r CreateTeamInviteResponse) GetApplicationproblemJSON409() *Problem {
+	return r.ApplicationproblemJSON409
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r CreateTeamInviteResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r CreateTeamInviteResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateTeamInviteResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateTeamInviteResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateTeamInviteResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateTeamInviteResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RemoveTeamMemberResponse429Headers the declared response headers of an HTTP 429 response for RemoveTeamMember
+type RemoveTeamMemberResponse429Headers struct {
+	RetryAfter *int
+}
+
+type RemoveTeamMemberResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WhatStays
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *RemoveTeamMemberResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RemoveTeamMemberResponse) GetJSON200() *WhatStays {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r RemoveTeamMemberResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r RemoveTeamMemberResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r RemoveTeamMemberResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r RemoveTeamMemberResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r RemoveTeamMemberResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveTeamMemberResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveTeamMemberResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveTeamMemberResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveTeamMemberResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// SetTeamMemberResponse429Headers the declared response headers of an HTTP 429 response for SetTeamMember
+type SetTeamMemberResponse429Headers struct {
+	RetryAfter *int
+}
+
+type SetTeamMemberResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TeamMemberSet
+	// ApplicationproblemJSON400 the response for an HTTP 400 `application/problem+json` response
+	ApplicationproblemJSON400 *BadRequest
+	// ApplicationproblemJSON401 the response for an HTTP 401 `application/problem+json` response
+	ApplicationproblemJSON401 *Unauthorized
+	// ApplicationproblemJSON403 the response for an HTTP 403 `application/problem+json` response
+	ApplicationproblemJSON403 *Forbidden
+	// ApplicationproblemJSON404 the response for an HTTP 404 `application/problem+json` response
+	ApplicationproblemJSON404 *NotFound
+	// ApplicationproblemJSON422 the response for an HTTP 422 `application/problem+json` response
+	ApplicationproblemJSON422 *Unprocessable
+	// ApplicationproblemJSON429 the response for an HTTP 429 `application/problem+json` response
+	ApplicationproblemJSON429 *TooManyRequests
+	// Headers429 the parsed response headers for an HTTP 429 response
+	Headers429 *SetTeamMemberResponse429Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetTeamMemberResponse) GetJSON200() *TeamMemberSet {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSON400 returns the response for an HTTP 400 `application/problem+json` response
+func (r SetTeamMemberResponse) GetApplicationproblemJSON400() *BadRequest {
+	return r.ApplicationproblemJSON400
+}
+
+// GetApplicationproblemJSON401 returns the response for an HTTP 401 `application/problem+json` response
+func (r SetTeamMemberResponse) GetApplicationproblemJSON401() *Unauthorized {
+	return r.ApplicationproblemJSON401
+}
+
+// GetApplicationproblemJSON403 returns the response for an HTTP 403 `application/problem+json` response
+func (r SetTeamMemberResponse) GetApplicationproblemJSON403() *Forbidden {
+	return r.ApplicationproblemJSON403
+}
+
+// GetApplicationproblemJSON404 returns the response for an HTTP 404 `application/problem+json` response
+func (r SetTeamMemberResponse) GetApplicationproblemJSON404() *NotFound {
+	return r.ApplicationproblemJSON404
+}
+
+// GetApplicationproblemJSON422 returns the response for an HTTP 422 `application/problem+json` response
+func (r SetTeamMemberResponse) GetApplicationproblemJSON422() *Unprocessable {
+	return r.ApplicationproblemJSON422
+}
+
+// GetApplicationproblemJSON429 returns the response for an HTTP 429 `application/problem+json` response
+func (r SetTeamMemberResponse) GetApplicationproblemJSON429() *TooManyRequests {
+	return r.ApplicationproblemJSON429
+}
+
+// GetBody returns the raw response body bytes
+func (r SetTeamMemberResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetTeamMemberResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetTeamMemberResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetTeamMemberResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5260,6 +8464,24 @@ func (c *ClientWithResponses) ListRunsWithResponse(ctx context.Context, checkId 
 	return ParseListRunsResponse(rsp)
 }
 
+// WithdrawInviteWithResponse Withdraw an open invitation
+//
+// Needs a person's sign-in with the `manage` scope, from someone who may make one
+// like it: an owner of the team, or for one to a project, an owner of that
+// project. That includes an invitation to be an owner, made in the dashboard.
+// Its link stops working at once.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /invites/{invite_id} (the `WithdrawInvite` operationId).
+func (c *ClientWithResponses) WithdrawInviteWithResponse(ctx context.Context, inviteId Id, reqEditors ...RequestEditorFn) (*WithdrawInviteResponse, error) {
+	rsp, err := c.WithdrawInvite(ctx, inviteId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseWithdrawInviteResponse(rsp)
+}
+
 // ListKeysWithResponse The keys of a project, or of all the caller owns
 //
 // Needs a person's sign-in, as an owner of the project. Who made a key reads as
@@ -5325,6 +8547,40 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 	return ParseGetMeResponse(rsp)
 }
 
+// SetProjectAlertsWithBodyWithResponse Choose whether you are told about a project
+//
+// Needs a person's sign-in with the `manage` scope, with any role in the project.
+// It is the caller's own choice, and nobody can make it for someone else. It
+// stays when their role changes.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+func (c *ClientWithResponses) SetProjectAlertsWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProjectAlertsResponse, error) {
+	rsp, err := c.SetProjectAlertsWithBody(ctx, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProjectAlertsResponse(rsp)
+}
+
+// SetProjectAlertsWithResponse Choose whether you are told about a project
+//
+// Needs a person's sign-in with the `manage` scope, with any role in the project.
+// It is the caller's own choice, and nobody can make it for someone else. It
+// stays when their role changes.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /me/projects/{project_id}/alerts (the `SetProjectAlerts` operationId).
+func (c *ClientWithResponses) SetProjectAlertsWithResponse(ctx context.Context, projectId ProjectId, body SetProjectAlertsJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProjectAlertsResponse, error) {
+	rsp, err := c.SetProjectAlerts(ctx, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProjectAlertsResponse(rsp)
+}
+
 // EndThisTokenWithResponse End the sign-in this request came through
 //
 // What `allstill logout` does. It stops working at once. A sign-in with the scope
@@ -5370,6 +8626,59 @@ func (c *ClientWithResponses) ListProjectsWithResponse(ctx context.Context, para
 	return ParseListProjectsResponse(rsp)
 }
 
+// CreateProjectWithBodyWithResponse Make a project in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+// caller is the project's owner through the team, with every other member at
+// their role there. Its ping key, for pings by slug, is shown here, once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects (the `CreateProject` operationId).
+func (c *ClientWithResponses) CreateProjectWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
+	rsp, err := c.CreateProjectWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateProjectResponse(rsp)
+}
+
+// CreateProjectWithResponse Make a project in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. The
+// caller is the project's owner through the team, with every other member at
+// their role there. Its ping key, for pings by slug, is shown here, once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects (the `CreateProject` operationId).
+func (c *ClientWithResponses) CreateProjectWithResponse(ctx context.Context, body CreateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectResponse, error) {
+	rsp, err := c.CreateProject(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateProjectResponse(rsp)
+}
+
+// DeleteProjectWithResponse Delete a project without checks
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+// team. Only a project without checks can be deleted: its checks are deleted or
+// moved first, so that no job pinging it breaks by surprise. Its ping key and
+// keys stop working, its open invitations and the roles of their own in it end,
+// and its name can be used again. It cannot be undone.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /projects/{project_id} (the `DeleteProject` operationId).
+func (c *ClientWithResponses) DeleteProjectWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*DeleteProjectResponse, error) {
+	rsp, err := c.DeleteProject(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteProjectResponse(rsp)
+}
+
 // GetProjectWithResponse One project
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5381,6 +8690,40 @@ func (c *ClientWithResponses) GetProjectWithResponse(ctx context.Context, projec
 		return nil, err
 	}
 	return ParseGetProjectResponse(rsp)
+}
+
+// UpdateProjectWithBodyWithResponse Rename a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+// team; an owner of only this project cannot. Its ping key does not change, so
+// jobs that ping by slug keep working.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+func (c *ClientWithResponses) UpdateProjectWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
+	rsp, err := c.UpdateProjectWithBody(ctx, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProjectResponse(rsp)
+}
+
+// UpdateProjectWithResponse Rename a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project's
+// team; an owner of only this project cannot. Its ping key does not change, so
+// jobs that ping by slug keep working.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /projects/{project_id} (the `UpdateProject` operationId).
+func (c *ClientWithResponses) UpdateProjectWithResponse(ctx context.Context, projectId ProjectId, body UpdateProjectJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProjectResponse, error) {
+	rsp, err := c.UpdateProject(ctx, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProjectResponse(rsp)
 }
 
 // ListChecksWithResponse The checks of a project
@@ -5432,6 +8775,63 @@ func (c *ClientWithResponses) CreateCheckWithResponse(ctx context.Context, proje
 	return ParseCreateCheckResponse(rsp)
 }
 
+// ListProjectInvitesWithResponse The open invitations to a project
+//
+// Needs a person's sign-in, as an owner of the project. Who made one reads as in
+// the log: for an owner from outside the team, a member of the team is `team`.
+// Not paged: all of them.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /projects/{project_id}/invites (the `ListProjectInvites` operationId).
+func (c *ClientWithResponses) ListProjectInvitesWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*ListProjectInvitesResponse, error) {
+	rsp, err := c.ListProjectInvites(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProjectInvitesResponse(rsp)
+}
+
+// CreateProjectInviteWithBodyWithResponse Invite someone into a project, with a role of their own
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in this project alone. It works once, for seven days, and stops
+// working when its maker is no longer an owner of the project. Nobody is looked
+// up by name or address. An owner is invited in the dashboard, not here. The
+// link is shown here, once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+func (c *ClientWithResponses) CreateProjectInviteWithBodyWithResponse(ctx context.Context, projectId ProjectId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateProjectInviteResponse, error) {
+	rsp, err := c.CreateProjectInviteWithBody(ctx, projectId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateProjectInviteResponse(rsp)
+}
+
+// CreateProjectInviteWithResponse Invite someone into a project, with a role of their own
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in this project alone. It works once, for seven days, and stops
+// working when its maker is no longer an owner of the project. Nobody is looked
+// up by name or address. An owner is invited in the dashboard, not here. The
+// link is shown here, once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /projects/{project_id}/invites (the `CreateProjectInvite` operationId).
+func (c *ClientWithResponses) CreateProjectInviteWithResponse(ctx context.Context, projectId ProjectId, body CreateProjectInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateProjectInviteResponse, error) {
+	rsp, err := c.CreateProjectInvite(ctx, projectId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateProjectInviteResponse(rsp)
+}
+
 // CreateKeyWithBodyWithResponse Make a key for a project
 //
 // Needs a person's sign-in with the `manage` scope, as an owner of the project.
@@ -5466,6 +8866,88 @@ func (c *ClientWithResponses) CreateKeyWithResponse(ctx context.Context, project
 	return ParseCreateKeyResponse(rsp)
 }
 
+// ListProjectPeopleWithResponse Who can see a project, through what, and who is told
+//
+// Needs a person's sign-in, as an owner of the project. Everyone is listed once,
+// at the highest role they have. An owner of the project from outside its team
+// is not told who the team's people are: they are counted in `team` and are never
+// in `items`, also when they have a role of their own here. Not paged: all of
+// them.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /projects/{project_id}/people (the `ListProjectPeople` operationId).
+func (c *ClientWithResponses) ListProjectPeopleWithResponse(ctx context.Context, projectId ProjectId, reqEditors ...RequestEditorFn) (*ListProjectPeopleResponse, error) {
+	rsp, err := c.ListProjectPeople(ctx, projectId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProjectPeopleResponse(rsp)
+}
+
+// RemoveProjectRoleWithResponse End someone's role of their own in a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// What they have through the team stays; someone outside the team no longer
+// sees the project. Someone without a role of their own here answers 404, as in
+// `setProjectRole`. An owner's role is ended in the dashboard, not here. Keys
+// they made in the project keep working, as a key is the project's.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /projects/{project_id}/roles/{person_id} (the `RemoveProjectRole` operationId).
+func (c *ClientWithResponses) RemoveProjectRoleWithResponse(ctx context.Context, projectId ProjectId, personId PersonId, reqEditors ...RequestEditorFn) (*RemoveProjectRoleResponse, error) {
+	rsp, err := c.RemoveProjectRole(ctx, projectId, personId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveProjectRoleResponse(rsp)
+}
+
+// SetProjectRoleWithBodyWithResponse Change someone's role of their own in a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// It changes a role someone already has of their own in this project, and never
+// gives one: for anyone without one, such as a member of the team who has only
+// what the team gives, it answers 404, and someone new comes in by an
+// invitation. To an owner from outside the team, the team's members answer 404
+// too. The role must be more than what the team gives them. An owner's role is
+// not changed here: that is done in the dashboard. Whether the person is told
+// stays as they chose; if they never chose, it follows the new role.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+func (c *ClientWithResponses) SetProjectRoleWithBodyWithResponse(ctx context.Context, projectId ProjectId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetProjectRoleResponse, error) {
+	rsp, err := c.SetProjectRoleWithBody(ctx, projectId, personId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProjectRoleResponse(rsp)
+}
+
+// SetProjectRoleWithResponse Change someone's role of their own in a project
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the project.
+// It changes a role someone already has of their own in this project, and never
+// gives one: for anyone without one, such as a member of the team who has only
+// what the team gives, it answers 404, and someone new comes in by an
+// invitation. To an owner from outside the team, the team's members answer 404
+// too. The role must be more than what the team gives them. An owner's role is
+// not changed here: that is done in the dashboard. Whether the person is told
+// stays as they chose; if they never chose, it follows the new role.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /projects/{project_id}/roles/{person_id} (the `SetProjectRole` operationId).
+func (c *ClientWithResponses) SetProjectRoleWithResponse(ctx context.Context, projectId ProjectId, personId PersonId, body SetProjectRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*SetProjectRoleResponse, error) {
+	rsp, err := c.SetProjectRole(ctx, projectId, personId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetProjectRoleResponse(rsp)
+}
+
 // GetStatusWithResponse Everything the caller can see, in one snapshot
 //
 // Read this first: how many checks are in each state, per project and in all, and
@@ -5481,6 +8963,141 @@ func (c *ClientWithResponses) GetStatusWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseGetStatusResponse(rsp)
+}
+
+// GetTeamWithResponse A team and its people
+//
+// Needs a person's sign-in, as an owner of the team. Its members, and the people
+// outside it with a role of their own in one of its projects, all of them. The
+// open invitations are at `listTeamInvites`.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /teams/{team_id} (the `GetTeam` operationId).
+func (c *ClientWithResponses) GetTeamWithResponse(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*GetTeamResponse, error) {
+	rsp, err := c.GetTeam(ctx, teamId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTeamResponse(rsp)
+}
+
+// ListTeamInvitesWithResponse The open invitations of a team
+//
+// Needs a person's sign-in, as an owner of the team. Those to the team and those
+// to each of its projects. Not paged: all of them.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /teams/{team_id}/invites (the `ListTeamInvites` operationId).
+func (c *ClientWithResponses) ListTeamInvitesWithResponse(ctx context.Context, teamId TeamId, reqEditors ...RequestEditorFn) (*ListTeamInvitesResponse, error) {
+	rsp, err := c.ListTeamInvites(ctx, teamId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTeamInvitesResponse(rsp)
+}
+
+// CreateTeamInviteWithBodyWithResponse Invite someone into a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in every project the team owns. It works once, for seven days, and
+// stops working when its maker is no longer an owner of the team. Nobody is
+// looked up by name or address. An owner is invited in the dashboard, not here.
+// The link is shown here, once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+func (c *ClientWithResponses) CreateTeamInviteWithBodyWithResponse(ctx context.Context, teamId TeamId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTeamInviteResponse, error) {
+	rsp, err := c.CreateTeamInviteWithBody(ctx, teamId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTeamInviteResponse(rsp)
+}
+
+// CreateTeamInviteWithResponse Invite someone into a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+// Whoever opens the link signs in, or makes an account with a passkey, and gets
+// the role in every project the team owns. It works once, for seven days, and
+// stops working when its maker is no longer an owner of the team. Nobody is
+// looked up by name or address. An owner is invited in the dashboard, not here.
+// The link is shown here, once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /teams/{team_id}/invites (the `CreateTeamInvite` operationId).
+func (c *ClientWithResponses) CreateTeamInviteWithResponse(ctx context.Context, teamId TeamId, body CreateTeamInviteJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTeamInviteResponse, error) {
+	rsp, err := c.CreateTeamInvite(ctx, teamId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTeamInviteResponse(rsp)
+}
+
+// RemoveTeamMemberWithResponse Take someone out of a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team.
+// Someone not in the team answers 404. From their next request they see none of
+// the team's projects through it. An owner
+// is taken out in the dashboard, not here. Their account, other teams, sign-ins
+// and devices stay. So do roles of their own in the team's projects, and keys
+// they made in them: the answer lists both, to end them too if that was meant.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /teams/{team_id}/members/{person_id} (the `RemoveTeamMember` operationId).
+func (c *ClientWithResponses) RemoveTeamMemberWithResponse(ctx context.Context, teamId TeamId, personId PersonId, reqEditors ...RequestEditorFn) (*RemoveTeamMemberResponse, error) {
+	rsp, err := c.RemoveTeamMember(ctx, teamId, personId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveTeamMemberResponse(rsp)
+}
+
+// SetTeamMemberWithBodyWithResponse Change a member's role in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+// changes the role of someone already in the team, in every project the team
+// owns, and never makes anyone a member: for anyone else it answers 404, and
+// someone new comes in by an invitation. An owner's role is not changed here:
+// that is done in the dashboard, where every owner is told. A role of their own
+// in one of the team's projects that no longer gives them more ends, and the
+// answer says which.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+func (c *ClientWithResponses) SetTeamMemberWithBodyWithResponse(ctx context.Context, teamId TeamId, personId PersonId, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetTeamMemberResponse, error) {
+	rsp, err := c.SetTeamMemberWithBody(ctx, teamId, personId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTeamMemberResponse(rsp)
+}
+
+// SetTeamMemberWithResponse Change a member's role in a team
+//
+// Needs a person's sign-in with the `manage` scope, as an owner of the team. It
+// changes the role of someone already in the team, in every project the team
+// owns, and never makes anyone a member: for anyone else it answers 404, and
+// someone new comes in by an invitation. An owner's role is not changed here:
+// that is done in the dashboard, where every owner is told. A role of their own
+// in one of the team's projects that no longer gives them more ends, and the
+// answer says which.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /teams/{team_id}/members/{person_id} (the `SetTeamMember` operationId).
+func (c *ClientWithResponses) SetTeamMemberWithResponse(ctx context.Context, teamId TeamId, personId PersonId, body SetTeamMemberJSONRequestBody, reqEditors ...RequestEditorFn) (*SetTeamMemberResponse, error) {
+	rsp, err := c.SetTeamMember(ctx, teamId, personId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetTeamMemberResponse(rsp)
 }
 
 // ParseDeleteCheckResponse parses an HTTP response from a DeleteCheckWithResponse call
@@ -6167,6 +9784,76 @@ func ParseListRunsResponse(rsp *http.Response) (*ListRunsResponse, error) {
 	return response, nil
 }
 
+// ParseWithdrawInviteResponse parses an HTTP response from a WithdrawInviteWithResponse call
+func ParseWithdrawInviteResponse(rsp *http.Response) (*WithdrawInviteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &WithdrawInviteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers WithdrawInviteResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseListKeysResponse parses an HTTP response from a ListKeysWithResponse call
 func ParseListKeysResponse(rsp *http.Response) (*ListKeysResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6410,6 +10097,76 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	return response, nil
 }
 
+// ParseSetProjectAlertsResponse parses an HTTP response from a SetProjectAlertsWithResponse call
+func ParseSetProjectAlertsResponse(rsp *http.Response) (*SetProjectAlertsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetProjectAlertsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers SetProjectAlertsResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseEndThisTokenResponse parses an HTTP response from a EndThisTokenWithResponse call
 func ParseEndThisTokenResponse(rsp *http.Response) (*EndThisTokenResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6572,6 +10329,167 @@ func ParseListProjectsResponse(rsp *http.Response) (*ListProjectsResponse, error
 	return response, nil
 }
 
+// ParseCreateProjectResponse parses an HTTP response from a CreateProjectWithResponse call
+func ParseCreateProjectResponse(rsp *http.Response) (*CreateProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ProjectCreated
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers CreateProjectResponse201Headers
+		if values := rsp.Header.Values("Location"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Location", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uri"}); err != nil {
+				return nil, err
+			}
+			headers.Location = value
+		}
+		response.Headers201 = &headers
+	case rsp.StatusCode == 429:
+		var headers CreateProjectResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseDeleteProjectResponse parses an HTTP response from a DeleteProjectWithResponse call
+func ParseDeleteProjectResponse(rsp *http.Response) (*DeleteProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers DeleteProjectResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseGetProjectResponse parses an HTTP response from a GetProjectWithResponse call
 func ParseGetProjectResponse(rsp *http.Response) (*GetProjectResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6619,6 +10537,87 @@ func ParseGetProjectResponse(rsp *http.Response) (*GetProjectResponse, error) {
 	switch {
 	case rsp.StatusCode == 429:
 		var headers GetProjectResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseUpdateProjectResponse parses an HTTP response from a UpdateProjectWithResponse call
+func ParseUpdateProjectResponse(rsp *http.Response) (*UpdateProjectResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateProjectResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Project
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers UpdateProjectResponse429Headers
 		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
 			var value int
 			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
@@ -6790,6 +10789,161 @@ func ParseCreateCheckResponse(rsp *http.Response) (*CreateCheckResponse, error) 
 	return response, nil
 }
 
+// ParseListProjectInvitesResponse parses an HTTP response from a ListProjectInvitesWithResponse call
+func ParseListProjectInvitesResponse(rsp *http.Response) (*ListProjectInvitesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProjectInvitesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InviteList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListProjectInvitesResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseCreateProjectInviteResponse parses an HTTP response from a CreateProjectInviteWithResponse call
+func ParseCreateProjectInviteResponse(rsp *http.Response) (*CreateProjectInviteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateProjectInviteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest InviteMade
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers CreateProjectInviteResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseCreateKeyResponse parses an HTTP response from a CreateKeyWithResponse call
 func ParseCreateKeyResponse(rsp *http.Response) (*CreateKeyResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6871,6 +11025,224 @@ func ParseCreateKeyResponse(rsp *http.Response) (*CreateKeyResponse, error) {
 	return response, nil
 }
 
+// ParseListProjectPeopleResponse parses an HTTP response from a ListProjectPeopleWithResponse call
+func ParseListProjectPeopleResponse(rsp *http.Response) (*ListProjectPeopleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProjectPeopleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProjectPeople
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListProjectPeopleResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRemoveProjectRoleResponse parses an HTTP response from a RemoveProjectRoleWithResponse call
+func ParseRemoveProjectRoleResponse(rsp *http.Response) (*RemoveProjectRoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveProjectRoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers RemoveProjectRoleResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseSetProjectRoleResponse parses an HTTP response from a SetProjectRoleWithResponse call
+func ParseSetProjectRoleResponse(rsp *http.Response) (*SetProjectRoleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetProjectRoleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProjectPerson
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers SetProjectRoleResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseGetStatusResponse parses an HTTP response from a GetStatusWithResponse call
 func ParseGetStatusResponse(rsp *http.Response) (*GetStatusResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6911,6 +11283,383 @@ func ParseGetStatusResponse(rsp *http.Response) (*GetStatusResponse, error) {
 	switch {
 	case rsp.StatusCode == 429:
 		var headers GetStatusResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetTeamResponse parses an HTTP response from a GetTeamWithResponse call
+func ParseGetTeamResponse(rsp *http.Response) (*GetTeamResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTeamResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TeamPeople
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers GetTeamResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListTeamInvitesResponse parses an HTTP response from a ListTeamInvitesWithResponse call
+func ParseListTeamInvitesResponse(rsp *http.Response) (*ListTeamInvitesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTeamInvitesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InviteList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers ListTeamInvitesResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseCreateTeamInviteResponse parses an HTTP response from a CreateTeamInviteWithResponse call
+func ParseCreateTeamInviteResponse(rsp *http.Response) (*CreateTeamInviteResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateTeamInviteResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest InviteMade
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers CreateTeamInviteResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseRemoveTeamMemberResponse parses an HTTP response from a RemoveTeamMemberWithResponse call
+func ParseRemoveTeamMemberResponse(rsp *http.Response) (*RemoveTeamMemberResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveTeamMemberResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WhatStays
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers RemoveTeamMemberResponse429Headers
+		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
+			var value int
+			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.RetryAfter = &value
+		}
+		response.Headers429 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseSetTeamMemberResponse parses an HTTP response from a SetTeamMemberWithResponse call
+func ParseSetTeamMemberResponse(rsp *http.Response) (*SetTeamMemberResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetTeamMemberResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TeamMemberSet
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest BadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest NotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Unprocessable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest TooManyRequests
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSON429 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 429:
+		var headers SetTeamMemberResponse429Headers
 		if values := rsp.Header.Values("Retry-After"); len(values) > 0 {
 			var value int
 			if err := runtime.BindStyledParameterWithOptions("simple", "Retry-After", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: ""}); err != nil {

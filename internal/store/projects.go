@@ -589,3 +589,23 @@ func tellOfProjectOwner(ctx context.Context, q *db.Queries, a Access, p db.LiveP
 	}
 	return nil
 }
+
+// ToldAbout says which of the projects an access sees its person is told about,
+// as the view project_alerted says, and nil for a key, which is told about
+// nothing. The person is given apart, as a read-only sign-in's access names none.
+func (s *Store) ToldAbout(ctx context.Context, a Access, personID string) (map[string]bool, error) {
+	if personID == "" {
+		return nil, nil
+	}
+	ids, err := db.New(s.r).ProjectsAlertedOf(ctx, personID)
+	if err != nil {
+		return nil, err
+	}
+	told := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if _, sees := a.Role(id); sees {
+			told[id] = true
+		}
+	}
+	return told, nil
+}

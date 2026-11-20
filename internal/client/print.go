@@ -142,9 +142,15 @@ func PrintProjects(w io.Writer, projects []apiclient.Project) {
 		return
 	}
 	t := table(w)
-	fmt.Fprintln(t, "PROJECT\tYOU ARE\tCHECKS\tID")
+	fmt.Fprintln(t, "PROJECT\tYOU ARE\tTOLD\tCHECKS\tID")
 	for _, p := range projects {
-		fmt.Fprintf(t, "%s\t%s\t%s\t%s\n", Clean(ProjectLabel(p, projects)), Clean(string(p.Role)), countWords(p.Counts), Clean(p.Id))
+		told := "-"
+		if p.Alerts != nil && *p.Alerts {
+			told = "yes"
+		} else if p.Alerts != nil {
+			told = "no"
+		}
+		fmt.Fprintf(t, "%s\t%s\t%s\t%s\t%s\n", Clean(ProjectLabel(p, projects)), Clean(string(p.Role)), told, countWords(p.Counts), Clean(p.Id))
 	}
 	t.Flush()
 }
