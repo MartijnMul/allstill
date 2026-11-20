@@ -3,7 +3,7 @@
 
 Intent: [intent.md](intent.md)
 Spec: [spec.md](spec.md), accepted 2026-11-02
-Status: accepted; steps 1 to 4 running on a real installation; step 5 for a team's owners built by [intent/teams, plan-3](../teams/plan-3.md) part C (2026-11-20), while R28 to R30 for an administrator, listing people and removing a person, stay open
+Status: accepted; steps 1 to 4 running on a real installation; step 5 for a team's owners built by [intent/teams, plan-3](../teams/plan-3.md) part C and running on a real installation since 2026-11-20, while R28 to R30 for an administrator, listing people and removing a person, stay open
 Approved: 2026-11-02, by the maintainer; risk: higher risk (a sign-in and credentials of our own, rights opened to the network, the first real shape of the API, and a person removed for the first time)
 Codebase: MartijnMul/allstill at 3b635b2
 

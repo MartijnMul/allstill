@@ -4,7 +4,7 @@
 Intent: [intent.md](intent.md)
 Spec: [spec.md](spec.md), accepted 2026-11-19
 Step 2: [plan-2.md](plan-2.md), running on a real installation since 2026-11-20
-Status: accepted; parts A and B built and released together, tried with a real passkey on a fixture and on a copy of a real database, running on a real installation since 2026-11-20; part C built (2026-11-20), still to be rolled out
+Status: accepted; parts A and B built and released together, tried with a real passkey on a fixture and on a copy of a real database, running on a real installation since 2026-11-20; part C built, released and running on a real installation since 2026-11-20, its reads tried there from a laptop
 Approved: 2026-11-20, by the maintainer, with the readings of the spec listed below
 Risk: higher risk (accounts made away from the server for the first time, an invitation that lets whoever holds it in, deleting a project for the first time, and an API shape that only grows once released)
 Codebase: MartijnMul/allstill at 5f81eea
