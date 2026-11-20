@@ -40,6 +40,7 @@ type side struct {
 	ping, site, port      string // checks, by id
 	key, probe            string
 	keyValue, probeKey    string
+	invite                string // an open invitation to the team, by id
 	pingName              string // the name of ping, to search and narrow by
 	// What belongs to its owner alone: an address alerts go to, a sign-in from
 	// a command line and a browser session.
@@ -127,6 +128,14 @@ func setupTwoTeams(t *testing.T) twoTeams {
 		s.keys = append(s.keys, k.ID, key)
 		s.probe, s.probeKey, err = w.st.CreateProbe(ctx, a, probe, project, nil)
 		must(err)
+		// An open invitation, made by the team's owner: its id and whom it is for
+		// are the team's (plan-3.md).
+		owner, err := w.st.AccessOfPerson(ctx, w.ws, s.owner)
+		must(err)
+		inv, _, err := w.st.CreateInvite(ctx, owner, team, "", store.Editor, "a new hand at "+host, time.Now())
+		must(err)
+		s.invite = inv.ID
+		s.keys = append(s.keys, inv.ID, "a new hand at "+host)
 		s.probes = append(s.probes, s.probe, probe)
 		s.teams = append(s.teams, team)
 		if teamName != "" {
@@ -283,6 +292,17 @@ func pagesAbout(o side) []wallRequest {
 		wallRequest{method: "POST", path: "/sessions/" + o.session + "/end", names: o.session},
 	)
 	reqs = append(reqs, wallRequest{method: "POST", path: "/checks/new", form: url.Values{"project": {o.project}, "kind": {"ping"}, "name": {"planted"}, "every_n": {"1"}, "every_unit": {"hours"}}, names: o.project})
+	// A team's People page and what is done there (plan-3.md, part A).
+	if o.team != "" {
+		reqs = append(reqs,
+			wallRequest{method: "GET", path: "/teams/" + o.team, names: o.team},
+			wallRequest{method: "POST", path: "/teams/" + o.team + "/invites", form: url.Values{"role": {"owner"}, "label": {"planted"}}, names: o.team},
+			wallRequest{method: "POST", path: "/teams/" + o.team + "/invites/" + o.invite + "/withdraw", names: o.team},
+			wallRequest{method: "POST", path: "/teams/" + o.team + "/members/" + o.editor, form: url.Values{"role": {"owner"}}, names: o.team},
+			wallRequest{method: "GET", path: "/teams/" + o.team + "/members/" + o.editor + "/remove", names: o.team},
+			wallRequest{method: "POST", path: "/teams/" + o.team + "/members/" + o.editor + "/remove", names: o.team},
+		)
+	}
 	return reqs
 }
 
@@ -359,6 +379,7 @@ func (w twoTeams) snapshot(t *testing.T) []string {
 		`SELECT id || ' ' || project_id || ' ' || name FROM api_keys ORDER BY id`,
 		`SELECT id || ' ' || COALESCE(person_id, '') FROM channels ORDER BY id`,
 		`SELECT count(*) FROM deliveries WHERE kind = 'test'`,
+		`SELECT id || ' ' || COALESCE(withdrawn_at, 0) || ' ' || COALESCE(accepted_at, 0) FROM invites ORDER BY id`,
 	} {
 		rows, err := conn.Query(q)
 		if err != nil {
@@ -616,19 +637,22 @@ func firstDifference(a, b string) string {
 	return "(the second is longer)"
 }
 
-// With one team nobody meets the word, beyond the log's "the team" (R6). Its
-// owner does where they are told what a command on the server did in it.
+// With one team nobody who owns no team meets the word, beyond the log's "the
+// team" (R6). Its owner manages the team, and finds it under People.
 func TestOneTeamIsNotSpokenOf(t *testing.T) {
 	f := setup(t)
-	for _, person := range []string{f.ada, f.bob} {
+	owner := f.browser(t)
+	f.register(t, owner, f.ada)
+	if page := owner.get("/").Body.String(); !strings.Contains(page, `<span class="label">People</span>`) {
+		t.Error("the owner of the only team has no People page")
+	}
+	for _, person := range []string{f.bob} {
 		b := f.browser(t)
 		f.register(t, b, person)
 		for _, path := range []string{"/", "/?project=" + f.project, "/checks/" + f.checkID, "/checks/new", "/log", "/messages", "/channels"} {
 			page := strings.ToLower(b.get(path).Body.String())
-			// The owner is told there what commands on the server did in the team
-			// they own, in those words; the rest of the page is held as any other.
-			if start := strings.Index(page, `aria-labelledby="notices"`); person == f.ada && start >= 0 {
-				page = page[:start] + page[start+strings.Index(page[start:], "</section>"):]
+			if strings.Contains(page, "/teams/") {
+				t.Errorf("%s links to a team's page", path)
 			}
 			page = strings.ReplaceAll(page, "the team", "")
 			if i := strings.Index(page, "team"); i >= 0 {

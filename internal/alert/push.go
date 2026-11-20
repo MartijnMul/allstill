@@ -54,7 +54,7 @@ func (p *Push) render(d store.Pending, token string) payload {
 	case "digest":
 		return payload{Title: "Allstill digest", Body: digestLine(d.Items), URL: p.Base + "/messages", Tag: "digest"}
 	case store.NoticeKind:
-		return payload{Title: "Allstill: a command on the server reached into your team", Body: noticeLine(d.Items), URL: p.Base + "/messages", Tag: "notice"}
+		return payload{Title: "Allstill: who can get in has changed", Body: noticeLine(d.Items), URL: p.Base + "/messages", Tag: "notice"}
 	}
 	lines := make([]string, len(d.Items))
 	for i, it := range d.Items {

@@ -1,0 +1,37 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main narrow">
+  <header class="page-head">
+    <div class="page-title"><h1>Take {{.Name}} out of the team</h1></div>
+  </header>
+  {{if .Problem}}
+  <div class="callout warn" role="alert">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div><p class="callout-title">{{.Problem}}</p></div>
+  </div>
+  {{end}}
+  <section class="panel form-panel">
+    <p>{{.Name}} no longer sees the projects of the team {{.TeamName}} from their next click, and is no longer told about them. Their account, their other teams and their devices stay; their name stays in the log.</p>
+    <form class="form" action="/teams/{{.TeamID}}/members/{{.PersonID}}/remove" method="post">
+      {{if .Roles}}
+      <fieldset class="field">
+        <legend>They also have a role of their own here, which stays unless you end it</legend>
+        {{range .Roles}}<label class="tick"><input type="checkbox" name="end-role" value="{{.ProjectID}}" checked> End their role as {{.Role}} in {{.ProjectName}}</label>
+        {{end}}
+      </fieldset>
+      {{end}}
+      {{if .Keys}}
+      <fieldset class="field">
+        <legend>Keys they made keep working, as a key is its project's</legend>
+        {{range .Keys}}<label class="tick"><input type="checkbox" name="revoke-key" value="{{.ID}}" checked> Revoke the key {{.Name}} of {{.ProjectName}}</label>
+        {{end}}
+      </fieldset>
+      {{end}}
+      <div class="form-actions">
+        <button type="submit" class="danger">Take {{.Name}} out</button>
+        <a class="button" href="/teams/{{.TeamID}}">Cancel</a>
+      </div>
+    </form>
+  </section>
+</main>
+{{end}}{{end}}

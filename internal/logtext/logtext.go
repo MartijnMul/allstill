@@ -252,7 +252,22 @@ func (w *writer) write() {
 	case "project.renamed":
 		w.say(by, text(" renamed the project "+detailString(d, "from")+" to "+detailString(d, "to")+"."))
 	case "person.added":
-		w.say(by, text(" added "), party(e.Person), text("."))
+		if d["invited"] == true {
+			w.say(party(e.Person), text(" made an account with an invitation."))
+		} else {
+			w.say(by, text(" added "), party(e.Person), text("."))
+		}
+	case "invite.made":
+		w.say(by, text(" made an invitation as "+detailString(d, "role")+" "+inviteWhere(e)+", for "), Part{Text: detailString(d, "label"), Name: true}, text("."))
+	case "invite.withdrawn":
+		why := "."
+		if d["maker_may_not"] == true {
+			why = ", as whoever made it may no longer give it."
+		}
+		w.say(by, text(" withdrew the invitation as "+detailString(d, "role")+" "+inviteWhere(e)+" for "), Part{Text: detailString(d, "label"), Name: true}, text(why))
+	case "invite.accepted":
+		w.say(party(e.Person), text(" accepted the invitation for "), Part{Text: detailString(d, "label"), Name: true},
+			text(" and is now "+article(detailString(d, "role"))+" "+inviteOf(e)+"."))
 	case "member.set":
 		if from := detailString(d, "from"); from != "" {
 			w.say(by, text(" made "), party(e.Person), text(" "+article(detailString(d, "to"))+" instead of "+article(from)+"."))
@@ -379,6 +394,23 @@ func lowerLabel(p Part) Part {
 
 var arrivedWords = map[string]string{
 	"up": "up", "down": "down", "late": "late", "warning": "with a warning", "paused": "paused", "unknown": "not judged", "new": "new",
+}
+
+// inviteWhere says where an invitation is to: the team it names, or the
+// project the line is in.
+func inviteWhere(e Entry) string {
+	if detailString(e.Details, "team") == "" {
+		return "in this project"
+	}
+	return "in the team " + detailString(e.Details, "team")
+}
+
+// inviteOf is where an accepted invitation gave a role.
+func inviteOf(e Entry) string {
+	if detailString(e.Details, "team") == "" {
+		return "of this project"
+	}
+	return "of the team " + detailString(e.Details, "team")
 }
 
 func article(role string) string {

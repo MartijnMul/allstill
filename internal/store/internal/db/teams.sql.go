@@ -37,6 +37,22 @@ func (q *Queries) AddTeamMember(ctx context.Context, arg AddTeamMemberParams) er
 	return err
 }
 
+const alertChoice = `-- name: AlertChoice :one
+SELECT alerts FROM alert_choices WHERE project_id = ? AND person_id = ?
+`
+
+type AlertChoiceParams struct {
+	ProjectID string
+	PersonID  string
+}
+
+func (q *Queries) AlertChoice(ctx context.Context, arg AlertChoiceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, alertChoice, arg.ProjectID, arg.PersonID)
+	var alerts int64
+	err := row.Scan(&alerts)
+	return alerts, err
+}
+
 const clearAlertChoice = `-- name: ClearAlertChoice :execrows
 DELETE FROM alert_choices WHERE project_id = ? AND person_id = ?
 `
@@ -244,6 +260,77 @@ func (q *Queries) IsAlerted(ctx context.Context, arg IsAlertedParams) (int64, er
 	return count, err
 }
 
+const keysMadeInTeam = `-- name: KeysMadeInTeam :many
+SELECT k.id, k.name, pr.id AS project_id, pr.name AS project_name
+FROM api_keys k JOIN projects pr ON pr.id = k.project_id
+WHERE pr.team_id = ?1 AND pr.deleted_at IS NULL AND k.made_by_kind = 'person' AND k.made_by_id = ?2
+ORDER BY pr.name, k.name
+`
+
+type KeysMadeInTeamParams struct {
+	TeamID   string
+	PersonID string
+}
+
+type KeysMadeInTeamRow struct {
+	ID          string
+	Name        string
+	ProjectID   string
+	ProjectName string
+}
+
+// The keys someone made in a team's projects that still work.
+func (q *Queries) KeysMadeInTeam(ctx context.Context, arg KeysMadeInTeamParams) ([]KeysMadeInTeamRow, error) {
+	rows, err := q.db.QueryContext(ctx, keysMadeInTeam, arg.TeamID, arg.PersonID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []KeysMadeInTeamRow{}
+	for rows.Next() {
+		var i KeysMadeInTeamRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.ProjectID,
+			&i.ProjectName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const liveProject = `-- name: LiveProject :one
+SELECT id, team_id, name FROM projects WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL
+`
+
+type LiveProjectParams struct {
+	WorkspaceID string
+	ID          string
+}
+
+type LiveProjectRow struct {
+	ID     string
+	TeamID string
+	Name   string
+}
+
+// A project as it is now, if it was not deleted.
+func (q *Queries) LiveProject(ctx context.Context, arg LiveProjectParams) (LiveProjectRow, error) {
+	row := q.db.QueryRowContext(ctx, liveProject, arg.WorkspaceID, arg.ID)
+	var i LiveProjectRow
+	err := row.Scan(&i.ID, &i.TeamID, &i.Name)
+	return i, err
+}
+
 const markNoticesRead = `-- name: MarkNoticesRead :exec
 UPDATE notices SET read_at = ?1 WHERE person_id = ?2 AND read_at IS NULL AND created_at <= ?3
 `
@@ -257,6 +344,49 @@ type MarkNoticesReadParams struct {
 func (q *Queries) MarkNoticesRead(ctx context.Context, arg MarkNoticesReadParams) error {
 	_, err := q.db.ExecContext(ctx, markNoticesRead, arg.ReadAt, arg.PersonID, arg.UpTo)
 	return err
+}
+
+const membersOfTeam = `-- name: MembersOfTeam :many
+SELECT p.id, p.name, tm.role, tm.created_at
+FROM team_members tm JOIN people p ON p.id = tm.person_id
+WHERE tm.team_id = ? AND p.disabled_at IS NULL
+ORDER BY p.name, p.id
+`
+
+type MembersOfTeamRow struct {
+	ID        string
+	Name      string
+	Role      string
+	CreatedAt int64
+}
+
+// A team's members, as its owners see them.
+func (q *Queries) MembersOfTeam(ctx context.Context, teamID string) ([]MembersOfTeamRow, error) {
+	rows, err := q.db.QueryContext(ctx, membersOfTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []MembersOfTeamRow{}
+	for rows.Next() {
+		var i MembersOfTeamRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Role,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const noticesOfPerson = `-- name: NoticesOfPerson :many
@@ -291,6 +421,54 @@ func (q *Queries) NoticesOfPerson(ctx context.Context, arg NoticesOfPersonParams
 			&i.Details,
 			&i.CreatedAt,
 			&i.ReadAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const outsidersOfTeam = `-- name: OutsidersOfTeam :many
+SELECT p.id, p.name, m.role, pr.id AS project_id, pr.name AS project_name
+FROM memberships m
+JOIN projects pr ON pr.id = m.project_id
+JOIN people p ON p.id = m.person_id
+WHERE pr.team_id = ?1 AND pr.deleted_at IS NULL AND p.disabled_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = pr.team_id AND tm.person_id = m.person_id)
+ORDER BY pr.name, pr.id, p.name, p.id
+`
+
+type OutsidersOfTeamRow struct {
+	ID          string
+	Name        string
+	Role        string
+	ProjectID   string
+	ProjectName string
+}
+
+// People outside a team with a role of their own in one of its projects.
+func (q *Queries) OutsidersOfTeam(ctx context.Context, teamID string) ([]OutsidersOfTeamRow, error) {
+	rows, err := q.db.QueryContext(ctx, outsidersOfTeam, teamID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []OutsidersOfTeamRow{}
+	for rows.Next() {
+		var i OutsidersOfTeamRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Role,
+			&i.ProjectID,
+			&i.ProjectName,
 		); err != nil {
 			return nil, err
 		}

@@ -106,6 +106,11 @@ func (s *Store) Tidy(ctx context.Context, now time.Time) (more bool, err error) 
 		func() (int64, error) {
 			return w.DeleteLogEntriesBefore(ctx, db.DeleteLogEntriesBeforeParams{Before: now.Add(-r.logAge()).UnixMilli(), Batch: tidyBatch})
 		},
+		func() (int64, error) {
+			// A team holds at most a few dozen open ones, so this is never a batch.
+			_, err := w.DeleteStaleInvites(ctx, sql.NullInt64{Int64: now.Add(-staleInvites).UnixMilli(), Valid: true})
+			return 0, err
+		},
 	} {
 		if err := batches(remove); err != nil {
 			errs = append(errs, err)

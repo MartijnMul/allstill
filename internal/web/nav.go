@@ -20,6 +20,16 @@ type navData struct {
 	Attention int    // checks that need someone, so the view can stand out
 	Urgency   string // the worst look among them: warn or bad
 	Add       string // where to add a check, for someone who may
+	// People are the teams the person owns, each its People page: "People" for
+	// one, the team's name for several. Nobody else sees a team here (R6).
+	People []navItem
+}
+
+// markPeople marks the People page of a team as the one shown.
+func (n *navData) markPeople(teamID string) {
+	for i := range n.People {
+		n.People[i].Current = current(n.People[i].Href == peopleHref(teamID), "page")
+	}
 }
 
 type navItem struct {
@@ -74,6 +84,14 @@ func navOf(checks []store.CheckView, v viewer, here, show, project string) *navD
 		{Name: "All checks", Href: overviewLink("", ""), Count: len(checks), Current: current(overview && show == "" && project == "", "page")},
 		{Name: "Needs attention", Href: overviewLink("attention", ""), Count: attention, Current: current(overview && show == "attention" && project == "", "page"), Class: "attention"},
 		{Name: "Paused", Href: overviewLink("paused", ""), Count: paused, Current: current(overview && show == "paused" && project == "", "page"), Class: "paused"},
+	}
+	for _, t := range v.Access.Teams {
+		if t.Role == store.Owner {
+			n.People = append(n.People, navItem{Name: t.Name, Href: peopleHref(t.ID)})
+		}
+	}
+	if len(n.People) == 1 {
+		n.People[0].Name = "People"
 	}
 	where := "location"
 	if overview {

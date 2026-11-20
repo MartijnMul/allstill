@@ -588,13 +588,16 @@ func TestTheHighestRoleCountsAndAChoiceDecides(t *testing.T) {
 // A query that works either out for itself would drift from them (R42).
 func TestRolesAndAlertsAreSaidInOnePlace(t *testing.T) {
 	admin := regexp.MustCompile(`(?s)workspace_admin.*(memberships|team_members)|(memberships|team_members).*workspace_admin`)
-	writers := map[string]bool{"SetAlertChoice": true, "ClearAlertChoice": true, "ClearAlertChoicesOutside": true}
+	// What a person chose, which is not whether they are told: kept as it changes.
+	writers := map[string]bool{"SetAlertChoice": true, "ClearAlertChoice": true, "ClearAlertChoicesOutside": true, "AlertChoice": true}
 	// Who is in a team, which is not the same question as their role in a project:
 	// the team's own members, and whether a row of one's own gives more than it.
 	teams := map[string]bool{
 		"AddTeamMember": true, "RemoveTeamMember": true, "TeamsOfPerson": true, "RoleInTeam": true, "OwnersOfTeam": true,
 		"RoleInTeamOfProject": true, "TeamsConcerning": true,
 		"TeamSummaries": true, "PeopleWithTeams": true,
+		// A team's People page: who is in it, and who is outside it in its projects.
+		"MembersOfTeam": true, "OutsidersOfTeam": true,
 	}
 	for name, q := range queriesNamed(t) {
 		if strings.Contains(q, "alert_choices") && !writers[name] {

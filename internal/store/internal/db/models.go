@@ -138,6 +138,24 @@ type Installation struct {
 	Value string
 }
 
+type Invite struct {
+	ID          string
+	WorkspaceID string
+	TeamID      string
+	ProjectID   sql.NullString
+	Kind        string
+	Role        string
+	Label       string
+	SecretHash  []byte
+	MadeBy      string
+	CreatedAt   int64
+	ExpiresAt   int64
+	WithdrawnAt sql.NullInt64
+	AcceptedAt  sql.NullInt64
+	AcceptedBy  sql.NullString
+	MadePerson  sql.NullString
+}
+
 type LogEntry struct {
 	ID             int64
 	WorkspaceID    string

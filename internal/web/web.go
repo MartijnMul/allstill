@@ -129,7 +129,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{}, memory: newMemory(), grants: newGrants(),
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/parts.html"))
-	for _, name := range []string{"login", "setup", "overview", "check", "active", "messages", "log", "channels", "device", "error", "check-new", "check-edit", "check-confirm"} {
+	for _, name := range []string{"login", "setup", "join", "people", "people-remove", "overview", "check", "active", "messages", "log", "channels", "device", "error", "check-new", "check-edit", "check-confirm"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}
@@ -157,6 +157,12 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /checks/{id}/move", s.signedIn(s.moveCheck))
 	handle("POST /checks/{id}/delete", s.signedIn(s.removeCheck))
 	handle("POST /checks/{id}/ping-url", s.signedIn(s.replacePingURL))
+	handle("GET /teams/{team}", s.signedIn(s.peoplePage))
+	handle("POST /teams/{team}/invites", s.signedIn(s.inviteToTeam))
+	handle("POST /teams/{team}/invites/{invite}/withdraw", s.signedIn(s.withdrawInvite))
+	handle("POST /teams/{team}/members/{person}", s.signedIn(s.setTeamRole))
+	handle("GET /teams/{team}/members/{person}/remove", s.signedIn(s.removeMemberPage))
+	handle("POST /teams/{team}/members/{person}/remove", s.signedIn(s.removeMember))
 	handle("GET /messages", s.signedIn(s.messagesPage))
 	handle("GET /log", s.signedIn(s.logPage))
 	handle("GET /channels", s.signedIn(s.channelsPage))
@@ -183,6 +189,11 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /setup/link", s.setupLink)
 	handle("POST /setup/begin", s.setupBegin)
 	handle("POST /setup/finish", s.setupFinish)
+	handle("GET /join", s.joinPage)
+	handle("POST /join/offer", s.joinOffer)
+	handle("POST /join/accept", s.joinAccept)
+	handle("POST /join/begin", s.joinBegin)
+	handle("POST /join/finish", s.joinFinish)
 	static, _ := fs.Sub(staticFS, "static")
 	// The service worker lives at the root, so it covers every page.
 	mux.Handle("GET /sw.js", s.headers(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

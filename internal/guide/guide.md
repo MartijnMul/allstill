@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 # Allstill guide
 
-Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices, and where those who may edit a project add and change its checks. Projects, people and alerting as a whole are managed with the commands below.
+Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices, and where those who may edit a project add and change its checks, and a team's owners let people in. Projects, people and alerting as a whole are managed with the commands below.
 
 There are two ways to watch something:
 
@@ -184,18 +184,18 @@ A new installation starts in shadow mode: it records what it would have sent und
 
 - Allstill keeps a log of what happened to checks, who did what and who was reached, for 400 days (`-keep-log`), with people's names in it. **Log** in the dashboard shows it, as far as each person may see it. It stops mistakes, not someone holding the database, and restoring a backup takes it back too.
 - `allstill admin set-alerting -project Backups -check nightly -urgency digest` sets how fast a check's problems reach people: `now`, `digest` or `none`. `allstill admin set-alerting -critical` breaks through quiet hours. Each call sets both, so give `-urgency` and `-critical` together when you want both.
-- `allstill admin create-user` adds a person, with a link to make a passkey. Without `-project` and `-team` they are an administrator, who keeps the installation and, on an installation with one team, owns that team and so sees every project. For an outside party add `-project Customer -role viewer` (or `editor`, `owner`): they then see only those projects. With `-team Harbour -role editor` they have that role in every project the team owns, and with several teams `-admin` makes an administrator who is in no team. `allstill admin set-member` changes a role later, and `-role none` takes someone out of a project. `allstill admin passkey-link` gives a new link to someone who lost their devices.
+- `allstill admin create-user` adds a person, with a link to make a passkey. Without `-project` and `-team` they are an administrator, who keeps the installation and, on an installation with one team, owns that team and so sees every project. For an outside party add `-project Customer -role viewer` (or `editor`, `owner`): they then see only those projects. With `-team Harbour -role editor` they have that role in every project the team owns, and with several teams `-admin` makes an administrator who is in no team. `allstill admin set-member` changes a role later, and `-role none` takes someone out of a project. `allstill admin passkey-link` gives a new link to someone who lost their devices. A team's owners can also invite people themselves, under People in the dashboard: a link that works once, for seven days, with the role it gives; nobody is looked up by address.
 - An installation can hold several teams, each owning projects of its own that no other team and no administrator outside it is shown. `allstill admin teams` lists them, `allstill admin create-team NAME -owner-name NAME` makes one with its first owner, and a command that names a project two teams have takes `-team`. `allstill admin set-team` sets how many checks a team may have and whether its checks may reach the server's private ranges, which a new team may not. With one team none of this is needed.
 - These commands tell on themselves: giving someone a role, a passkey link for someone who is in a team or a project, taking away a passkey and ending sign-ins are told at once to the owners of the team concerned, on their devices and addresses, also in shadow mode. Say so to whoever asks you to run one.
 - After a lost or stolen device: `allstill admin end-sessions` ends all of someone's sign-ins and browser sessions, and `allstill admin remove-passkey` takes away a passkey, with what it approved. Both work on the server, on anyone.
 
 ## Not here yet
 
-- Making projects and managing people without a shell on the server. For now those are commands on the server. Checks and keys already work from anywhere.
+- Making projects without a shell on the server, and managing people from the command line. A team's owners invite people and change their roles under People in the dashboard; checks and keys already work from anywhere.
 - Reading incidents, or acknowledging and snoozing them.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Changing a project's default schedule and grace period.
-- Managing projects, people, probes and who is alerted in the dashboard: for now they are commands, run on the server.
+- Managing projects, probes and who is alerted in the dashboard: for now they are commands, run on the server.
 - Alerts other than by push and email, and changing quiet hours or the digest's time.
 - Calendars, maintenance windows and status pages.
 - The macOS menu bar app.

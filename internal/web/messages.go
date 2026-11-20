@@ -16,7 +16,7 @@ const listedMessages = 100
 const listedNotices = 20
 
 type messagesData struct {
-	Notices  []noticeRow // what commands on the server did in a team they own
+	Notices  []noticeRow // who was let in or out where they own, and by what
 	Shadow   bool
 	Nobody   []string // projects the person may see where nobody gets alerts
 	Messages []messageRow
@@ -45,7 +45,7 @@ var whatLabel = map[string]string{
 	"silent_check":    "Cannot alert, never pinged or never worked, or its schedule unreadable",
 	"paused_check":    "Paused",
 	"warning":         "Warning",
-	store.NoticeKind:  "From the server",
+	store.NoticeKind:  "Who can get in",
 }
 
 var kindLabel = map[string]string{"alert": "Alert", "digest": "Digest", "test": "Test", store.NoticeKind: "Notice"}

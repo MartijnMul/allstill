@@ -1,0 +1,107 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main">
+  <header class="page-head">
+    <div class="page-title"><h1>People</h1></div>
+    <p class="lede">Who can see the projects of the team {{.TeamName}}, and letting someone in.</p>
+  </header>
+
+  {{template "notice" .Said}}
+  {{if .Problem}}
+  <div class="callout warn" role="alert">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div><p class="callout-title">{{.Problem}}</p></div>
+  </div>
+  {{end}}
+
+  {{with .Made}}
+  <div class="callout up" role="status">
+    <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+    <div>
+      <p class="callout-title">An invitation for “{{.Label}}”, as {{.Role}}</p>
+      <p>Send this link to them however you like. It works once, until {{.Ends}}. It is shown only now: copy it before you leave this page.</p>
+      <div class="code"><code id="invite-url">{{.URL}}</code><button type="button" class="small" data-copy="invite-url"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span data-label>Copy</span></button></div>
+    </div>
+  </div>
+  {{end}}
+
+  <section class="panel" aria-labelledby="invite">
+    <div class="panel-head"><h2 id="invite">Invite someone</h2></div>
+    <div class="panel-body stack">
+      <p class="muted">You get a link to send them. Whoever opens it signs in, or makes an account with a passkey, and joins as the role you choose, in every project of the team. Nobody is looked up by name or address.</p>
+      <form class="inline" action="/teams/{{.TeamID}}/invites" method="post">
+        <label for="label" class="sr">For whom</label>
+        <input id="label" name="label" maxlength="100" placeholder="For whom: a name, or what they do" required>
+        <label for="role" class="sr">Role</label>
+        <select id="role" name="role">{{range .Roles}}<option value="{{.Value}}"{{if eq .Value "viewer"}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <button type="submit" class="primary">Make an invitation</button>
+      </form>
+      <p class="muted">A viewer sees the checks. An editor also changes them. An owner also lets people in and out; inviting an owner tells every owner at once.</p>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="members">
+    <div class="panel-head"><h2 id="members">In the team</h2><span class="count">{{len .Members}}</span></div>
+    <div class="table">
+      <table>
+        <caption class="sr">The team's members</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col">Role</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          {{range .Members}}
+          <tr>
+            <td><span class="two"><span>{{.Name}}{{if .You}} <span class="tag">You</span>{{end}}</span><span>{{.CameIn}}</span></span></td>
+            <td>
+              <form class="inline" action="/teams/{{$.Data.TeamID}}/members/{{.ID}}" method="post">
+                <label for="role-{{.ID}}" class="sr">Role of {{.Name}}</label>
+                <select id="role-{{.ID}}" name="role">{{$role := .Role}}{{range $.Data.Roles}}<option value="{{.Value}}"{{if eq .Value $role}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+                <button type="submit" class="small">Change</button>
+              </form>
+            </td>
+            <td><span class="actions"><a class="button small quiet" href="/teams/{{$.Data.TeamID}}/members/{{.ID}}/remove">Take out</a></span></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {{if .Outsiders}}
+  <section class="panel" aria-labelledby="outsiders">
+    <div class="panel-head"><h2 id="outsiders">Outside the team, in one project</h2><span class="count">{{len .Outsiders}}</span></div>
+    <div class="table">
+      <table>
+        <caption class="sr">People with a role of their own in one of the team's projects</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col">Project</th><th scope="col">Role</th></tr></thead>
+        <tbody>
+          {{range .Outsiders}}<tr><td>{{.Name}}</td><td>{{.Project}}</td><td>{{.Role}}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {{end}}
+
+  {{if .Invites}}
+  <section class="panel" aria-labelledby="open">
+    <div class="panel-head"><h2 id="open">Open invitations</h2><span class="count">{{len .Invites}}</span></div>
+    <div class="table">
+      <table>
+        <caption class="sr">Invitations nobody has accepted yet</caption>
+        <thead><tr><th scope="col">For</th><th scope="col">Role</th><th scope="col">Works until</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          {{range .Invites}}
+          <tr>
+            <td><span class="two"><span>{{.Label}}</span><span>{{.Where}}, made by {{.MadeBy}}</span></span></td>
+            <td>{{.Role}}</td>
+            <td class="mono nowrap">{{.Ends}}</td>
+            <td><span class="actions"><form action="/teams/{{$.Data.TeamID}}/invites/{{.ID}}/withdraw" method="post"><button type="submit" class="small quiet">Withdraw</button></form></span></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <p class="panel-foot">An invitation works once. Someone who was an owner and is no longer has theirs withdrawn.</p>
+  </section>
+  {{end}}
+</main>
+{{end}}{{end}}

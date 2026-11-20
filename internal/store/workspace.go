@@ -261,9 +261,22 @@ func setMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, projec
 	if err != nil {
 		return err
 	}
+	teamID, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: workspaceID, ID: projectID})
+	if err != nil {
+		return err
+	}
+	if err := withdrawUnbacked(ctx, q, workspaceID, teamID, personID, time.UnixMilli(at)); err != nil {
+		return err
+	}
 	if role == Viewer {
 		return nil
 	}
+	return followOpen(ctx, q, workspaceID, projectID, personID, at)
+}
+
+// followOpen has the sender look at what is open in a project for someone who
+// now gets alerts for it: they should have known since it opened.
+func followOpen(ctx context.Context, q *db.Queries, workspaceID, projectID, personID string, at int64) error {
 	open, err := q.OpenIncidentsOfProject(ctx, db.OpenIncidentsOfProjectParams{WorkspaceID: workspaceID, ProjectID: projectID})
 	if err != nil {
 		return err
@@ -357,6 +370,14 @@ func (s *Store) RemoveMember(ctx context.Context, by Actor, workspaceID, project
 		if err := logMember(ctx, q, by, workspaceID, projectID, personID, "alerts.chosen", map[string]any{"told": told > 0}); err != nil {
 			return err
 		}
+	}
+	// What they could invite to only as the project's owner, they no longer can.
+	teamID, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: workspaceID, ID: projectID})
+	if err != nil {
+		return err
+	}
+	if err := withdrawUnbacked(ctx, q, workspaceID, teamID, personID, time.Now()); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

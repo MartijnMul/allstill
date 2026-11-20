@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/MartijnMul/allstill/internal/id"
@@ -16,7 +17,9 @@ import (
 // the database. So it tells on itself (intent/teams/spec.md, R27 to R29): what
 // lets someone into a team, or lets someone become one of its people, is told
 // to the team's owners at once, whatever the alerts switch says, and stays at
-// the top of their overview until they have read it.
+// the top of their overview until they have read it. A change to who holds a
+// team is told the same way when a person makes it (plan-3.md), and someone
+// accepting an invitation is a card on the owners' overview.
 
 // The kinds of notice.
 const (
@@ -26,6 +29,9 @@ const (
 	noticeLinkMade      = "signin.link_made"
 	noticePasskeyGone   = "passkey.removed"
 	noticeSignInsEnded  = "signins.ended"
+	// Invitations (plan-3.md): one as owner was made, and one was accepted.
+	noticeOwnerInvite    = "invite.owner_made"
+	noticeInviteAccepted = "invite.accepted"
 )
 
 // NoticeKind is the kind of a delivery that carries a notice.
@@ -39,11 +45,30 @@ type Notice struct {
 	Read  bool
 }
 
-// noticeTitle says a notice in one line, from its facts.
+// noticeTitle says a notice in one line, from its facts: who did it is a
+// command on the server, or a person by name.
 func noticeTitle(kind string, d map[string]any) string {
 	s := func(key string) string { v, _ := d[key].(string); return v }
 	by := "A command on the server (" + s("command") + ")"
+	if s("command") == "" && s("by") != "" {
+		by = s("by")
+	}
 	switch kind {
+	case noticeOwnerInvite:
+		where := "the team " + s("team")
+		if s("project") != "" {
+			where = "the project " + s("project")
+		}
+		return fmt.Sprintf("%s made an invitation as owner of %s, for %q. Whoever holds it can become an owner.", by, where, s("label"))
+	case noticeInviteAccepted:
+		where := "the team " + s("team")
+		if s("project") != "" {
+			where = "the project " + s("project")
+		}
+		if s("by") == "" {
+			return fmt.Sprintf("%s accepted an invitation and is now %s of %s.", s("person"), article(s("role")), where)
+		}
+		return fmt.Sprintf("%s accepted the invitation %s made for %q and is now %s of %s.", s("person"), s("by"), s("label"), article(s("role")), where)
 	case noticeRoleGiven:
 		return fmt.Sprintf("%s made %s %s of %s.", by, s("person"), s("role"), s("project"))
 	case noticeTeamRoleGiven:
@@ -70,6 +95,37 @@ func tellOwners(ctx context.Context, q *db.Queries, by Actor, workspaceID string
 		return nil
 	}
 	details["command"] = by.Name
+	return noticeOwners(ctx, q, workspaceID, teamIDs, also, kind, details, at, true)
+}
+
+// noticeOwners tells the owners of teams, and the people in also, what happened.
+// A loud notice goes to every channel they have confirmed, whatever the alerts
+// switch says and through quiet hours; a quiet one is only the card on their
+// overview, for what they should see but need not be woken for.
+func noticeOwners(ctx context.Context, q *db.Queries, workspaceID string, teamIDs, also []string, kind string, details map[string]any, at time.Time, loud bool) error {
+	told := map[string]bool{}
+	for _, teamID := range teamIDs {
+		owners, err := q.OwnersOfTeam(ctx, teamID)
+		if err != nil {
+			return err
+		}
+		people := slices.Clone(also)
+		for _, o := range owners {
+			people = append(people, o.ID)
+		}
+		people = slices.DeleteFunc(people, func(p string) bool { return told[p] })
+		for _, p := range people {
+			told[p] = true
+		}
+		if err := noticePeople(ctx, q, workspaceID, teamID, people, kind, details, at, loud); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// noticePeople tells these people, once each, about something in a team.
+func noticePeople(ctx context.Context, q *db.Queries, workspaceID, teamID string, people []string, kind string, details map[string]any, at time.Time, loud bool) error {
 	raw, err := json.Marshal(details)
 	if err != nil {
 		return err
@@ -78,47 +134,39 @@ func tellOwners(ctx context.Context, q *db.Queries, by Actor, workspaceID string
 	if err != nil {
 		return err
 	}
-	told := map[string]bool{}
-	for _, teamID := range teamIDs {
-		owners, err := q.OwnersOfTeam(ctx, teamID)
+	seen := map[string]bool{}
+	for _, personID := range people {
+		if seen[personID] {
+			continue
+		}
+		seen[personID] = true
+		err := q.CreateNotice(ctx, db.CreateNoticeParams{
+			ID: id.New(id.Notice), WorkspaceID: workspaceID, PersonID: personID, TeamID: teamID, Kind: kind, Details: string(raw), CreatedAt: at.UnixMilli(),
+		})
 		if err != nil {
 			return err
 		}
-		people := also
-		for _, o := range owners {
-			people = append(people, o.ID)
+		if !loud {
+			continue
 		}
-		for _, personID := range people {
-			o := struct{ ID string }{personID}
-			if told[o.ID] {
-				continue
+		// To every way they have confirmed, not the first that works: it is
+		// about who can get in, and they should see it wherever they look.
+		channels, err := q.ConfirmedChannelsOfPerson(ctx, nullString(personID))
+		if err != nil {
+			return err
+		}
+		message := id.New(id.Delivery)
+		for i, c := range channels {
+			d := message
+			if i > 0 {
+				d = id.New(id.Delivery)
 			}
-			told[o.ID] = true
-			err := q.CreateNotice(ctx, db.CreateNoticeParams{
-				ID: id.New(id.Notice), WorkspaceID: workspaceID, PersonID: o.ID, TeamID: teamID, Kind: kind, Details: string(raw), CreatedAt: at.UnixMilli(),
+			err := q.CreatePendingDelivery(ctx, db.CreatePendingDeliveryParams{
+				ID: d, WorkspaceID: c.WorkspaceID, PersonID: personID, ChannelID: nullString(c.ID), ChannelKind: nullString(c.Kind),
+				Kind: NoticeKind, Items: string(items), CreatedAt: at.UnixMilli(), NextAt: nullMs(at), MessageID: nullString(message),
 			})
 			if err != nil {
 				return err
-			}
-			// To every way they have confirmed, not the first that works: it is
-			// about who can get in, and they should see it wherever they look.
-			channels, err := q.ConfirmedChannelsOfPerson(ctx, nullString(o.ID))
-			if err != nil {
-				return err
-			}
-			message := id.New(id.Delivery)
-			for i, c := range channels {
-				d := message
-				if i > 0 {
-					d = id.New(id.Delivery)
-				}
-				err := q.CreatePendingDelivery(ctx, db.CreatePendingDeliveryParams{
-					ID: d, WorkspaceID: c.WorkspaceID, PersonID: o.ID, ChannelID: nullString(c.ID), ChannelKind: nullString(c.Kind),
-					Kind: NoticeKind, Items: string(items), CreatedAt: at.UnixMilli(), NextAt: nullMs(at), MessageID: nullString(message),
-				})
-				if err != nil {
-					return err
-				}
 			}
 		}
 	}
@@ -166,4 +214,12 @@ func (s *Store) LogCommandRead(ctx context.Context, workspaceID, command, projec
 		WorkspaceID: workspaceID, At: time.Now(), ProjectID: projectID, Kind: "command.read",
 		AboutKind: "project", AboutID: projectID, By: Command(command),
 	})
+}
+
+// article puts "a" or "an" before a role: an editor, a viewer.
+func article(role string) string {
+	if role == string(Editor) || role == string(Owner) {
+		return "an " + role
+	}
+	return "a " + role
 }

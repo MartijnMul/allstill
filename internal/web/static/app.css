@@ -429,6 +429,8 @@ form.inline input { flex: 1 1 220px; min-width: 0; }
 .box button, .box .button { height: 40px; }
 .box .button { align-self: flex-start; }
 .box .stack { display: flex; flex-direction: column; gap: 10px; }
+.box-part, .box-part form { display: flex; flex-direction: column; gap: 12px; }
+.box-part form + form { padding-top: 16px; border-top: 1px solid var(--line-soft); }
 .device-code { font-family: var(--mono); font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; }
 .device-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; font-size: 13.5px; }
 .device-facts dt { color: var(--muted); }

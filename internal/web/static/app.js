@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// The dashboard's only script: signing in and adding a passkey, copying ping
-// URLs, the tips on the last runs, and keeping a page current while it is
+// The dashboard's only script: signing in, adding a passkey and accepting an
+// invitation, copying ping URLs, the tips on the last runs, and keeping a page current while it is
 // open.
 
 const b64 = {
@@ -156,6 +156,80 @@ if (setup) {
       alert.textContent = message(err);
       busy(setup, false);
     }
+  });
+}
+
+// An invitation: who invites and as what, then, once signed in or with a new
+// account, where to, and accepting it. The secret stays in this script, never
+// in the address bar or a request's URL.
+const join = document.getElementById("join");
+if (join) {
+  const token = location.hash.slice(1);
+  history.replaceState(null, "", location.pathname);
+  const failed = document.getElementById("join-error");
+  const showError = (text) => {
+    join.hidden = true;
+    failed.hidden = false;
+    failed.querySelector("[role=alert]").textContent = text;
+  };
+  const part = (name) => join.querySelector(`[data-${name}]`);
+  const show = async () => {
+    const offer = await post("/join/offer", { token });
+    part("offer").textContent = offer.offer;
+    const signedIn = Boolean(offer.signed_in_as);
+    part("signed-in").hidden = !signedIn;
+    part("signed-out").hidden = signedIn;
+    if (signedIn) {
+      for (const me of join.querySelectorAll("[data-me]")) me.textContent = offer.signed_in_as;
+      part("where").textContent = offer.where;
+      part("has").hidden = !offer.has;
+      document.getElementById("join-accept").hidden = offer.has;
+    } else {
+      document.getElementById("join-new").hidden = offer.account_made;
+      part("made").hidden = !offer.account_made;
+    }
+    join.hidden = false;
+  };
+  const act = (form, what) => {
+    const alert = form.querySelector("[role=alert]");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      alert.textContent = "";
+      busy(form, true);
+      try {
+        await what(form);
+      } catch (err) {
+        alert.textContent = message(err);
+      }
+      busy(form, false);
+    });
+  };
+  if (!token) {
+    showError("This link is incomplete. Copy the whole link and try again.");
+  } else {
+    show().catch((err) => showError(err.message));
+  }
+  act(document.getElementById("join-accept"), async () => {
+    const done = await post("/join/accept", { token });
+    location.assign(done.location);
+  });
+  act(document.getElementById("join-signin"), async () => {
+    const options = await post("/login/begin");
+    const credential = await navigator.credentials.get(requestOptions(options));
+    await post("/login/finish", credentialJSON(credential));
+    await show();
+  });
+  act(document.getElementById("join-new"), async (form) => {
+    const name = form.elements.name.value.trim();
+    const time_zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const begun = await post("/join/begin", { token, name, time_zone });
+    const credential = await navigator.credentials.create(creationOptions(begun.options));
+    await post("/join/finish", { token, name, time_zone, person: begun.person, credential: credentialJSON(credential) });
+    await show();
+  });
+  part("switch").addEventListener("click", async () => {
+    await fetch("/logout", { method: "POST" });
+    await show().catch((err) => showError(err.message));
   });
 }
 

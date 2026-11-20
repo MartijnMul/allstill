@@ -129,3 +129,34 @@ WHERE p.workspace_id = ? ORDER BY p.name, p.id, t.created_at;
 
 -- name: CountProjectsOfTeam :one
 SELECT COUNT(*) FROM projects WHERE team_id = ?;
+
+-- A team's members, as its owners see them.
+-- name: MembersOfTeam :many
+SELECT p.id, p.name, tm.role, tm.created_at
+FROM team_members tm JOIN people p ON p.id = tm.person_id
+WHERE tm.team_id = ? AND p.disabled_at IS NULL
+ORDER BY p.name, p.id;
+
+-- People outside a team with a role of their own in one of its projects.
+-- name: OutsidersOfTeam :many
+SELECT p.id, p.name, m.role, pr.id AS project_id, pr.name AS project_name
+FROM memberships m
+JOIN projects pr ON pr.id = m.project_id
+JOIN people p ON p.id = m.person_id
+WHERE pr.team_id = sqlc.arg(team_id) AND pr.deleted_at IS NULL AND p.disabled_at IS NULL
+  AND NOT EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = pr.team_id AND tm.person_id = m.person_id)
+ORDER BY pr.name, pr.id, p.name, p.id;
+
+-- The keys someone made in a team's projects that still work.
+-- name: KeysMadeInTeam :many
+SELECT k.id, k.name, pr.id AS project_id, pr.name AS project_name
+FROM api_keys k JOIN projects pr ON pr.id = k.project_id
+WHERE pr.team_id = sqlc.arg(team_id) AND pr.deleted_at IS NULL AND k.made_by_kind = 'person' AND k.made_by_id = sqlc.arg(person_id)
+ORDER BY pr.name, k.name;
+
+-- name: AlertChoice :one
+SELECT alerts FROM alert_choices WHERE project_id = ? AND person_id = ?;
+
+-- A project as it is now, if it was not deleted.
+-- name: LiveProject :one
+SELECT id, team_id, name FROM projects WHERE workspace_id = ? AND id = ? AND deleted_at IS NULL;

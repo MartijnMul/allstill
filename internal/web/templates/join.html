@@ -1,0 +1,39 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}
+<main class="center">
+  <a class="brand" href="/">{{template "logo"}}</a>
+  <div class="panel box" id="join" hidden>
+    <h1>An invitation</h1>
+    <p data-offer></p>
+    <div class="box-part" data-signed-in hidden>
+      <p data-where></p>
+      <p class="muted" data-has hidden>You have this already, so the invitation stays open for whom it was meant.</p>
+      <form id="join-accept">
+        <button type="submit" class="primary">Accept as <span data-me></span></button>
+        <p class="alert" role="alert"></p>
+      </form>
+      <button type="button" class="quiet" data-switch>Not <span data-me></span>? Sign out and continue</button>
+    </div>
+    <div class="box-part" data-signed-out hidden>
+      <form id="join-signin">
+        <p>Have an account here? Sign in, then accept.</p>
+        <button type="submit">Sign in with a passkey</button>
+        <p class="alert" role="alert"></p>
+      </form>
+      <form id="join-new">
+        <p>New here? Give your name and make a passkey: a passkey signs you in with this device's fingerprint, face or PIN, and there is no password.</p>
+        <label>Your name<input name="name" autocomplete="name" maxlength="100" required></label>
+        <button type="submit" class="primary">Make an account</button>
+        <p class="alert" role="alert"></p>
+      </form>
+      <p class="muted" data-made hidden>An account was made with this invitation already. Sign in with its passkey to accept it.</p>
+    </div>
+  </div>
+  <div class="panel box" id="join-error" hidden>
+    <h1>An invitation</h1>
+    <p class="alert" role="alert"></p>
+    <a class="button" href="/login">Sign in</a>
+  </div>
+  <noscript><div class="panel box"><p class="alert">Accepting an invitation needs JavaScript.</p></div></noscript>
+</main>
+{{end}}

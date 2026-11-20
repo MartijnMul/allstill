@@ -49,7 +49,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 // projects they see where nobody would be told (R11).
 func (s *Server) alertCards(ctx context.Context, v viewer, now time.Time) ([]card, error) {
 	var cards []card
-	// What a command on the server did in a team they own comes first, until read.
+	// Who was let in or out where they own comes first, until read.
 	notices, err := s.Store.Notices(ctx, v.ID, listedNotices)
 	if err != nil {
 		return nil, err

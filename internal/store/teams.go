@@ -100,7 +100,16 @@ func (s *Store) SetTeamMember(ctx context.Context, by Actor, workspaceID, teamID
 		return err
 	}
 	defer tx.Rollback()
-	q := db.New(tx)
+	if err := setTeamMember(ctx, db.New(tx), by, workspaceID, teamID, personID, role, nil); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// setTeamMember is SetTeamMember within a transaction. accepted is the line of an
+// invitation that gives the role, written instead of team.member_set; who is told
+// of it is the caller's.
+func setTeamMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, teamID, personID string, role Role, accepted *logEntry) error {
 	team, err := q.Team(ctx, db.TeamParams{WorkspaceID: workspaceID, ID: teamID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
@@ -131,9 +140,27 @@ func (s *Store) SetTeamMember(ctx context.Context, by Actor, workspaceID, teamID
 			return ErrLastOwner
 		}
 	}
+	at := time.Now()
 	entry := logEntry{
-		WorkspaceID: workspaceID, At: time.Now(), TeamID: teamID, AboutKind: "person", AboutID: personID, AboutName: person.Name,
+		WorkspaceID: workspaceID, At: at, TeamID: teamID, AboutKind: "person", AboutID: personID, AboutName: person.Name,
 		By: by, Person: person, Details: map[string]any{"from": was, "to": role, "team": team.Name},
+	}
+	// A change to who holds the team is told to every owner, whoever makes it,
+	// and to an owner who is made less or taken out (plan-3.md). A command on the
+	// server tells every change that lets someone in or takes them out.
+	tell := func(kind string, details map[string]any) error {
+		var also []string
+		if was == string(Owner) {
+			also = []string{personID}
+		}
+		if by.Kind == "command" || accepted != nil {
+			return tellOwners(ctx, q, by, workspaceID, []string{teamID}, also, kind, details, at)
+		}
+		if was != string(Owner) && role != Owner {
+			return nil
+		}
+		details["by"] = by.Name
+		return noticeOwners(ctx, q, workspaceID, []string{teamID}, also, kind, details, at, true)
 	}
 	if role == "" {
 		entry.Kind = "team.member_removed"
@@ -145,22 +172,19 @@ func (s *Store) SetTeamMember(ctx context.Context, by Actor, workspaceID, teamID
 		if err := q.ClearAlertChoicesOutside(ctx, db.ClearAlertChoicesOutsideParams{TeamID: teamID, PersonID: personID}); err != nil {
 			return err
 		}
+		if err := withdrawUnbacked(ctx, q, workspaceID, teamID, personID, at); err != nil {
+			return err
+		}
 		if err := writeLog(ctx, q, entry); err != nil {
 			return err
 		}
-		// The owners who stay are told, and an owner who goes is too.
-		var also []string
-		if was == string(Owner) {
-			also = []string{personID}
-		}
-		err = tellOwners(ctx, q, by, workspaceID, []string{teamID}, also, noticeTeamRoleTaken,
-			map[string]any{"person": person.Name, "team": team.Name}, time.Now())
-		if err != nil {
-			return err
-		}
-		return tx.Commit()
+		return tell(noticeTeamRoleTaken, map[string]any{"person": person.Name, "team": team.Name})
 	}
 	entry.Kind = "team.member_set"
+	if accepted != nil {
+		entry = *accepted
+		entry.Details["team"] = team.Name
+	}
 	// A row of their own that gives no more than the new role goes. Whether they
 	// were told about that project is read first, while the row still says.
 	rows, err := q.OwnRolesInTeam(ctx, db.OwnRolesInTeamParams{TeamID: teamID, PersonID: personID})
@@ -200,18 +224,16 @@ func (s *Store) SetTeamMember(ctx context.Context, by Actor, workspaceID, teamID
 			return err
 		}
 	}
+	if err := withdrawUnbacked(ctx, q, workspaceID, teamID, personID, at); err != nil {
+		return err
+	}
 	if err := writeLog(ctx, q, entry); err != nil {
 		return err
 	}
-	// An owner who was made less is told with the owners who stay.
-	var also []string
-	if was == string(Owner) {
-		also = []string{personID}
-	}
-	err = tellOwners(ctx, q, by, workspaceID, []string{teamID}, also, noticeTeamRoleGiven,
-		map[string]any{"person": person.Name, "role": string(role), "team": team.Name}, time.Now())
-	if err != nil {
-		return err
+	if accepted == nil {
+		if err := tell(noticeTeamRoleGiven, map[string]any{"person": person.Name, "role": string(role), "team": team.Name}); err != nil {
+			return err
+		}
 	}
 	if role != Viewer {
 		// They should have known of what is open since it opened, as when someone
@@ -220,23 +242,126 @@ func (s *Store) SetTeamMember(ctx context.Context, by Actor, workspaceID, teamID
 		if err != nil {
 			return err
 		}
-		due := sql.NullInt64{Int64: now(), Valid: true}
 		for _, p := range projects {
-			open, err := q.OpenIncidentsOfProject(ctx, db.OpenIncidentsOfProjectParams{WorkspaceID: workspaceID, ProjectID: p.ID})
-			if err != nil {
+			if err := followOpen(ctx, q, workspaceID, p.ID, personID, now()); err != nil {
 				return err
-			}
-			for _, incidentID := range open {
-				if err := q.AddFollowers(ctx, db.AddFollowersParams{IncidentID: incidentID, DueAt: due, ProjectID: p.ID, WorkspaceID: workspaceID}); err != nil {
-					return err
-				}
-				if err := q.LookAgainAtUntoldPerson(ctx, db.LookAgainAtUntoldPersonParams{DueAt: due, IncidentID: incidentID, PersonID: personID}); err != nil {
-					return err
-				}
 			}
 		}
 	}
+	return nil
+}
+
+// SetTeamMemberAs changes the role of someone in a team, for an owner of the
+// team. It never makes anyone a member: someone outside comes in by an
+// invitation. A change that names, makes less or concerns an owner is made only
+// in the dashboard (plan-3.md), and tells every owner.
+func (s *Store) SetTeamMemberAs(ctx context.Context, a Access, teamID, personID string, role Role) error {
+	if role != "" {
+		if _, err := ParseRole(string(role)); err != nil {
+			return &InvalidError{"role", "give viewer, editor or owner"}
+		}
+	}
+	if a.Actor.Kind != "person" {
+		return ErrForbidden
+	}
+	have, in := a.TeamRole(teamID)
+	if !in {
+		return ErrNotFound
+	}
+	if have != Owner {
+		return ErrForbidden
+	}
+	tx, err := s.w.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	q := db.New(tx)
+	// Read again here: whoever asks may have been made less since the request came.
+	mine, err := q.RoleInTeam(ctx, db.RoleInTeamParams{TeamID: teamID, PersonID: a.PersonID})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if Role(mine) != Owner {
+		return ErrForbidden
+	}
+	was, err := q.RoleInTeam(ctx, db.RoleInTeamParams{TeamID: teamID, PersonID: personID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	if (Role(was) == Owner || role == Owner) && !inDashboard(a) {
+		return errOwnerInDashboard
+	}
+	if err := setTeamMember(ctx, q, a.Actor, a.WorkspaceID, teamID, personID, role, nil); err != nil {
+		return err
+	}
 	return tx.Commit()
+}
+
+// Stays is what someone taken out of a team keeps there: roles of their own in
+// its projects, and keys they made in them, which keep working, as a key is the
+// project's (spec, R21, R38).
+type Stays struct {
+	Roles []Outsider
+	Keys  []KeyInTeam
+}
+
+// KeyInTeam is a key someone made in one of a team's projects.
+type KeyInTeam struct {
+	ID, Name, ProjectID, ProjectName string
+}
+
+// WhatStays says what a member of a team keeps there once taken out, for an
+// owner of the team.
+func (s *Store) WhatStays(ctx context.Context, a Access, teamID, personID string) (Stays, error) {
+	if have, in := a.TeamRole(teamID); !in {
+		return Stays{}, ErrNotFound
+	} else if have != Owner {
+		return Stays{}, ErrForbidden
+	}
+	q := db.New(s.r)
+	if _, err := q.RoleInTeam(ctx, db.RoleInTeamParams{TeamID: teamID, PersonID: personID}); errors.Is(err, sql.ErrNoRows) {
+		return Stays{}, ErrNotFound
+	} else if err != nil {
+		return Stays{}, err
+	}
+	return whatStays(ctx, q, teamID, personID)
+}
+
+func whatStays(ctx context.Context, q *db.Queries, teamID, personID string) (Stays, error) {
+	var st Stays
+	rows, err := q.OwnRolesInTeam(ctx, db.OwnRolesInTeamParams{TeamID: teamID, PersonID: personID})
+	if err != nil {
+		return Stays{}, err
+	}
+	for _, r := range rows {
+		name, err := q.NameOfProject(ctx, r.ProjectID)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		} else if err != nil {
+			return Stays{}, err
+		}
+		st.Roles = append(st.Roles, Outsider{ID: personID, Role: Role(r.Role), ProjectID: r.ProjectID, ProjectName: name})
+	}
+	keys, err := q.KeysMadeInTeam(ctx, db.KeysMadeInTeamParams{TeamID: teamID, PersonID: personID})
+	if err != nil {
+		return Stays{}, err
+	}
+	for _, k := range keys {
+		st.Keys = append(st.Keys, KeyInTeam{ID: k.ID, Name: k.Name, ProjectID: k.ProjectID, ProjectName: k.ProjectName})
+	}
+	return st, nil
+}
+
+// RemoveTeamMemberAs takes someone out of a team, for an owner of the team, and
+// returns what they keep there. An owner is taken out only in the dashboard.
+func (s *Store) RemoveTeamMemberAs(ctx context.Context, a Access, teamID, personID string) (Stays, error) {
+	if err := s.SetTeamMemberAs(ctx, a, teamID, personID, ""); err != nil {
+		return Stays{}, err
+	}
+	return whatStays(ctx, db.New(s.r), teamID, personID)
 }
 
 // TeamRoleInProject returns a person's role in the team that owns a project, and

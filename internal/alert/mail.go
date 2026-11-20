@@ -121,9 +121,9 @@ func (s *Sender) compose(d store.Pending, token string) (subject, body string) {
 			}
 		}
 	case store.NoticeKind:
-		subject = "Allstill: a command on the server reached into your team"
+		subject = "Allstill: who can get in has changed"
 		b.WriteString(noticeLine(d.Items) + "\n\n")
-		b.WriteString("You are told because you own the team. It was run on the server itself, by whoever keeps the installation or has its shell. If you did not expect it, ask them.\n\n")
+		b.WriteString("You are told because you are an owner where it happened, so that nobody gets in unnoticed. A command on the server is run by whoever keeps the installation or has its shell. If you did not expect this, look at who is in under People, or ask them.\n\n")
 	default:
 		lines := make([]string, len(d.Items))
 		for i, it := range d.Items {

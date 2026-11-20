@@ -45,7 +45,7 @@ func TestANoticeGoesOutInShadowModeAndQuietHours(t *testing.T) {
 	d.mu.Lock()
 	last := d.got[len(d.got)-1]
 	d.mu.Unlock()
-	if d.requests() != 2 || !strings.Contains(last.Title, "a command on the server") || !strings.Contains(last.Body, "made Carol viewer of Shop") {
+	if d.requests() != 2 || !strings.Contains(last.Title, "who can get in") || !strings.Contains(last.Body, "made Carol viewer of Shop") {
 		t.Fatalf("%d pushes, the last %+v", d.requests(), last)
 	}
 	states := func() string {
