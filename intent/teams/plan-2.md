@@ -4,8 +4,8 @@
 Intent: [intent.md](intent.md)
 Spec: [spec.md](spec.md), accepted 2026-11-19
 Step 1: [plan.md](plan.md), running on a real installation since 2026-11-19
-Status: built (2026-11-19), in three commits; each part is still to be tried on a copy of a real database and rolled out
-Approved: 2026-11-19, by the maintainer's word to carry out step 2; the changes to the spec listed below are put to them with the first part
+Status: accepted; built in three parts and released together, running on a real installation since 2026-11-20
+Approved: 2026-11-19, by the maintainer's word to carry out step 2; the changes to the spec listed below accepted by the maintainer on 2026-11-20
 Risk: higher risk (the wall between parties who must not see each other, three migrations that cannot be edited once committed, and messages that go out whatever the alerts switch says)
 Codebase: MartijnMul/allstill at 2523cb4
 Reviewed: 2026-11-19, by an independent pass against the code, which looked for leaks and tried the migrations' mechanics on a copy of the schema; what it found is worked in
@@ -37,7 +37,7 @@ Nothing in what anyone sees or may do, with these exceptions, each on purpose:
 - **The API gains fields** (`team` on a project, `teams` on `me`, later the message kind `notice`). Nothing is removed. 0.13.0 with part A, 0.14.0 with part B.
 - **Texts that say an administrator sees every project,** in the commands' help and the server's start-up warning about private ranges, are rewritten in the part that makes them untrue.
 
-## Changes to the spec, for the maintainer to accept with this plan
+## Changes to the spec, accepted by the maintainer
 
 - **The log's signature for a viewer stays "the team".** The spec makes it the team's name. A team is named as its installation is, "Allstill" unless renamed, and "Allstill paused `backup`" reads as the program acting. "The team" is the team of the project the line is in, which is never ambiguous. The name comes with step 4, where a line must say "someone in" another team.
 - **Private ranges are opened per team as a whole, not range by range.** The server's `-allow-private` stays the list. A team may reach all of it or none, kept so that naming ranges later needs no new table. R13 holds: the first team may, a new team may not until said. Naming ranges per team waits for an installation that opens two networks to different parties.
