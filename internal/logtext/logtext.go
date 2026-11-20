@@ -251,6 +251,8 @@ func (w *writer) write() {
 		w.say(by, text(" made the project "), Part{Text: e.AboutName, Name: true}, text("."))
 	case "project.renamed":
 		w.say(by, text(" renamed the project "+detailString(d, "from")+" to "+detailString(d, "to")+"."))
+	case "project.deleted":
+		w.say(by, text(" deleted the project "), Part{Text: e.AboutName, Name: true}, text(" of the team "+detailString(d, "team")+"."))
 	case "person.added":
 		if d["invited"] == true {
 			w.say(party(e.Person), text(" made an account with an invitation."))
@@ -277,9 +279,19 @@ func (w *writer) write() {
 	case "member.removed":
 		w.say(by, text(" took "), party(e.Person), text(" out of this project."))
 	case "alerts.chosen":
-		if told, _ := d["told"].(bool); told {
+		told, _ := d["told"].(bool)
+		switch self := e.By.Kind == "person" && e.By.ID != "" && e.By.ID == e.Person.ID; {
+		case e.By.Kind == "team" && e.Person.Kind == "team" && told:
+			w.say(text("Someone of the team is told about this project again."))
+		case e.By.Kind == "team" && e.Person.Kind == "team":
+			w.say(text("Someone of the team is no longer told about this project."))
+		case self && told:
+			w.say(party(e.Person), text(" chose to be told about this project."))
+		case self:
+			w.say(party(e.Person), text(" chose not to be told about this project."))
+		case told:
 			w.say(by, text(" had "), party(e.Person), text(" told about this project again."))
-		} else {
+		default:
 			w.say(by, text(" stopped the alerts for this project to "), party(e.Person), text("."))
 		}
 	case "command.read":

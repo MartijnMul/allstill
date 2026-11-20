@@ -39,7 +39,7 @@
           </a></li>
           {{end}}
         </ul>
-        {{if .Projects}}
+        {{if or .Projects .NewProject}}
         <p class="side-label">Projects</p>
         <ul>
           {{range .Projects}}
@@ -48,6 +48,7 @@
             <span class="label">{{.Name}}</span><span class="count">{{.Count}}</span>
           </a></li>
           {{end}}
+          {{with .NewProject}}<li><a href="{{.}}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span class="label">New project</span></a></li>{{end}}
         </ul>
         {{end}}
         {{else}}

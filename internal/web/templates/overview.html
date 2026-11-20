@@ -47,6 +47,7 @@
       <h2 id="list">{{.List}}</h2>
       <span class="count">{{.Shown}}</span>
       {{if $search}}<span class="filter">matching “{{$search}}” <a href="{{.Clear}}">Clear</a></span>{{end}}
+      {{if .About}}<a class="button small quiet" href="{{.About}}">About this project</a>{{end}}
     </div>
     {{if .Groups}}
     <div class="table">
@@ -57,7 +58,7 @@
         </thead>
         {{range .Groups}}
         <tbody>
-          <tr class="group"><th colspan="6" scope="rowgroup">{{.Name}} <span class="count">{{len .Checks}}</span></th></tr>
+          <tr class="group"><th colspan="6" scope="rowgroup"><a href="{{.Href}}">{{.Name}}</a> <span class="count">{{len .Checks}}</span></th></tr>
           {{range .Checks}}
           <tr class="check">
             <td><span class="state {{.Look.Class}}"><i class="dot {{.Look.Class}}" aria-hidden="true"></i>{{.Look.Label}}</span></td>
@@ -76,6 +77,7 @@
     <div class="empty">
       <svg class="icon" aria-hidden="true"><use href="#i-{{if .Calm}}check{{else}}inbox{{end}}"/></svg>
       <p>{{.Empty}}</p>
+      {{if .NewProject}}<a class="button primary" href="{{.NewProject}}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>New project</a>{{end}}
       {{if .AddFirst}}<a class="button primary" href="{{.Add}}"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>Add check</a>{{end}}
       {{if .Import}}<p class="note">Moving from Healthchecks? On the server: <code>allstill import healthchecks</code></p>{{end}}
     </div>

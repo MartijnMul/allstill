@@ -539,6 +539,23 @@ func (e *TeamHolds) Error() string {
 // places in it, or says what it still holds (spec, R33). Its people keep their
 // accounts. It is for commands on the server.
 func (s *Store) RemoveTeam(ctx context.Context, by Actor, workspaceID, teamID string) error {
+	// What its deleted projects still hold goes first, a batch at a time as
+	// tidying does: the deleted checks with their history (plan-3.md, part B).
+	// Only deleted checks go; a project with a live check is never deleted.
+	if _, err := db.New(s.r).Team(ctx, db.TeamParams{WorkspaceID: workspaceID, ID: teamID}); errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	left, err := db.New(s.r).ChecksOfDeletedProjects(ctx, teamID)
+	if err != nil {
+		return err
+	}
+	for _, checkID := range left {
+		if err := removeDeletedCheck(ctx, db.New(s.w), checkID); err != nil {
+			return err
+		}
+	}
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -556,7 +573,12 @@ func (s *Store) RemoveTeam(ctx context.Context, by Actor, workspaceID, teamID st
 		if len(rows) == 1 {
 			return &InvalidError{"team", "is the installation's only team, which every project needs"}
 		}
-		// A project that was deleted still points to its team.
+		// A deleted project still points to its team: its row goes now, with
+		// its log lines keeping its name as text. One still holding a check
+		// stays, and counts.
+		if err := q.RemoveDeletedProjects(ctx, teamID); err != nil {
+			return err
+		}
 		projects, err := q.CountProjectsOfTeam(ctx, teamID)
 		if err != nil {
 			return err

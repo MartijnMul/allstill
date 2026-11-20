@@ -913,7 +913,7 @@ func TestANewInstallation(t *testing.T) {
 	b := f.browser(t)
 	f.register(t, b, ada)
 	page := string(b.ok("GET", "/", nil))
-	if !strings.Contains(page, "allstill admin create-project") || strings.Contains(page, "Your administrator") {
+	if !strings.Contains(page, `href="/projects/new"`) || strings.Contains(page, "Your administrator") {
 		t.Errorf("%s", page)
 	}
 }

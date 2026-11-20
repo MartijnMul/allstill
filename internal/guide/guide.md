@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 # Allstill guide
 
-Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices, and where those who may edit a project add and change its checks, and a team's owners let people in. Projects, people and alerting as a whole are managed with the commands below.
+Allstill tells people whether their jobs ran and their sites are up, and keeps it calm: one alert per problem, the rest in a morning digest. It runs on a server of its own. People see it in a dashboard, where they also manage their own devices, and where those who may edit a project add and change its checks, a team's owners let people in and make, rename and delete its projects, and everyone chooses on a project's page whether they are told about it. People and alerting as a whole are managed with the commands below.
 
 There are two ways to watch something:
 
@@ -25,7 +25,7 @@ https://allstill.example.com/ping/CHECK-UUID
 https://allstill.example.com/ping/PROJECT-PING-KEY/nightly-backup
 ```
 
-The second form names the check with a slug: lowercase letters, digits, `-` and `_`, starting with a letter or digit. `start`, `fail` and `log` are taken. A project's ping key is shown once, when `allstill admin create-project` makes the project.
+The second form names the check with a slug: lowercase letters, digits, `-` and `_`, starting with a letter or digit. `start`, `fail` and `log` are taken. A project's ping key is shown once, when `allstill admin create-project` makes the project, or when a team's owner makes it in the dashboard.
 
 Give the URL to the job in `ALLSTILL_URL`, and wrap the job's command:
 
@@ -75,7 +75,8 @@ Someone who may edit a project needs no access to the server to add and change i
 - **Add check** asks what to watch. A new job's page shows a line with its ping URL, to run at the end of the job. That URL is a secret, so handle it as above, and see "Report a job" for how to report a failure too.
 - A check's page has **Edit**, and **Pause** or **Resume**. Its form also deletes it, moves it to another project the person may edit, and for a job replaces its ping URL, each after saying what will happen.
 - A probe's own check, which tells when the probe goes quiet, can be renamed but not deleted or paused, and only an owner of its team can move it.
-- Someone who may only view a project can only look. For more, they ask an administrator, who sets it on the server.
+- A project's name on the overview leads to its page, where everyone chooses whether they are told about it. Its owners see there who can see it and who is told, invite someone to that project alone, and change or end a role of their own in it. An owner of its team renames it there, and deletes it once it holds no check. **New project** in the sidebar is for a team's owners.
+- Someone who may only view a project can otherwise only look. For more, they ask an owner of it.
 
 ## On the server
 
@@ -191,11 +192,11 @@ A new installation starts in shadow mode: it records what it would have sent und
 
 ## Not here yet
 
-- Making projects without a shell on the server, and managing people from the command line. A team's owners invite people and change their roles under People in the dashboard; checks and keys already work from anywhere.
+- Managing projects and people from the command line. A team's owners do both in the dashboard; checks and keys already work from anywhere.
 - Reading incidents, or acknowledging and snoozing them.
 - Rules that judge a run by its values. They are recorded and shown, and nothing more.
 - Changing a project's default schedule and grace period.
-- Managing projects, probes and who is alerted in the dashboard: for now they are commands, run on the server.
+- Managing probes, and who is alerted as a whole, in the dashboard: for now they are commands, run on the server. Whether someone is told about one project is theirs to switch on its page.
 - Alerts other than by push and email, and changing quiet hours or the digest's time.
 - Calendars, maintenance windows and status pages.
 - The macOS menu bar app.

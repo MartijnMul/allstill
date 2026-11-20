@@ -292,6 +292,21 @@ func pagesAbout(o side) []wallRequest {
 		wallRequest{method: "POST", path: "/sessions/" + o.session + "/end", names: o.session},
 	)
 	reqs = append(reqs, wallRequest{method: "POST", path: "/checks/new", form: url.Values{"project": {o.project}, "kind": {"ping"}, "name": {"planted"}, "every_n": {"1"}, "every_unit": {"hours"}}, names: o.project})
+	// A project's page and what is done there, and making one in a team
+	// (plan-3.md, part B).
+	reqs = append(reqs,
+		wallRequest{method: "GET", path: "/projects/" + o.project, names: o.project},
+		wallRequest{method: "POST", path: "/projects/" + o.project + "/alerts", form: url.Values{"alerts": {"off"}}, names: o.project},
+		wallRequest{method: "POST", path: "/projects/" + o.project + "/invites", form: url.Values{"role": {"editor"}, "label": {"planted"}}, names: o.project},
+		wallRequest{method: "POST", path: "/projects/" + o.project + "/roles/" + o.editor, form: url.Values{"role": {"owner"}}, names: o.project},
+		wallRequest{method: "POST", path: "/projects/" + o.project + "/roles/" + o.editor, form: url.Values{"role": {"none"}}, names: o.project},
+		wallRequest{method: "POST", path: "/projects/" + o.project + "/rename", form: url.Values{"name": {"planted"}}, names: o.project},
+		wallRequest{method: "GET", path: "/projects/" + o.project + "/delete", names: o.project},
+		wallRequest{method: "POST", path: "/projects/" + o.project + "/delete", names: o.project},
+	)
+	if o.invite != "" {
+		reqs = append(reqs, wallRequest{method: "POST", path: "/projects/" + o.project + "/invites/" + o.invite + "/withdraw", names: o.project})
+	}
 	// A team's People page and what is done there (plan-3.md, part A).
 	if o.team != "" {
 		reqs = append(reqs,
@@ -301,6 +316,8 @@ func pagesAbout(o side) []wallRequest {
 			wallRequest{method: "POST", path: "/teams/" + o.team + "/members/" + o.editor, form: url.Values{"role": {"owner"}}, names: o.team},
 			wallRequest{method: "GET", path: "/teams/" + o.team + "/members/" + o.editor + "/remove", names: o.team},
 			wallRequest{method: "POST", path: "/teams/" + o.team + "/members/" + o.editor + "/remove", names: o.team},
+			wallRequest{method: "GET", path: "/projects/new?team=" + o.team, names: o.team},
+			wallRequest{method: "POST", path: "/projects/new", form: url.Values{"team": {o.team}, "name": {"planted"}}, names: o.team},
 		)
 	}
 	return reqs
@@ -380,6 +397,7 @@ func (w twoTeams) snapshot(t *testing.T) []string {
 		`SELECT id || ' ' || COALESCE(person_id, '') FROM channels ORDER BY id`,
 		`SELECT count(*) FROM deliveries WHERE kind = 'test'`,
 		`SELECT id || ' ' || COALESCE(withdrawn_at, 0) || ' ' || COALESCE(accepted_at, 0) FROM invites ORDER BY id`,
+		`SELECT id || ' ' || team_id || ' ' || name || ' ' || COALESCE(deleted_at, 0) || ' ' || hex(COALESCE(ping_key_hash, '')) FROM projects ORDER BY id`,
 	} {
 		rows, err := conn.Query(q)
 		if err != nil {
@@ -649,7 +667,7 @@ func TestOneTeamIsNotSpokenOf(t *testing.T) {
 	for _, person := range []string{f.bob} {
 		b := f.browser(t)
 		f.register(t, b, person)
-		for _, path := range []string{"/", "/?project=" + f.project, "/checks/" + f.checkID, "/checks/new", "/log", "/messages", "/channels"} {
+		for _, path := range []string{"/", "/?project=" + f.project, "/projects/" + f.project, "/checks/" + f.checkID, "/checks/new", "/log", "/messages", "/channels"} {
 			page := strings.ToLower(b.get(path).Body.String())
 			if strings.Contains(page, "/teams/") {
 				t.Errorf("%s links to a team's page", path)

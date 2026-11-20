@@ -129,7 +129,7 @@ func New(st *store.Store, workspaceID string, base *url.URL, log *slog.Logger) (
 		wa: wa, ceremonies: newCeremonies(), pages: map[string]*template.Template{}, memory: newMemory(), grants: newGrants(),
 	}
 	layout := template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/parts.html"))
-	for _, name := range []string{"login", "setup", "join", "people", "people-remove", "overview", "check", "active", "messages", "log", "channels", "device", "error", "check-new", "check-edit", "check-confirm"} {
+	for _, name := range []string{"login", "setup", "join", "people", "people-remove", "project", "project-new", "project-confirm", "overview", "check", "active", "messages", "log", "channels", "device", "error", "check-new", "check-edit", "check-confirm"} {
 		t := template.Must(layout.Clone())
 		s.pages[name] = template.Must(t.ParseFS(templateFS, "templates/"+name+".html"))
 	}
@@ -163,6 +163,16 @@ func (s *Server) Register(mux *http.ServeMux) {
 	handle("POST /teams/{team}/members/{person}", s.signedIn(s.setTeamRole))
 	handle("GET /teams/{team}/members/{person}/remove", s.signedIn(s.removeMemberPage))
 	handle("POST /teams/{team}/members/{person}/remove", s.signedIn(s.removeMember))
+	handle("GET /projects/new", s.signedIn(s.newProjectPage))
+	handle("POST /projects/new", s.signedIn(s.addProject))
+	handle("GET /projects/{project}", s.signedIn(s.projectPage))
+	handle("POST /projects/{project}/alerts", s.signedIn(s.setOwnAlerts))
+	handle("POST /projects/{project}/invites", s.signedIn(s.inviteToProject))
+	handle("POST /projects/{project}/invites/{invite}/withdraw", s.signedIn(s.withdrawProjectInvite))
+	handle("POST /projects/{project}/roles/{person}", s.signedIn(s.setProjectRole))
+	handle("POST /projects/{project}/rename", s.signedIn(s.renameProject))
+	handle("GET /projects/{project}/delete", s.signedIn(s.deleteProjectPage))
+	handle("POST /projects/{project}/delete", s.signedIn(s.deleteProject))
 	handle("GET /messages", s.signedIn(s.messagesPage))
 	handle("GET /log", s.signedIn(s.logPage))
 	handle("GET /channels", s.signedIn(s.channelsPage))

@@ -499,11 +499,17 @@ func (s *Store) AcceptInvite(ctx context.Context, secret, workspaceID, personID 
 		if err != nil {
 			return err
 		}
+		name := person.Name
+		if inTeam, err := teamRoleNow(ctx, q, r.TeamID, personID); err != nil {
+			return err
+		} else if inTeam != "" {
+			name = "Someone of the team"
+		}
 		for _, o := range outside {
 			if o == personID {
 				continue
 			}
-			told := map[string]any{"person": person.Name, "role": string(role), "by": "", "project": r.ProjectName}
+			told := map[string]any{"person": name, "role": string(role), "by": "", "project": r.ProjectName}
 			if o == r.MadeBy {
 				told["by"], told["label"] = r.MadeByName, r.Label
 			}

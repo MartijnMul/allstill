@@ -1,0 +1,157 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main">
+  <header class="page-head">
+    <div class="page-title">
+      <h1>{{.Name}}</h1>
+      <div class="page-actions"><a class="button" href="{{.ChecksAt}}">Its checks <span class="count">{{.Checks}}</span></a></div>
+    </div>
+    <p class="lede">{{if .Where}}A project of {{.Where}}. {{end}}You are {{if eq .Role "viewer"}}a viewer{{else}}an {{.Role}}{{end}} of this project. {{.Through}}</p>
+  </header>
+
+  {{template "notice" .Said}}
+  {{if .Problem}}
+  <div class="callout warn" role="alert">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div><p class="callout-title">{{.Problem}}</p></div>
+  </div>
+  {{end}}
+
+  {{if .PingKey}}
+  <div class="callout up" role="status">
+    <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+    <div>
+      <p class="callout-title">The project {{.Name}} was made</p>
+      <p>Its ping key lets a job ping a check by its name, and makes the check when it is new. It is shown only now: copy it before you leave this page.</p>
+      <div class="code"><code id="ping-key">{{.PingKey}}</code><button type="button" class="small" data-copy="ping-key"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span data-label>Copy</span></button></div>
+    </div>
+  </div>
+  {{end}}
+
+  {{with .Made}}
+  <div class="callout up" role="status">
+    <svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>
+    <div>
+      <p class="callout-title">An invitation for “{{.Label}}”, as {{.Role}}</p>
+      <p>Send this link to them however you like. It works once, until {{.Ends}}. It is shown only now: copy it before you leave this page.</p>
+      <div class="code"><code id="invite-url">{{.URL}}</code><button type="button" class="small" data-copy="invite-url"><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span data-label>Copy</span></button></div>
+    </div>
+  </div>
+  {{end}}
+
+  <section class="panel" aria-labelledby="told">
+    <div class="panel-head"><h2 id="told">Being told</h2></div>
+    <div class="panel-body stack">
+      {{if .Told}}
+      <p>You are told when a check of this project goes down, and when it comes back.</p>
+      <form action="/projects/{{.ID}}/alerts" method="post"><input type="hidden" name="alerts" value="off"><button type="submit">Stop telling me about it</button></form>
+      {{else}}
+      <p>You are not told about this project. Its checks are on your overview all the same.</p>
+      <form action="/projects/{{.ID}}/alerts" method="post"><input type="hidden" name="alerts" value="on"><button type="submit" class="primary">Tell me about it</button></form>
+      {{end}}
+      <p class="muted">This is yours alone to choose; nobody else can switch it for you.</p>
+    </div>
+  </section>
+
+  {{if .MayPeople}}
+  <section class="panel" aria-labelledby="people">
+    <div class="panel-head"><h2 id="people">Who can see it</h2><span class="count">{{.Seeing}}</span></div>
+    {{if .NobodyTold}}
+    <div class="callout warn">
+      <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+      <div><p class="callout-title">Nobody is told about this project</p><p>When one of its checks goes down, nobody gets a message.</p></div>
+    </div>
+    {{end}}
+    {{if .TeamLine}}<p class="panel-body">{{.TeamLine}}.</p>{{end}}
+    {{if .People}}
+    <div class="table">
+      <table>
+        <caption class="sr">The people who can see this project</caption>
+        <thead><tr><th scope="col">Name</th><th scope="col">Role</th><th scope="col">Told</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          {{range .People}}
+          <tr>
+            <td><span class="two"><span>{{.Name}}{{if .You}} <span class="tag">You</span>{{end}}</span><span>Through {{.Through}}</span></span></td>
+            <td>
+              {{if .Choices}}
+              <form class="inline" action="/projects/{{$.Data.ID}}/roles/{{.ID}}" method="post">
+                <label for="role-{{.ID}}" class="sr">Role of their own of {{.Name}}</label>
+                <select id="role-{{.ID}}" name="role">{{$own := .Own}}{{range .Choices}}<option value="{{.Value}}"{{if eq .Value $own}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+                <button type="submit" class="small">Change</button>
+              </form>
+              {{else}}{{.Role}}{{end}}
+            </td>
+            <td>{{if .Told}}Yes{{else}}No{{end}}</td>
+            <td><span class="actions">{{if .Own}}<form action="/projects/{{$.Data.ID}}/roles/{{.ID}}" method="post"><input type="hidden" name="role" value="none"><button type="submit" class="small quiet">End their role here</button></form>{{end}}</span></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{end}}
+    <div class="panel-foot"><p>A role through the team counts in every project of the team{{if .PeopleAt}}, and is changed under <a href="{{.PeopleAt}}">People</a>{{end}}. A role of one's own here counts in this project alone, and only where it is more than the team gives. Whether someone is told is theirs to choose.</p></div>
+  </section>
+
+  <section class="panel" aria-labelledby="invite">
+    <div class="panel-head"><h2 id="invite">Invite someone to this project</h2></div>
+    <div class="panel-body stack">
+      <p class="muted">You get a link to send them. Whoever opens it signs in, or makes an account with a passkey, and gets a role of their own in this project alone. Nobody is looked up by name or address.</p>
+      <form class="inline" action="/projects/{{.ID}}/invites" method="post">
+        <label for="label" class="sr">For whom</label>
+        <input id="label" name="label" maxlength="100" placeholder="For whom: a name, or what they do" required>
+        <label for="role" class="sr">Role</label>
+        <select id="role" name="role">{{range .Roles}}<option value="{{.Value}}"{{if eq .Value "viewer"}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <button type="submit" class="primary">Make an invitation</button>
+      </form>
+    </div>
+  </section>
+
+  {{if .Invites}}
+  <section class="panel" aria-labelledby="open">
+    <div class="panel-head"><h2 id="open">Open invitations</h2><span class="count">{{len .Invites}}</span></div>
+    <div class="table">
+      <table>
+        <caption class="sr">Invitations to this project nobody has accepted yet</caption>
+        <thead><tr><th scope="col">For</th><th scope="col">Role</th><th scope="col">Works until</th><th scope="col"><span class="sr">Actions</span></th></tr></thead>
+        <tbody>
+          {{range .Invites}}
+          <tr>
+            <td><span class="two"><span>{{.Label}}</span><span>Made by {{.MadeBy}}</span></span></td>
+            <td>{{.Role}}</td>
+            <td class="mono nowrap">{{.Ends}}</td>
+            <td><span class="actions"><form action="/projects/{{$.Data.ID}}/invites/{{.ID}}/withdraw" method="post"><button type="submit" class="small quiet">Withdraw</button></form></span></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {{end}}
+  {{end}}
+
+  {{if .MayRun}}
+  <section class="panel" aria-labelledby="name">
+    <div class="panel-head"><h2 id="name">Name</h2></div>
+    <div class="panel-body stack">
+      <form class="inline" action="/projects/{{.ID}}/rename" method="post">
+        <label for="project-name" class="sr">The project's name</label>
+        <input id="project-name" name="name" maxlength="100" value="{{.Name}}" required>
+        <button type="submit">Rename</button>
+      </form>
+      <p class="muted">A job that pings by the project's ping key keeps working: the key does not change with the name.</p>
+    </div>
+  </section>
+  <section class="panel" aria-labelledby="delete">
+    <div class="panel-head"><h2 id="delete">Delete this project</h2></div>
+    <div class="panel-body stack">
+      {{if .Checks}}
+      <p class="muted">Only a project without checks can be deleted. This one has {{.Checks}}: delete them, or move them to another project, first.</p>
+      {{else}}
+      <p class="muted">It has no checks, so it can be deleted.</p>
+      <a class="button danger" href="/projects/{{.ID}}/delete">Delete this project</a>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+</main>
+{{end}}{{end}}

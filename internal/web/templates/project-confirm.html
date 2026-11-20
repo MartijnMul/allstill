@@ -1,0 +1,28 @@
+{{/* SPDX-License-Identifier: AGPL-3.0-only */}}
+{{define "content"}}{{with .Data}}
+<main class="main narrow">
+  <header class="page-head">
+    <div class="page-title"><h1>Delete {{.Name}}</h1></div>
+  </header>
+  {{if .Problem}}
+  <div class="callout warn" role="alert">
+    <svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg>
+    <div><p class="callout-title">{{.Problem}}</p></div>
+  </div>
+  {{end}}
+  <section class="panel form-panel">
+    {{if .Checks}}
+    <p>Only a project without checks can be deleted. {{.Name}} has {{.Checks}}: <a href="{{.ChecksAt}}">delete them, or move them to another project</a>, first.</p>
+    <div class="form-actions"><a class="button" href="/projects/{{.ID}}">Back</a></div>
+    {{else}}
+    <p>Deleting {{.Name}} cannot be undone. Its ping key and its keys stop working, its open invitations and the roles of their own in it end, and the history of checks once deleted from it can no longer be read by anyone. Its name is free again.</p>
+    <form class="form" action="/projects/{{.ID}}/delete" method="post">
+      <div class="form-actions">
+        <button type="submit" class="danger">Delete {{.Name}}</button>
+        <a class="button" href="/projects/{{.ID}}">Cancel</a>
+      </div>
+    </form>
+    {{end}}
+  </section>
+</main>
+{{end}}{{end}}

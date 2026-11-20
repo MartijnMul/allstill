@@ -167,6 +167,20 @@ func (s *Store) CreateProjectIn(ctx context.Context, by Actor, workspaceID, team
 	} else if err != nil {
 		return "", "", err
 	}
+	if projectID, pingKey, err = createProject(ctx, q, by, workspaceID, teamID, name); err != nil {
+		return "", "", err
+	}
+	return projectID, pingKey, tx.Commit()
+}
+
+// createProject writes a project with a name no other project of its team has.
+func createProject(ctx context.Context, q *db.Queries, by Actor, workspaceID, teamID, name string) (projectID, pingKey string, err error) {
+	if name, err = projectName(name); err != nil {
+		return "", "", err
+	}
+	if err := nameFree(ctx, q, workspaceID, teamID, "", name); err != nil {
+		return "", "", err
+	}
 	projectID, pingKey = id.New(id.Project), id.Key()
 	h := sha256.Sum256([]byte(pingKey))
 	err = q.CreateProject(ctx, db.CreateProjectParams{
@@ -175,13 +189,11 @@ func (s *Store) CreateProjectIn(ctx context.Context, by Actor, workspaceID, team
 	if err != nil {
 		return "", "", err
 	}
-	if err := writeLog(ctx, q, logEntry{
+	err = writeLog(ctx, q, logEntry{
 		WorkspaceID: workspaceID, At: time.Now(), ProjectID: projectID, ProjectName: name, Kind: "project.created",
 		AboutKind: "project", AboutID: projectID, AboutName: name, By: by,
-	}); err != nil {
-		return "", "", err
-	}
-	return projectID, pingKey, tx.Commit()
+	})
+	return projectID, pingKey, err
 }
 
 // SetMember gives a person a role in a project. Someone who becomes more than a
@@ -211,6 +223,9 @@ func (s *Store) SetMember(ctx context.Context, by Actor, workspaceID, projectID,
 // role the day they leave the team. So for an owner of the team, viewer here
 // only means "do not tell me", and is written as that choice.
 func setMember(ctx context.Context, q *db.Queries, by Actor, workspaceID, projectID, personID string, role Role) error {
+	if _, err := liveProject(ctx, q, workspaceID, projectID); err != nil {
+		return err
+	}
 	at := now()
 	was, err := q.RoleInProject(ctx, db.RoleInProjectParams{ProjectID: projectID, PersonID: personID})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -637,10 +652,18 @@ func (s *Store) AdminAccess(ctx context.Context, workspaceID, command string) (A
 	return a, nil
 }
 
-// RenameProject gives a project a new name, which no other project of its team may have.
+// RenameProject gives a project a new name, which no other project of its team
+// may have. It is for commands on the server: see RenameProjectAs.
 func (s *Store) RenameProject(ctx context.Context, by Actor, workspaceID, projectID, name string) error {
-	if name == "" {
-		return &InvalidError{"name", "a project needs a name"}
+	return s.renameProject(ctx, by, workspaceID, projectID, name, nil)
+}
+
+// renameProject renames a project; may, when given, refuses a caller who may
+// not, as the database holds it in the transaction.
+func (s *Store) renameProject(ctx context.Context, by Actor, workspaceID, projectID, name string, may func(*db.Queries, string) error) error {
+	name, err := projectName(name)
+	if err != nil {
+		return err
 	}
 	tx, err := s.w.BeginTx(ctx, nil)
 	if err != nil {
@@ -648,26 +671,20 @@ func (s *Store) RenameProject(ctx context.Context, by Actor, workspaceID, projec
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
-	teamID, err := q.TeamOfProject(ctx, db.TeamOfProjectParams{WorkspaceID: workspaceID, ID: projectID})
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
+	p, err := liveProject(ctx, q, workspaceID, projectID)
 	if err != nil {
 		return err
 	}
-	named, err := q.ProjectsByName(ctx, db.ProjectsByNameParams{WorkspaceID: workspaceID, Name: name})
-	if err != nil {
-		return err
-	}
-	// Only within its team: what another team holds is never told (spec, R5).
-	for _, p := range named {
-		if p.TeamID == teamID && p.ID != projectID {
-			return &InvalidError{"name", fmt.Sprintf("a project named %q exists already", name)}
+	if may != nil {
+		if err := may(q, p.TeamID); err != nil {
+			return err
 		}
 	}
-	was, err := q.NameOfProject(ctx, projectID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := nameFree(ctx, q, workspaceID, p.TeamID, projectID, name); err != nil {
 		return err
+	}
+	if p.Name == name {
+		return nil
 	}
 	n, err := q.RenameProject(ctx, db.RenameProjectParams{Name: name, WorkspaceID: workspaceID, ID: projectID})
 	if err != nil {
@@ -676,13 +693,11 @@ func (s *Store) RenameProject(ctx context.Context, by Actor, workspaceID, projec
 	if n == 0 {
 		return ErrNotFound
 	}
-	if was != name {
-		if err := writeLog(ctx, q, logEntry{
-			WorkspaceID: workspaceID, At: time.Now(), ProjectID: projectID, ProjectName: name, Kind: "project.renamed",
-			AboutKind: "project", AboutID: projectID, AboutName: name, By: by, Details: map[string]any{"from": was, "to": name},
-		}); err != nil {
-			return err
-		}
+	if err := writeLog(ctx, q, logEntry{
+		WorkspaceID: workspaceID, At: time.Now(), ProjectID: projectID, ProjectName: name, Kind: "project.renamed",
+		AboutKind: "project", AboutID: projectID, AboutName: name, By: by, Details: map[string]any{"from": p.Name, "to": name},
+	}); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

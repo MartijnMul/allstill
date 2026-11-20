@@ -27,11 +27,14 @@ type overviewData struct {
 	Empty     string
 	Calm      bool   // the list is empty because all is well, not for a filter
 	Clear     string // the list without the search
+	About     string // the page of the project the list is narrowed to
 	Needs     string // what the list of what needs someone is called
 	Add       string // where to add a check, for someone who may
 	AddFirst  bool   // the list is empty, and adding a check is the next step
 	Import    bool   // the list is empty for an administrator, who can import checks
-	Notice    *notice
+	// NewProject is where an owner of a team with no project yet makes one.
+	NewProject string
+	Notice     *notice
 	// Teams are the teams an administrator is not in, as far as whoever keeps
 	// the installation is told of them: no project and no check by name.
 	Teams []teamLine
@@ -55,6 +58,7 @@ type card struct {
 
 type group struct {
 	Name   string
+	Href   string // the project's page
 	Checks []row
 }
 
@@ -170,9 +174,9 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 			continue
 		}
 		if project != "" {
-			d.List = p.Name
+			d.List, d.About = p.Name, projectHref(p.ID)
 		}
-		g := group{Name: v.Access.Label(p.ID)}
+		g := group{Name: v.Access.Label(p.ID), Href: projectHref(p.ID)}
 		for _, c := range checks {
 			if c.ProjectID != p.ID || !matches(c, show, query) {
 				continue
@@ -186,9 +190,9 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request, v viewer) {
 	}
 	if len(d.Groups) == 0 {
 		switch {
-		// A new installation needs a shell once: projects are made there (C11).
+		// A team's owners make its projects (plan-3.md, part B).
 		case len(v.Access.Projects) == 0 && v.Access.OwnsATeam():
-			d.Empty = "There is no project yet. Make the first on the server, and add checks to it here: allstill admin create-project Backups"
+			d.Empty, d.NewProject = "There is no project yet. Make the first, and add checks to it.", "/projects/new"
 		case len(checks) == 0 && !mayAct:
 			d.Empty = "There are no checks here for you yet. Your administrator adds them, or gives you access to a project."
 		case len(checks) == 0:

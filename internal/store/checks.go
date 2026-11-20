@@ -172,6 +172,9 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
+	if _, err := liveProject(ctx, q, a.WorkspaceID, projectID); err != nil {
+		return CreatedCheck{}, err
+	}
 	if viaPerson(a) {
 		if len(n.Description) > MaxDescription {
 			return CreatedCheck{}, &InvalidError{"description", fmt.Sprintf("at most %d characters", MaxDescription)}
@@ -212,8 +215,12 @@ func (s *Store) CreateCheck(ctx context.Context, a Access, projectID string, n N
 	return created, tx.Commit()
 }
 
-// insertCheck writes a check that has been validated.
+// insertCheck writes a check that has been validated, into a project read as
+// live in the same transaction: a project deleted a moment ago takes no check.
 func insertCheck(ctx context.Context, q *db.Queries, workspaceID, projectID string, n NewCheck) (CreatedCheck, error) {
+	if _, err := liveProject(ctx, q, workspaceID, projectID); err != nil {
+		return CreatedCheck{}, err
+	}
 	c := CreatedCheck{ID: id.New(id.Check), PingUUID: n.PingUUID}
 	if c.PingUUID == "" {
 		c.PingUUID = id.UUID()

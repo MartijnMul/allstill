@@ -136,6 +136,22 @@ func batches(do func() (int64, error)) error {
 	}
 }
 
+// removeDeletedCheck removes a deleted check with its pings and runs, a batch at
+// a time, so that no delete holds the write lock long.
+func removeDeletedCheck(ctx context.Context, w *db.Queries, checkID string) error {
+	if err := batches(func() (int64, error) {
+		return w.DeletePingsOfCheck(ctx, db.DeletePingsOfCheckParams{OfCheck: checkID, Batch: tidyBatch})
+	}); err != nil {
+		return err
+	}
+	if err := batches(func() (int64, error) {
+		return w.DeleteRunsOfCheck(ctx, db.DeleteRunsOfCheckParams{OfCheck: checkID, Batch: tidyBatch})
+	}); err != nil {
+		return err
+	}
+	return w.RemoveDeletedCheck(ctx, checkID)
+}
+
 // tidyCheck reads with rd and writes with w, so the single writer is never
 // held for a read.
 func tidyCheck(ctx context.Context, w, rd *db.Queries, checkID string, r Retention) error {
@@ -143,17 +159,7 @@ func tidyCheck(ctx context.Context, w, rd *db.Queries, checkID string, r Retenti
 	if deleted, err := rd.CheckIsDeleted(ctx, checkID); err != nil {
 		return err
 	} else if deleted == 1 {
-		if err := batches(func() (int64, error) {
-			return w.DeletePingsOfCheck(ctx, db.DeletePingsOfCheckParams{OfCheck: checkID, Batch: tidyBatch})
-		}); err != nil {
-			return err
-		}
-		if err := batches(func() (int64, error) {
-			return w.DeleteRunsOfCheck(ctx, db.DeleteRunsOfCheckParams{OfCheck: checkID, Batch: tidyBatch})
-		}); err != nil {
-			return err
-		}
-		return w.RemoveDeletedCheck(ctx, checkID)
+		return removeDeletedCheck(ctx, w, checkID)
 	}
 	// The newest run, and loose ping, past each limit; nothing past it is
 	// sql.ErrNoRows, and there is nothing to do.

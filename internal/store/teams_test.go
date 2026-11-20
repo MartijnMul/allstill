@@ -589,7 +589,9 @@ func TestTheHighestRoleCountsAndAChoiceDecides(t *testing.T) {
 func TestRolesAndAlertsAreSaidInOnePlace(t *testing.T) {
 	admin := regexp.MustCompile(`(?s)workspace_admin.*(memberships|team_members)|(memberships|team_members).*workspace_admin`)
 	// What a person chose, which is not whether they are told: kept as it changes.
-	writers := map[string]bool{"SetAlertChoice": true, "ClearAlertChoice": true, "ClearAlertChoicesOutside": true, "AlertChoice": true}
+	writers := map[string]bool{"SetAlertChoice": true, "ClearAlertChoice": true, "ClearAlertChoicesOutside": true, "AlertChoice": true,
+		// A deleted project takes what was chosen about it along.
+		"DeleteAlertChoicesOfProject": true}
 	// Who is in a team, which is not the same question as their role in a project:
 	// the team's own members, and whether a row of one's own gives more than it.
 	teams := map[string]bool{
@@ -598,6 +600,9 @@ func TestRolesAndAlertsAreSaidInOnePlace(t *testing.T) {
 		"TeamSummaries": true, "PeopleWithTeams": true,
 		// A team's People page: who is in it, and who is outside it in its projects.
 		"MembersOfTeam": true, "OutsidersOfTeam": true,
+		// A project's page says through what each person sees it: the role is
+		// still project_roles'.
+		"PeopleOfProject": true,
 	}
 	for name, q := range queriesNamed(t) {
 		if strings.Contains(q, "alert_choices") && !writers[name] {

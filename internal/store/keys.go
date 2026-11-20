@@ -72,6 +72,9 @@ func (s *Store) CreateAPIKey(ctx context.Context, a Access, projectID, name, sco
 	}
 	defer tx.Rollback()
 	q := db.New(tx)
+	if _, err := liveProject(ctx, q, a.WorkspaceID, projectID); err != nil {
+		return APIKey{}, "", err
+	}
 	apart := notOwn
 	if a.Actor.Kind == "person" {
 		if apart, err = apartFrom(ctx, q, a.Actor, projectID); err != nil {

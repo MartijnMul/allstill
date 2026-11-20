@@ -23,6 +23,8 @@ type navData struct {
 	// People are the teams the person owns, each its People page: "People" for
 	// one, the team's name for several. Nobody else sees a team here (R6).
 	People []navItem
+	// NewProject is where an owner of a team makes a project, for them alone.
+	NewProject string
 }
 
 // markPeople marks the People page of a team as the one shown.
@@ -92,6 +94,9 @@ func navOf(checks []store.CheckView, v viewer, here, show, project string) *navD
 	}
 	if len(n.People) == 1 {
 		n.People[0].Name = "People"
+	}
+	if len(n.People) > 0 {
+		n.NewProject = "/projects/new"
 	}
 	where := "location"
 	if overview {

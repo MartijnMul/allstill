@@ -24,6 +24,7 @@ import (
 // The kinds of notice.
 const (
 	noticeRoleGiven     = "role.given"      // a role in one of the team's projects
+	noticeRoleTaken     = "role.taken"      // a project's owner of their own no longer is
 	noticeTeamRoleGiven = "team.role_given" // a role in the team, an owner's among them
 	noticeTeamRoleTaken = "team.role_taken" // taken out of the team
 	noticeLinkMade      = "signin.link_made"
@@ -71,6 +72,8 @@ func noticeTitle(kind string, d map[string]any) string {
 		return fmt.Sprintf("%s accepted the invitation %s made for %q and is now %s of %s.", s("person"), s("by"), s("label"), article(s("role")), where)
 	case noticeRoleGiven:
 		return fmt.Sprintf("%s made %s %s of %s.", by, s("person"), s("role"), s("project"))
+	case noticeRoleTaken:
+		return fmt.Sprintf("%s ended the role %s had of their own in %s.", by, s("person"), s("project"))
 	case noticeTeamRoleGiven:
 		return fmt.Sprintf("%s made %s %s of the team %s.", by, s("person"), s("role"), s("team"))
 	case noticeTeamRoleTaken:
